@@ -40,6 +40,9 @@ uint32_t plat_millis(void)
 	if (q && ms > (uint32_t)atoi(q)) exit(0);
 	return ms;
 }
+/* the console's heap.c: the PC never runs low */
+uint32_t heap_free_bytes(void) { return 64u << 20; }
+
 /* ---- sound: GW_WAV=file.wav records what the core would play (mono, 22050 Hz), in real time */
 #define HOST_RATE 22050
 static void (*g_pump)(void);

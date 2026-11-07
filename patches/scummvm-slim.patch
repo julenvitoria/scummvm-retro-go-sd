@@ -1,3 +1,41 @@
+diff --git a/engines/scumm/resource.cpp b/engines/scumm/resource.cpp
+index df195fef..cd38a01f 100644
+--- a/engines/scumm/resource.cpp
++++ b/engines/scumm/resource.cpp
+@@ -1156,6 +1156,15 @@ void ResourceManager::Resource::setOnHeap() {
+ 	_status &= ~RF_OFFHEAP;
+ }
+ 
++#ifdef GW_SCUMM_SLIM
++// Game & Watch: the resource cache's thresholds (550 KB) are more than the whole free heap;
++// resources are also expired whenever the heap itself runs low.
++extern "C" uint32 heap_free_bytes(void);
++#define GW_HEAP_LOW(size) (heap_free_bytes() < (size) + 48 * 1024)
++#else
++#define GW_HEAP_LOW(size) false
++#endif
++
+ void ResourceManager::expireResources(uint32 size) {
+ 	byte best_counter;
+ 	ResType best_type;
+@@ -1167,7 +1176,7 @@ void ResourceManager::expireResources(uint32 size) {
+ 		increaseResourceCounters();
+ 	}
+ 
+-	if (size + _allocatedSize < _maxHeapThreshold)
++	if (size + _allocatedSize < _maxHeapThreshold && !GW_HEAP_LOW(size))
+ 		return;
+ 
+ 	oldAllocatedSize = _allocatedSize;
+@@ -1196,7 +1205,7 @@ void ResourceManager::expireResources(uint32 size) {
+ 		if (!best_type)
+ 			break;
+ 		nukeResource(best_type, best_res);
+-	} while (size + _allocatedSize > _minHeapThreshold);
++	} while (size + _allocatedSize > _minHeapThreshold || GW_HEAP_LOW(size));
+ 
+ 	increaseResourceCounters();
+ 
 diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
 index 88e087d7..f89b6522 100644
 --- a/engines/scumm/scumm.cpp

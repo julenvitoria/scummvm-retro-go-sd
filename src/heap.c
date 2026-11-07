@@ -139,3 +139,6 @@ void _free_r(struct _reent *r, void *p) { (void)r; free(p); }
 void *_calloc_r(struct _reent *r, size_t a, size_t b) { (void)r; return calloc(a, b); }
 void *_realloc_r(struct _reent *r, void *p, size_t n) { (void)r; return realloc(p, n); }
 void *_memalign_r(struct _reent *r, size_t a, size_t n) { (void)r; return memalign(a, n); }
+
+/* free bytes in both heaps (not one block: what the SCUMM resource cache measures itself against) */
+uint32_t heap_free_bytes(void) { return g_total - g_used; }
