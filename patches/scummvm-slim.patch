@@ -1,0 +1,67 @@
+diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
+index 88e087d7..f89b6522 100644
+--- a/engines/scumm/scumm.cpp
++++ b/engines/scumm/scumm.cpp
+@@ -1012,6 +1012,11 @@ ScummEngine_v8::~ScummEngine_v8() {
+ #pragma mark -
+ 
+ Common::Error ScummEngine::init() {
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: the Macintosh and NES buffers are cut down in scumm.h
++	if (_game.platform == Common::kPlatformMacintosh || _game.platform == Common::kPlatformNES)
++		return Common::Error(Common::kUnsupportedGameidError, "Macintosh and NES versions are not supported");
++#endif
+ 
+ 	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
+ 
+@@ -1460,7 +1465,7 @@ Common::Error ScummEngine::init() {
+ 		if (!_macScreen && _renderMode == Common::kRenderMacintoshBW)
+ 			_renderMode = Common::kRenderDefault;
+ 
+-		memset(_completeScreenBuffer, 0, 320 * 200);
++		memset(_completeScreenBuffer, 0, sizeof(_completeScreenBuffer));
+ 
+ 		if (_macGui) {
+ 			if (!_macGui->initialize()) {
+diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
+index 356a3602..05b4dc17 100644
+--- a/engines/scumm/scumm.h
++++ b/engines/scumm/scumm.h
+@@ -953,7 +953,11 @@ public:
+ 	int _NESCostumeSet = 0;
+ 	void NES_loadCostumeSet(int n);
+ 	byte *_NEScostdesc = nullptr, *_NEScostlens = nullptr, *_NEScostoffs = nullptr, *_NEScostdata = nullptr;
++#ifdef GW_SCUMM_SLIM	// Game & Watch: no NES games (refused in init())
++	byte _NESPatTable[2][1];
++#else
+ 	byte _NESPatTable[2][4096];
++#endif
+ 	byte _NESPalette[2][16];
+ 	byte _NESBaseTiles = 0;
+ 
+@@ -1415,8 +1419,13 @@ protected:
+ 
+ 	// HACK Double the array size to handle 16-bit images.
+ 	// this should be dynamically allocated based on game depth instead.
++#ifdef GW_SCUMM_SLIM	// Game & Watch: 8-bit games only, no Macintosh versions (refused in init())
++	byte _grabbedCursor[8192];
++	byte _macGrabbedCursor[1];
++#else
+ 	byte _grabbedCursor[16384];
+ 	byte _macGrabbedCursor[16384 * 4]; // Double resolution cursor
++#endif
+ 	byte _currentCursor = 0;
+ 
+ 	byte _newEffect = 0, _switchRoomEffect2 = 0, _switchRoomEffect = 0;
+@@ -1709,7 +1718,11 @@ public:
+ 	Graphics::Surface *_macScreen = nullptr;
+ 	MacGui *_macGui = nullptr;
+ 	bool _useMacGraphicsSmoothing = true;
++#ifdef GW_SCUMM_SLIM
++	byte _completeScreenBuffer[1];
++#else
+ 	byte _completeScreenBuffer[320 * 200];
++#endif
+ 
+ protected:
+ 	byte _charsetColor = 0;
