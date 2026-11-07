@@ -176,7 +176,8 @@ int _read(int fd, char *buf, int n) { (void)fd; (void)buf; (void)n; return 0; }
 int _write(int fd, const char *buf, int n) { (void)fd; printf("%.*s", n, buf); return n; }   /* firmware log */
 int _getpid(void) { return 1; }
 int _kill(int pid, int sig) { (void)pid; (void)sig; return -1; }
-void _exit(int code) { (void)code; for (;;) odroid_system_switch_app(0); }
+void svm_fatal_exit(int code) __attribute__((noreturn));   /* platform_core.c: log, message, launcher */
+void _exit(int code) { svm_fatal_exit(code); }      /* exit(), abort(), std::terminate (out of memory) */
 int _open(const char *p, int f, int m) { (void)p; (void)f; (void)m; return -1; }
 int _gettimeofday(void *tv, void *tz) { (void)tv; (void)tz; return -1; }
 int _unlink(const char *p) { (void)p; return -1; }

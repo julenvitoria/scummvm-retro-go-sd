@@ -21,26 +21,41 @@
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
+#ifdef __NEWLIB__
 #include <reent.h>
+#endif
 #include <stdio.h>
 #include "third_party/tlsf/tlsf.h"
 
+void plat_log(const char *msg);
+
 #define BIG_REQUEST (8 * 1024)
 
-enum { HEAP_BIG, HEAP_SMALL, HEAPS };
-#define MAX_POOLS 4
+enum { HEAP_BIG, HEAP_SMALL, HEAP_SCREEN, HEAPS };
+
+/* Set around the allocation of the SCUMM engine's screen buffers (patches/scummvm-slim.patch):
+   they are freed and made again at every room change, and in their own heap they always find
+   their hole again -- in the shared one, resources loaded meanwhile split it (seen on the PC
+   with the console's heap size: a 64 KB screen failing with 240 KB free). */
+int heap_screen_hint;
+#define MAX_POOLS 6
 
 static tlsf_t g_tlsf[HEAPS];
 static struct { uintptr_t lo, hi; int heap; } g_pool[MAX_POOLS];
 static int g_pools;
 static uint32_t g_total, g_used, g_peak;
 
-/* kind: 0 = big heap, 1 = small heap */
+/* kind: 0 = big heap, 1 = small heap, 2 = screen buffers */
 void heap_add_to(void *mem, size_t bytes, int kind)
 {
 	uintptr_t a = ((uintptr_t)mem + 7) & ~(uintptr_t)7;
 	bytes = (bytes - (a - (uintptr_t)mem)) & ~(size_t)7;
-	if (bytes < tlsf_size() + tlsf_pool_overhead() + 1024 || g_pools >= MAX_POOLS) return;
+	if (!mem || bytes < tlsf_size() + tlsf_pool_overhead() + 1024 || g_pools >= MAX_POOLS) {
+		static char msg[80];
+		snprintf(msg, sizeof msg, "heap: pool %p (%lu bytes) not used\n", mem, (unsigned long)bytes);
+		plat_log(msg);
+		return;
+	}
 	if (!g_tlsf[kind]) {
 		g_tlsf[kind] = tlsf_create_with_pool((void *)a, bytes);
 		g_total += bytes - tlsf_size() - tlsf_pool_overhead();
@@ -76,18 +91,34 @@ static void *track(void *p)
 	return p;
 }
 
+/* the PC test shim (tools/host/gwheap.c) creates its pools on the first allocation */
+#ifdef HEAP_LAZY_INIT
+void heap_lazy_init(void);
+#else
+static inline void heap_lazy_init(void) {}
+#endif
+
 static void *alloc(size_t align, size_t n)
 {
+	if (!g_pools) heap_lazy_init();
 	int first = n >= BIG_REQUEST ? HEAP_BIG : HEAP_SMALL;
+	int order[3] = { first, !first, -1 };
+	if (heap_screen_hint) { order[0] = HEAP_SCREEN; order[1] = first; order[2] = !first; }
 	void *p = NULL;
-	for (int k = 0; k < HEAPS && !p; k++) {
-		tlsf_t t = g_tlsf[k ? !first : first];
+	for (int k = 0; k < 3 && !p; k++) {
+		tlsf_t t = order[k] >= 0 ? g_tlsf[order[k]] : NULL;
 		if (t) p = align ? tlsf_memalign(t, align, n) : tlsf_malloc(t, n);
 	}
 	if (!p) {
 		errno = ENOMEM;
-		if (g_pools) printf("heap: out of memory for %lu bytes (used %lu of %lu KB, peak %lu KB)\n", (unsigned long)n,
-		       (unsigned long)(g_used / 1024), (unsigned long)(g_total / 1024), (unsigned long)(g_peak / 1024));
+		if (g_pools) {
+			/* to the firmware log and to scummvm.log (plat_log, platform_core.c) */
+			static char msg[112];
+			snprintf(msg, sizeof msg, "heap: out of memory for %lu bytes (used %lu of %lu KB, peak %lu KB)\n",
+			         (unsigned long)n, (unsigned long)(g_used / 1024), (unsigned long)(g_total / 1024),
+			         (unsigned long)(g_peak / 1024));
+			plat_log(msg);
+		}
 	}
 	return track(p);
 }
@@ -134,11 +165,26 @@ void *realloc(void *p, size_t n)
 void *memalign(size_t align, size_t n) { return alloc(align, n ? n : 1); }
 size_t malloc_usable_size(void *p) { return p ? tlsf_block_size(p) : 0; }
 
+#ifdef __NEWLIB__
 void *_malloc_r(struct _reent *r, size_t n) { (void)r; return malloc(n); }
 void _free_r(struct _reent *r, void *p) { (void)r; free(p); }
 void *_calloc_r(struct _reent *r, size_t a, size_t b) { (void)r; return calloc(a, b); }
 void *_realloc_r(struct _reent *r, void *p, size_t n) { (void)r; return realloc(p, n); }
 void *_memalign_r(struct _reent *r, size_t a, size_t n) { (void)r; return memalign(a, n); }
+#endif
+
+/* would an allocation of n bytes succeed right now (in one piece)? */
+int heap_can_alloc(uint32_t n)
+{
+	int first = n >= BIG_REQUEST ? HEAP_BIG : HEAP_SMALL;
+	int order[3] = { heap_screen_hint ? HEAP_SCREEN : -1, first, !first };
+	for (int k = 0; k < 3; k++) {
+		tlsf_t t = order[k] >= 0 ? g_tlsf[order[k]] : NULL;
+		void *p = t ? tlsf_malloc(t, n) : NULL;
+		if (p) { tlsf_free(t, p); return 1; }
+	}
+	return 0;
+}
 
 /* free bytes in both heaps (not one block: what the SCUMM resource cache measures itself against) */
 uint32_t heap_free_bytes(void) { return g_total - g_used; }

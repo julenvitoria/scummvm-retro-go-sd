@@ -39,6 +39,7 @@ bool rg_storage_mkdir(const char *dir);
 #define FIRMWARE_RESERVE (16 * 1024)    /* RAM_EMU left at the top for the firmware's ram_malloc() */
 #define STACK_SIZE (48 * 1024)          /* ScummVM's stack, in DTCM (the firmware's is 24 KB: too small) */
 #define STACK_PAINT 0x5354434Bu
+#define SCREEN_HEAP (136 * 1024)        /* virtual screens of a 320x200 SCUMM game: ~130 KB */
 #define SAVE_DIR "/saves/scummvm"
 #define LCD_W 320
 #define LCD_H 240
@@ -318,6 +319,18 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size)
 	return NULL;
 }
 
+/* the last line of the log, for a message on screen */
+static void last_log_line(char *last, size_t size)
+{
+	uint32_t n = g_log_len < LOG_SIZE ? g_log_len : LOG_SIZE, i = 0, j = g_log_len;
+	while (i < n && (g_log[(j - 1) % LOG_SIZE] == '\n' || g_log[(j - 1) % LOG_SIZE] == ' ')) { j--; i++; }
+	uint32_t e = j;
+	while (i < n && g_log[(j - 1) % LOG_SIZE] != '\n') { j--; i++; }
+	uint32_t k = 0;
+	for (uint32_t p = j; p < e && k < size - 1; p++) last[k++] = g_log[p % LOG_SIZE];
+	last[k] = 0;
+}
+
 /* ---------------------------------------------------------------- which game */
 
 /* The launcher lists /roms/scummvm/<Name>.scummvm; the game's files live elsewhere:
@@ -372,6 +385,26 @@ static void find_game(const char *picked)
 
 /* ---------------------------------------------------------------- lifetime */
 
+static void message3(const char *a, const char *b, const char *c);
+static void last_log_line(char *out, size_t size);
+
+/* newlib's _exit (boot.c): exit(), abort() and an uncaught exception such as std::bad_alloc
+   end up here instead of in plat_quit() */
+void svm_fatal_exit(int code)
+{
+	static int busy;
+	if (!busy++) {
+		logf_("ScummVM: stopped (exit %d)\n", code);
+		audio_stop();
+		if (g_game[0]) log_save();
+		char last[64];
+		last_log_line(last, sizeof last);
+		message3("ScummVM stopped:", last, "(see /saves/scummvm/scummvm.log)");
+	}
+	odroid_system_switch_app(0);
+	for (;;) {}
+}
+
 void plat_quit(void)
 {
 	audio_stop();
@@ -418,6 +451,9 @@ int svm_main(void)
 	uint8_t *heap = (uint8_t *)(((uintptr_t)&__CORE_BSS_END__ + 7) & ~7u);
 	uint8_t *end = __RAM_EMU_END__ - FIRMWARE_RESERVE;
 	ram_start = (uint32_t)(uintptr_t)end;
+	/* the SCUMM engine's screen buffers get a heap of their own (heap.c, heap_screen_hint) */
+	heap_add_to(heap, SCREEN_HEAP, 2);
+	heap += SCREEN_HEAP;
 	heap_add(heap, end - heap);
 	uint8_t *bonus = NULL;
 	size_t bonus_size = 0;
@@ -425,6 +461,16 @@ int svm_main(void)
 	if (bonus) heap_add_to(bonus, bonus_size, 1);
 	g_stack = dtc_malloc(STACK_SIZE);
 	if (!g_stack) g_stack = malloc(STACK_SIZE);       /* DTCM full: from the heap (AXI SRAM) */
+	/* ITCM: 64 KB of zero-wait RAM the firmware leaves entirely free (this core's code is not
+	   there); its first bytes are skipped, a heap block at address 0 would read as NULL */
+	heap_add_to((void *)0x100, 0x10000 - 0x100, 1);
+	/* AHB SRAM: the firmware's own heap; most of what is free, its menus keep 48 KB */
+	size_t ahb = ahb_get_free_size();
+	if (ahb > 64 * 1024) {
+		void *p = ahb_malloc(ahb - 48 * 1024);
+		if (p) heap_add_to(p, ahb - 48 * 1024, 1);
+	}
+	logf_("ScummVM: AHB free %u KB\n", (unsigned)(ahb / 1024));
 	size_t dtcm = dtc_get_free_size();
 	if (dtcm > 16 * 1024) {
 		void *p = dtc_malloc(dtcm - 8 * 1024);
@@ -451,14 +497,8 @@ int svm_main(void)
 	int res = run_on_stack(4, argv, gw_scummvm_main, (uint8_t *)g_stack + STACK_SIZE);
 	if (res) {
 		/* ScummVM gave up (no game detected...): say so instead of just leaving */
-		char last[64] = "";
-		uint32_t n = g_log_len < LOG_SIZE ? g_log_len : LOG_SIZE, i = 0, j = g_log_len;
-		while (i < n && (g_log[(j - 1) % LOG_SIZE] == '\n' || g_log[(j - 1) % LOG_SIZE] == ' ')) { j--; i++; }
-		uint32_t e = j;
-		while (i < n && g_log[(j - 1) % LOG_SIZE] != '\n') { j--; i++; }
-		uint32_t k = 0;
-		for (uint32_t p = j; p < e && k < sizeof last - 1; p++) last[k++] = g_log[p % LOG_SIZE];
-		last[k] = 0;
+		char last[64];
+		last_log_line(last, sizeof last);
 		message3("ScummVM could not start the game:", last, g_game);
 	}
 	plat_quit();
