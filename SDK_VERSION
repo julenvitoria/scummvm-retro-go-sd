@@ -1,0 +1,4 @@
+# Snapshot of the firmware SDK in sdk/ (written by scripts/sync_sdk.sh).
+FIRMWARE_ABI_VERSION=2
+SOURCE=sylverb/game-and-watch-retro-go-sd, branch external_cores, commit 1b025902
+SYNC_DATE=2026-11-06T23:09:00Z
