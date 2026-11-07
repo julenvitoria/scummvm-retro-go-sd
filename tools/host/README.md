@@ -32,3 +32,17 @@ Tamaño para la consola: configurar con `CXX=arm-none-eabi-g++`,
 (cambiar el `-O2` que añade `--enable-release` por `-Os` en `config.mk`), `make -k`, enlazar
 los `.o` con `-Wl,--gc-sections -Wl,--unresolved-symbols=ignore-all -Wl,-Map=full.map` y
 `python3 ../tools/host/mapsize.py full.map`.
+
+## gwheap.c — the console's heap on the PC
+
+Runs the PC build inside `src/heap.c` with pools of a fixed size, to see where a game runs out
+of memory (and with a backtrace of the allocation that failed):
+
+```
+gcc -O2 -shared -fPIC -Isrc tools/host/gwheap.c src/third_party/tlsf/tlsf.c -DNDEBUG -o gwheap.so
+GW_WAV=/dev/null GW_HEAP_BIG=700 GW_HEAP_SMALL=300 GW_HEAP_SCREEN=136 LD_PRELOAD=./gwheap.so \
+    build/host/scummvm_host <game folder>
+```
+
+The PC has 64-bit pointers: the same game needs more memory than on the console, so this
+shows where the pressure is rather than the console's exact limit.

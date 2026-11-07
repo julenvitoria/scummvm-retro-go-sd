@@ -1,8 +1,36 @@
 diff --git a/engines/scumm/resource.cpp b/engines/scumm/resource.cpp
-index df195fef..cd38a01f 100644
+index df195fef..6aff4483 100644
 --- a/engines/scumm/resource.cpp
 +++ b/engines/scumm/resource.cpp
-@@ -1156,6 +1156,15 @@ void ResourceManager::Resource::setOnHeap() {
+@@ -41,6 +41,10 @@
+ #include "scumm/util.h"
+ #include "scumm/verbs.h"
+ 
++#ifdef GW_SCUMM_SLIM
++extern "C" int heap_screen_hint;   // Game & Watch: src/heap.c
++#endif
++
+ namespace Scumm {
+ 
+ enum {
+@@ -931,9 +935,16 @@ byte *ResourceManager::createResource(ResType type, ResId idx, uint32 size) {
+ 		nukeResource(type, idx);
+ 	}
+ 
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: screen buffers come from a heap of their own (src/heap.c)
++	heap_screen_hint = (type == rtBuffer);
++#endif
+ 	expireResources(size);
+ 
+ 	byte *ptr = new byte[size + SAFETY_AREA]();
++#ifdef GW_SCUMM_SLIM
++	heap_screen_hint = 0;
++#endif
+ 	if (ptr == nullptr) {
+ 		_vm->_insideCreateResource--;
+ 		error("createResource(%s,%d): Out of memory while allocating %d", nameOfResType(type), idx, size);
+@@ -1156,6 +1167,17 @@ void ResourceManager::Resource::setOnHeap() {
  	_status &= ~RF_OFFHEAP;
  }
  
@@ -10,7 +38,9 @@ index df195fef..cd38a01f 100644
 +// Game & Watch: the resource cache's thresholds (550 KB) are more than the whole free heap;
 +// resources are also expired whenever the heap itself runs low.
 +extern "C" uint32 heap_free_bytes(void);
-+#define GW_HEAP_LOW(size) (heap_free_bytes() < (size) + 48 * 1024)
++extern "C" int heap_can_alloc(uint32 n);
++// low: under 48 KB free besides the new resource, or no single hole it fits in
++#define GW_HEAP_LOW(size) (heap_free_bytes() < (size) + 48 * 1024 || !heap_can_alloc((size) + 64))
 +#else
 +#define GW_HEAP_LOW(size) false
 +#endif
@@ -18,7 +48,7 @@ index df195fef..cd38a01f 100644
  void ResourceManager::expireResources(uint32 size) {
  	byte best_counter;
  	ResType best_type;
-@@ -1167,7 +1176,7 @@ void ResourceManager::expireResources(uint32 size) {
+@@ -1167,7 +1189,7 @@ void ResourceManager::expireResources(uint32 size) {
  		increaseResourceCounters();
  	}
  
@@ -27,7 +57,7 @@ index df195fef..cd38a01f 100644
  		return;
  
  	oldAllocatedSize = _allocatedSize;
-@@ -1196,7 +1205,7 @@ void ResourceManager::expireResources(uint32 size) {
+@@ -1196,7 +1218,7 @@ void ResourceManager::expireResources(uint32 size) {
  		if (!best_type)
  			break;
  		nukeResource(best_type, best_res);

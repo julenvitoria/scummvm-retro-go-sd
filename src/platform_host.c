@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
@@ -41,7 +42,11 @@ uint32_t plat_millis(void)
 	return ms;
 }
 /* the console's heap.c: the PC never runs low */
+uint32_t heap_free_bytes(void) __attribute__((weak));
 uint32_t heap_free_bytes(void) { return 64u << 20; }
+int heap_screen_hint;   /* shared with tools/host/gwheap.c when it is preloaded */
+int heap_can_alloc(uint32_t n) __attribute__((weak));
+int heap_can_alloc(uint32_t n) { (void)n; return 1; }
 
 /* ---- sound: GW_WAV=file.wav records what the core would play (mono, 22050 Hz), in real time */
 #define HOST_RATE 22050
@@ -173,8 +178,9 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size)
 			fseek(f, 0, SEEK_END);
 			long n = ftell(f);
 			fseek(f, 0, SEEK_SET);
-			map[i].data = malloc(n ? n : 1);
-			if (fread(map[i].data, 1, n, f) != (size_t)n) { fclose(f); free(map[i].data); map[i].data = NULL; return NULL; }
+			/* outside the heap, like the console's external flash (tools/host/gwheap.c caps the heap) */
+			map[i].data = mmap(0, n ? n : 1, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+			if (map[i].data == MAP_FAILED || fread(map[i].data, 1, n, f) != (size_t)n) { fclose(f); map[i].data = NULL; return NULL; }
 			fclose(f);
 			snprintf(map[i].path, sizeof map[i].path, "%s", path);
 			map[i].size = (uint32_t)n;
