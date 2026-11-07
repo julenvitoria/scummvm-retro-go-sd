@@ -2,3 +2,4 @@
 	path = scummvm
 	url = https://github.com/scummvm/scummvm.git
 	shallow = true
+	ignore = dirty
