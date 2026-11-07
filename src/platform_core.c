@@ -279,7 +279,13 @@ bool plat_list_dir(const char *path, void (*cb)(const char *, bool, uint32_t, vo
 }
 
 bool plat_mkdir(const char *path) { return rg_storage_mkdir(path); }
-void *plat_fopen(const char *path, const char *mode) { wdog_refresh(); return fopen(path, mode); }
+void *plat_fopen(const char *path, const char *mode)
+{
+	wdog_refresh();
+	FILE *f = fopen(path, mode);
+	if (!f && mode[0] == 'r') logf_("ScummVM: cannot open %s\n", path);
+	return f;
+}
 uint32_t plat_fread(void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fread(buf, 1, n, (FILE *)f); }
 uint32_t plat_fwrite(const void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fwrite(buf, 1, n, (FILE *)f); }
 bool plat_fseek(void *f, int32_t off, int whence) { return fseek((FILE *)f, off, whence) == 0; }
@@ -316,6 +322,7 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size)
 	if (strncasecmp(path, g_game, gl) || path[gl] != '/') return NULL;
 	for (int i = 0; i < g_mapped; i++)
 		if (!strcasecmp(g_map[i].name, path + gl + 1)) { *size = g_map[i].size; return g_map[i].data; }
+	logf_("ScummVM: %s is not in external flash\n", path);
 	return NULL;
 }
 

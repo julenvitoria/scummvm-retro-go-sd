@@ -1,5 +1,5 @@
 diff --git a/engines/scumm/resource.cpp b/engines/scumm/resource.cpp
-index df195fef..6aff4483 100644
+index df195fef..43455edb 100644
 --- a/engines/scumm/resource.cpp
 +++ b/engines/scumm/resource.cpp
 @@ -41,6 +41,10 @@
@@ -13,7 +13,21 @@ index df195fef..6aff4483 100644
  namespace Scumm {
  
  enum {
-@@ -931,9 +935,16 @@ byte *ResourceManager::createResource(ResType type, ResId idx, uint32 size) {
+@@ -243,9 +247,13 @@ void ScummEngine::askForDisk(const Common::Path &filename, int disknum) {
+ 		}
+ #endif
+ 	} else {
++#ifndef GW_SCUMM_SLIM
++		// Game & Watch: no dialog -- the GUI alone needs more memory than is left (scummvm.log
++		// gets the error instead)
+ 		Common::sprintf_s(buf, "Cannot find file: '%s'", filename.toString(Common::Path::kNativeSeparator).c_str());
+ 		InfoDialog dialog(this, Common::U32String(buf));
+ 		runDialog(dialog);
++#endif
+ 		error("Cannot find file: '%s'", filename.toString(Common::Path::kNativeSeparator).c_str());
+ 	}
+ }
+@@ -931,9 +939,16 @@ byte *ResourceManager::createResource(ResType type, ResId idx, uint32 size) {
  		nukeResource(type, idx);
  	}
  
@@ -30,7 +44,7 @@ index df195fef..6aff4483 100644
  	if (ptr == nullptr) {
  		_vm->_insideCreateResource--;
  		error("createResource(%s,%d): Out of memory while allocating %d", nameOfResType(type), idx, size);
-@@ -1156,6 +1167,17 @@ void ResourceManager::Resource::setOnHeap() {
+@@ -1156,6 +1171,17 @@ void ResourceManager::Resource::setOnHeap() {
  	_status &= ~RF_OFFHEAP;
  }
  
@@ -48,7 +62,7 @@ index df195fef..6aff4483 100644
  void ResourceManager::expireResources(uint32 size) {
  	byte best_counter;
  	ResType best_type;
-@@ -1167,7 +1189,7 @@ void ResourceManager::expireResources(uint32 size) {
+@@ -1167,7 +1193,7 @@ void ResourceManager::expireResources(uint32 size) {
  		increaseResourceCounters();
  	}
  
@@ -57,7 +71,7 @@ index df195fef..6aff4483 100644
  		return;
  
  	oldAllocatedSize = _allocatedSize;
-@@ -1196,7 +1218,7 @@ void ResourceManager::expireResources(uint32 size) {
+@@ -1196,7 +1222,7 @@ void ResourceManager::expireResources(uint32 size) {
  		if (!best_type)
  			break;
  		nukeResource(best_type, best_res);
