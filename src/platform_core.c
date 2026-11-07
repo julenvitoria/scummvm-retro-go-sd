@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <time.h>
 #include "odroid_system.h"
 #include "odroid_overlay.h"
@@ -236,6 +237,17 @@ void plat_log(const char *msg)
 	for (const char *p = msg; *p; p++) g_log[g_log_len++ % LOG_SIZE] = *p;
 }
 
+static void logf_(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static void logf_(const char *fmt, ...)
+{
+	char buf[320];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof buf, fmt, ap);
+	va_end(ap);
+	plat_log(buf);
+}
+
 static void log_save(void)
 {
 	FILE *f = fopen(SAVE_DIR "/scummvm.log", "w");
@@ -277,7 +289,7 @@ void plat_fclose(void *f) { fclose((FILE *)f); }
    flash while it writes it, and most of ScummVM runs from there). */
 #define MAX_MAPPED 64
 static struct { char name[64]; const uint8_t *data; uint32_t size; } g_map[MAX_MAPPED];
-static int g_mapped;
+static int g_mapped, g_files;
 
 static void cache_one(const char *name, bool is_dir, uint32_t size, void *arg)
 {
@@ -285,6 +297,7 @@ static void cache_one(const char *name, bool is_dir, uint32_t size, void *arg)
 	size_t n = strlen(name);
 	if (is_dir || g_mapped >= MAX_MAPPED || size == 0 || n >= sizeof g_map[0].name) return;
 	if (n > 8 && !strcasecmp(name + n - 8, ".scummvm")) return;
+	g_files++;
 	char path[320];
 	snprintf(path, sizeof path, "%s/%s", g_game, name);
 	uint32_t got = 0;
@@ -319,11 +332,16 @@ static bool is_dir(const char *p) { rg_stat_t s = rg_storage_stat(p); return s.e
 static void find_game(const char *picked)
 {
 	char text[200] = "";
-	FILE *f = fopen(picked, "r");
+	FILE *f = fopen(picked, "rb");
 	if (f) {
-		size_t n = fread(text, 1, sizeof text - 1, f);
-		text[n] = 0;
+		size_t n = fread(text, 1, sizeof text - 1, f), k = 0;
 		fclose(f);
+		/* saved as UTF-16 (Windows Notepad's "Unicode"): keep the ASCII bytes */
+		bool utf16 = n >= 2 && (((uint8_t)text[0] == 0xFF && (uint8_t)text[1] == 0xFE) ||
+		                        ((uint8_t)text[0] == 0xFE && (uint8_t)text[1] == 0xFF));
+		for (size_t i = utf16 ? 2 : 0; i < n; i++)
+			if (text[i]) text[k++] = text[i];
+		text[k] = 0;
 	}
 	/* first line, trimmed (also of a UTF-8 BOM and quotes) */
 	char *t = text;
@@ -333,10 +351,12 @@ static void find_game(const char *picked)
 	while (e > t && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '"' || e[-1] == '/')) e--;
 	*e = 0;
 
+	logf_("ScummVM: picked %s, it says \"%s\"\n", picked, t);
 	if (*t) {
 		if (*t == '/') snprintf(g_game, sizeof g_game, "%s", t);
 		else snprintf(g_game, sizeof g_game, GAMES_DIR "/%s", t);
 		if (is_dir(g_game)) return;
+		logf_("ScummVM: no folder %s\n", g_game);
 	}
 	const char *base = strrchr(picked, '/');
 	base = base ? base + 1 : picked;
@@ -344,6 +364,7 @@ static void find_game(const char *picked)
 	char *dot = strrchr(g_game, '.');
 	if (dot && dot > g_game + sizeof GAMES_DIR) *dot = 0;
 	if (is_dir(g_game)) return;
+	logf_("ScummVM: no folder %s\n", g_game);
 	snprintf(g_game, sizeof g_game, "%s", picked);           /* the first layout */
 	char *slash = strrchr(g_game, '/');
 	if (slash) *slash = 0;
@@ -358,13 +379,25 @@ void plat_quit(void)
 	odroid_system_switch_app(0);
 }
 
-static void message(const char *text)
+static void message3(const char *a, const char *b, const char *c)
 {
-	static char line[96];
-	static odroid_dialog_choice_t opts[] = { { 0, line, "", 1, NULL }, ODROID_DIALOG_CHOICE_LAST };
-	strncpy(line, text, sizeof line - 1);       /* may run before the XIP image is mapped */
+	static char line[3][64];
+	static odroid_dialog_choice_t opts[] = { { 0, line[0], "", 1, NULL }, { 1, line[1], "", 1, NULL },
+	                                         { 2, line[2], "", 1, NULL }, ODROID_DIALOG_CHOICE_LAST };
+	const char *t[3] = { a, b, c };
+	int n = 0;
+	for (int i = 0; i < 3; i++) {                /* strncpy: may run before the XIP image is mapped */
+		if (!t[i]) continue;
+		strncpy(line[n], t[i], sizeof line[0] - 1);
+		line[n][sizeof line[0] - 1] = 0;
+		opts[n].enabled = 1;
+		n++;
+	}
+	odroid_dialog_choice_t last = ODROID_DIALOG_CHOICE_LAST;
+	if (n < 3) opts[n] = last;
 	odroid_overlay_dialog("ScummVM", opts, 0, &repaint, 0);
 }
+static void message(const char *text) { message3(text, NULL, NULL); }
 
 int svm_main(void)
 {
@@ -404,14 +437,30 @@ int svm_main(void)
 
 	find_game(ACTIVE_FILE ? ACTIVE_FILE->path : "");
 	rg_storage_mkdir(SAVE_DIR);
-	printf("ScummVM: game folder %s\n", g_game);
+	logf_("ScummVM: game folder %s\n", g_game);
 	plat_list_dir(g_game, cache_one, NULL);
+	logf_("ScummVM: %d files, %d in external flash\n", g_files, g_mapped);
+	if (!g_files) {
+		message3("Game files not found in", g_game, "(see README / scummvm.log)");
+		plat_quit();
+	}
 
-	/* no music yet: the AdLib emulator alone would take ~180 KB of heap */
 	audio_start();
 	const char *argv[] = { "scummvm", "-p", g_game, "--auto-detect", NULL };
 	for (uint32_t i = 0; i < STACK_SIZE / 4; i++) g_stack[i] = STACK_PAINT;
-	run_on_stack(4, argv, gw_scummvm_main, (uint8_t *)g_stack + STACK_SIZE);
+	int res = run_on_stack(4, argv, gw_scummvm_main, (uint8_t *)g_stack + STACK_SIZE);
+	if (res) {
+		/* ScummVM gave up (no game detected...): say so instead of just leaving */
+		char last[64] = "";
+		uint32_t n = g_log_len < LOG_SIZE ? g_log_len : LOG_SIZE, i = 0, j = g_log_len;
+		while (i < n && (g_log[(j - 1) % LOG_SIZE] == '\n' || g_log[(j - 1) % LOG_SIZE] == ' ')) { j--; i++; }
+		uint32_t e = j;
+		while (i < n && g_log[(j - 1) % LOG_SIZE] != '\n') { j--; i++; }
+		uint32_t k = 0;
+		for (uint32_t p = j; p < e && k < sizeof last - 1; p++) last[k++] = g_log[p % LOG_SIZE];
+		last[k] = 0;
+		message3("ScummVM could not start the game:", last, g_game);
+	}
 	plat_quit();
 	return 0;
 }
