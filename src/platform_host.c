@@ -40,7 +40,53 @@ uint32_t plat_millis(void)
 	if (q && ms > (uint32_t)atoi(q)) exit(0);
 	return ms;
 }
-void plat_delay(uint32_t ms) { usleep(ms * 1000); }
+/* ---- sound: GW_WAV=file.wav records what the core would play (mono, 22050 Hz), in real time */
+#define HOST_RATE 22050
+static void (*g_pump)(void);
+static FILE *g_wav;
+static uint32_t g_wav_samples;
+
+void plat_set_pump(void (*fn)(void)) { g_pump = fn; }
+uint32_t plat_audio_rate(void) { return getenv("GW_WAV") ? HOST_RATE : 0; }
+int plat_audio_free(void)
+{
+	/* what the console's DMA would have consumed by now, plus ~0.1 s of buffer */
+	uint64_t due = (uint64_t)plat_millis() * HOST_RATE / 1000 + HOST_RATE / 10;
+	return due > g_wav_samples ? (int)(due - g_wav_samples) : 0;
+}
+static void wav_header(void)
+{
+	uint32_t data = g_wav_samples * 2, v;
+	fseek(g_wav, 0, SEEK_SET);
+	fwrite("RIFF", 1, 4, g_wav); v = 36 + data; fwrite(&v, 4, 1, g_wav);
+	fwrite("WAVEfmt ", 1, 8, g_wav); v = 16; fwrite(&v, 4, 1, g_wav);
+	uint16_t h[2] = { 1, 1 }; fwrite(h, 2, 2, g_wav);
+	v = HOST_RATE; fwrite(&v, 4, 1, g_wav); v = HOST_RATE * 2; fwrite(&v, 4, 1, g_wav);
+	uint16_t h2[2] = { 2, 16 }; fwrite(h2, 2, 2, g_wav);
+	fwrite("data", 1, 4, g_wav); fwrite(&data, 4, 1, g_wav);
+	fseek(g_wav, 0, SEEK_END);
+}
+static void wav_close(void) { if (g_wav) { wav_header(); fclose(g_wav); g_wav = 0; } }
+void plat_audio_write(const int16_t *smp, int n)
+{
+	if (!g_wav && getenv("GW_WAV")) {
+		g_wav = fopen(getenv("GW_WAV"), "wb+");
+		if (g_wav) { wav_header(); atexit(wav_close); }
+	}
+	if (g_wav) fwrite(smp, 2, n, g_wav);
+	g_wav_samples += n;
+}
+
+void plat_delay(uint32_t ms)
+{
+	uint32_t end = plat_millis() + ms;
+	do {
+		if (g_pump) g_pump();
+		uint32_t now = plat_millis();
+		if (now >= end) break;
+		usleep((end - now > 5 ? 5 : end - now) * 1000);
+	} while (1);
+}
 void plat_date(int *year, int *mon, int *mday, int *hour, int *min, int *sec, int *wday)
 {
 	time_t now = time(0);
@@ -54,6 +100,7 @@ void plat_set_palette(const uint8_t *rgb, int start, int count) { memcpy(g_pal +
 void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 {
 	static uint32_t next;
+	if (g_pump) g_pump();
 	const char *dir = getenv("GW_SHOTS");
 	if (!dir) return;
 	uint32_t now = plat_millis();
@@ -158,7 +205,7 @@ int main(int argc, char **argv)
 	args[n++] = "-p";
 	args[n++] = g_game;
 	for (int i = 2; i < argc && n < 30; i++) args[n++] = argv[i];
-	if (argc == 2) { args[n++] = "--music-driver=null"; args[n++] = "--auto-detect"; }   /* as on the console */
+	if (argc == 2) args[n++] = "--auto-detect";   /* as on the console */
 	args[n] = NULL;
 	return gw_scummvm_main(n, args);
 }

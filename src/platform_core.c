@@ -15,6 +15,8 @@
 #include "odroid_overlay.h"
 #include "odroid_input.h"
 #include "gw_lcd.h"
+#include "gw_audio.h"
+#include "odroid_audio.h"
 #include "gw_malloc.h"
 #include "rom_manager.h"
 #include "rg_storage.h"
@@ -43,6 +45,7 @@ bool rg_storage_mkdir(const char *dir);
 static char g_game[256];
 static uint32_t g_clut[256];
 static void stack_report(void);
+static inline void pump(void);
 static const uint8_t *g_last;           /* last frame shown, for the PAUSE menu's repaint */
 static int g_last_pitch, g_last_w, g_last_h;
 
@@ -91,6 +94,7 @@ void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 	draw_frame((uint8_t *)lcd_get_active_buffer(), pixels, pitch, w, h);
 	common_ingame_overlay();
 	lcd_swap();
+	pump();
 }
 
 /* ---------------------------------------------------------------- stack */
@@ -126,6 +130,48 @@ static void stack_report(void)
 	}
 }
 
+/* ---------------------------------------------------------------- sound */
+
+/* The firmware's PCM ring (pcm_attach): its SAI interrupt takes samples from the tail, the
+   mixer (gw_system.cpp, through the pump) adds them at the head. ~0.19 s at 22050 Hz. */
+#define AUDIO_RATE 22050
+#define RING_SAMPLES 4096                         /* power of two */
+static int16_t g_ring[RING_SAMPLES];
+static volatile uint16_t g_head, g_tail;
+static void (*g_pump)(void);
+static bool g_audio_on;
+
+void plat_set_pump(void (*fn)(void)) { g_pump = fn; }
+uint32_t plat_audio_rate(void) { return AUDIO_RATE; }
+int plat_audio_free(void) { return RING_SAMPLES - 1 - ((uint16_t)(g_head - g_tail) & (RING_SAMPLES - 1)); }
+void plat_audio_write(const int16_t *s, int n)
+{
+	uint16_t h = g_head;
+	for (int i = 0; i < n; i++) { g_ring[h] = s[i]; h = (h + 1) & (RING_SAMPLES - 1); }
+	__asm volatile("dmb" ::: "memory");
+	g_head = h;
+}
+
+static void audio_start(void)
+{
+	odroid_audio_init(AUDIO_RATE);
+	audio_start_playing(AUDIO_RATE / 60);
+	pcm_attach(g_ring, RING_SAMPLES, &g_head, &g_tail);
+	pcm_audio_enable(1);
+	pcm_audio_set(common_emu_sound_get_volume(), 1);
+	g_audio_on = true;
+}
+
+static void audio_stop(void)
+{
+	if (!g_audio_on) return;
+	pcm_audio_set(0, 0);
+	pcm_audio_enable(0);
+	g_audio_on = false;
+}
+
+static inline void pump(void) { if (g_pump) g_pump(); }
+
 /* ---------------------------------------------------------------- input */
 
 uint32_t plat_buttons(void)
@@ -134,9 +180,12 @@ uint32_t plat_buttons(void)
 	odroid_gamepad_state_t js;
 	wdog_refresh();
 	odroid_input_read_gamepad(&js);
+	pump();
 	bool menu = js.values[ODROID_INPUT_VOLUME];
+	if (menu) pcm_audio_set(0, 0);                       /* silence while the menu is open */
 	common_emu_input_loop(&js, options, &repaint);       /* PAUSE/SET menu, power, volume... */
 	if (menu) lcd_set_clut(g_clut, 256);                 /* the menu used part of the CLUT */
+	if (g_audio_on) pcm_audio_set(common_emu_sound_get_volume(), 1);   /* the menu may change it */
 	uint32_t b = 0;
 	if (js.values[ODROID_INPUT_UP]) b |= PLAT_UP;
 	if (js.values[ODROID_INPUT_DOWN]) b |= PLAT_DOWN;
@@ -158,6 +207,7 @@ void plat_delay(uint32_t ms)
 	uint32_t t0 = HAL_GetTick();
 	while (HAL_GetTick() - t0 < ms) {
 		wdog_refresh();
+		pump();
 		cpumon_sleep();
 	}
 }
@@ -238,7 +288,7 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size)
 
 /* ---------------------------------------------------------------- lifetime */
 
-void plat_quit(void) { odroid_system_switch_app(0); }
+void plat_quit(void) { audio_stop(); odroid_system_switch_app(0); }
 
 static void message(const char *text)
 {
@@ -293,9 +343,10 @@ int svm_main(void)
 	plat_list_dir(g_game, cache_one, NULL);
 
 	/* no music yet: the AdLib emulator alone would take ~180 KB of heap */
-	const char *argv[] = { "scummvm", "-p", g_game, "--music-driver=null", "--auto-detect", NULL };
+	audio_start();
+	const char *argv[] = { "scummvm", "-p", g_game, "--auto-detect", NULL };
 	for (uint32_t i = 0; i < STACK_SIZE / 4; i++) g_stack[i] = STACK_PAINT;
-	run_on_stack(5, argv, gw_scummvm_main, (uint8_t *)g_stack + STACK_SIZE);
+	run_on_stack(4, argv, gw_scummvm_main, (uint8_t *)g_stack + STACK_SIZE);
 	plat_quit();
 	return 0;
 }

@@ -14,7 +14,7 @@ OWN_CXX  := src/gw_system.cpp
 DEFS     := -DHAVE_CONFIG_H -DENABLE_SCUMM=STATIC_PLUGIN -DRELEASE_BUILD \
             -DDISABLE_HELP -DDISABLE_FANCY_THEMES -DDISABLE_SAVELOADCHOOSER_GRID \
             -DDISABLE_LAUNCHERDISPLAY_GRID -DDISABLE_TOWNS_DUAL_LAYER_MODE \
-            -DDISABLE_PC98_RHYTHM_CHANNEL -DDISABLE_NES_APU -DDISABLE_DOSBOX_OPL -DGW_SCUMM_SLIM
+            -DDISABLE_PC98_RHYTHM_CHANNEL -DDISABLE_NES_APU -DDISABLE_MAME_OPL -DGW_SCUMM_SLIM
 INCS     := -Iconfig -I$(SVM) -I$(SVM)/engines -Isrc
 CXXSTD   := -std=c++11 -fno-exceptions -fcheck-new -fno-operator-names
 WARN     := -Wno-multichar -Wno-reorder -Wno-unknown-pragmas -Wno-unused-parameter

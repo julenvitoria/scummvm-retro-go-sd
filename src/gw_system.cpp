@@ -3,7 +3,9 @@
  *
  * OSystem on top of platform.h: an 8-bit screen handed to the LCD, the buttons as a mouse,
  * files on the SD card (or, read-only, mapped from external flash), the default timer and
- * event managers driven from pollEvent()/delayMillis(), no threads.
+ * event managers driven from pollEvent()/delayMillis(), no threads. Sound is mixed in the
+ * same way: the platform calls back (plat_set_pump) whenever it waits or shows a frame, and
+ * the mixer tops its buffer up.
  */
 #define FORBIDDEN_SYMBOL_ALLOW_ALL
 #include "common/scummsys.h"
@@ -18,7 +20,8 @@
 #include "backends/saves/default/default-saves.h"
 #include "backends/timer/default/default-timer.h"
 #include "backends/events/default/default-events.h"
-#include "backends/mixer/null/null-mixer.h"
+#include "backends/mixer/mixer.h"
+#include "audio/mixer_intern.h"
 #include "backends/graphics/null/null-graphics.h"
 #include "backends/fs/abstract-fs.h"
 #include "backends/fs/fs-factory.h"
@@ -196,6 +199,42 @@ public:
 	}
 };
 
+/* ================================================================ sound */
+
+class GWMixerManager : public MixerManager {
+	enum { CHUNK = 256 };                  // frames mixed at a time
+	int16 _stereo[CHUNK * 2];
+	int16 _mono[CHUNK];
+	bool _busy = false;
+public:
+	void init() override {
+		uint32 rate = plat_audio_rate();
+		_mixer = new Audio::MixerImpl(rate ? rate : 22050, true, CHUNK);
+		_mixer->setReady(rate != 0);
+	}
+	void suspendAudio() override { _audioSuspended = true; }
+	int resumeAudio() override {
+		if (!_audioSuspended) return -2;
+		_audioSuspended = false;
+		return 0;
+	}
+	bool isNullDevice() const override { return plat_audio_rate() == 0; }
+
+	void pump() {
+		if (!_mixer || _busy || _audioSuspended || !plat_audio_rate()) return;
+		_busy = true;                      // the mixer's own callbacks may end up waiting
+		while (plat_audio_free() >= CHUNK) {
+			_mixer->mixCallback((byte *)_stereo, sizeof _stereo);
+			for (int i = 0; i < CHUNK; i++) _mono[i] = (int16)(((int)_stereo[2 * i] + _stereo[2 * i + 1]) >> 1);
+			plat_audio_write(_mono, CHUNK);
+		}
+		_busy = false;
+	}
+};
+
+static GWMixerManager *g_mixerManager;
+static void pumpAudio() { if (g_mixerManager) g_mixerManager->pump(); }
+
 /* ================================================================ system */
 
 class OSystem_GW : public ModularMixerBackend, public ModularGraphicsBackend, Common::EventSource {
@@ -212,8 +251,9 @@ public:
 		_eventManager = new DefaultEventManager(this);
 		_savefileManager = new DefaultSaveFileManager(Common::Path(plat_save_path()));
 		_graphicsManager = new GWGraphics();
-		_mixerManager = new NullMixerManager();
+		_mixerManager = g_mixerManager = new GWMixerManager();
 		_mixerManager->init();
+		plat_set_pump(pumpAudio);
 		BaseBackend::initBackend();
 	}
 
@@ -260,10 +300,11 @@ public:
 			}
 		} else
 			_moveStart = 0;
-		if (down & PLAT_A) push(Common::EVENT_LBUTTONDOWN);
-		if (up & PLAT_A) push(Common::EVENT_LBUTTONUP);
-		if (down & PLAT_B) push(Common::EVENT_RBUTTONDOWN);
-		if (up & PLAT_B) push(Common::EVENT_RBUTTONUP);
+		// B = left click (the main button, under the thumb), A = right click
+		if (down & PLAT_B) push(Common::EVENT_LBUTTONDOWN);
+		if (up & PLAT_B) push(Common::EVENT_LBUTTONUP);
+		if (down & PLAT_A) push(Common::EVENT_RBUTTONDOWN);
+		if (up & PLAT_A) push(Common::EVENT_RBUTTONUP);
 		// GAME skips a cut-scene (Esc), TIME the current line of dialogue ('.')
 		if (down & PLAT_GAME) push(Common::EVENT_KEYDOWN, Common::KEYCODE_ESCAPE, Common::ASCII_ESCAPE);
 		if (up & PLAT_GAME) push(Common::EVENT_KEYUP, Common::KEYCODE_ESCAPE, Common::ASCII_ESCAPE);
@@ -278,7 +319,7 @@ public:
 
 	bool pollEvent(Common::Event &event) override {
 		((DefaultTimerManager *)getTimerManager())->checkTimers();
-		((NullMixerManager *)_mixerManager)->update(1);
+		pumpAudio();
 		if (_queue.empty()) readButtons();
 		if (_queue.empty()) return false;
 		event = _queue.pop();
