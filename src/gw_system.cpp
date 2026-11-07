@@ -336,6 +336,7 @@ public:
 		plat_date(&td.tm_year, &td.tm_mon, &td.tm_mday, &td.tm_hour, &td.tm_min, &td.tm_sec, &td.tm_wday);
 	}
 	void quit() override { plat_quit(); }
+	void fatalError() override { plat_fatal(); }
 	void logMessage(LogMessageType::Type, const char *message) override { plat_log(message); }
 	void addSysArchivesToSearchSet(Common::SearchSet &, int) override {}
 };

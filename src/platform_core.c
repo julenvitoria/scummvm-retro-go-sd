@@ -397,11 +397,14 @@ static void last_log_line(char *out, size_t size);
 
 /* newlib's _exit (boot.c): exit(), abort() and an uncaught exception such as std::bad_alloc
    end up here instead of in plat_quit() */
+void svm_fatal_exit(int code) __attribute__((noreturn));
+void plat_fatal(void) { svm_fatal_exit(-1); }      /* error() in ScummVM: its message is the last log line */
+
 void svm_fatal_exit(int code)
 {
 	static int busy;
 	if (!busy++) {
-		logf_("ScummVM: stopped (exit %d)\n", code);
+		if (code != -1) logf_("ScummVM: stopped (exit %d)\n", code);
 		audio_stop();
 		if (g_game[0]) log_save();
 		char last[64];
