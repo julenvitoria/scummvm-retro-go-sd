@@ -36,6 +36,14 @@ enum {
 };
 uint32_t plat_buttons(void);                      /* PLAT_* held right now */
 
+/* ---- sound: mono, 16-bit, at plat_audio_rate() ---- */
+uint32_t plat_audio_rate(void);                   /* 0: no sound */
+int      plat_audio_free(void);                   /* samples that can be written right now */
+void     plat_audio_write(const int16_t *s, int n);
+/* fn is called while the platform waits (plat_delay) and on every plat_present/plat_buttons:
+   the backend tops the sound buffer up from there (there are no threads) */
+void     plat_set_pump(void (*fn)(void));
+
 /* ---- files ---- */
 typedef struct {
 	bool exists, is_dir;

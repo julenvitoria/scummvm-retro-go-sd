@@ -5,7 +5,8 @@ firmware Retro-Go SD de sylverb (rama `external_cores`). Empieza por el motor SC
 (aventuras de LucasArts, versiones 0 a 6).
 
 **Estado: primera versión de prueba.** Arranca y se juega *The Secret of Monkey Island*
-(EGA). Todavía **sin sonido y sin partidas guardadas**. El estudio previo está en
+(EGA), con música y efectos (AdLib / Sound Blaster FM, emulador OPL de DOSBox). Todavía
+**sin partidas guardadas**. El estudio previo está en
 [docs/estudio-viabilidad.md](docs/estudio-viabilidad.md).
 
 Los juegos no se incluyen ni se incluirán: cada uno pone los suyos.
@@ -31,8 +32,8 @@ Los juegos no se incluyen ni se incluirán: cada uno pone los suyos.
 | Botón | Acción |
 |---|---|
 | Cruceta | mover el puntero (acelera al mantener) |
-| A | clic izquierdo |
-| B | clic derecho |
+| B | clic izquierdo |
+| A | clic derecho |
 | GAME (START) | Esc: saltar escena |
 | TIME (SELECT) | `.` + Enter: saltar frase / "pulsa ENTER para continuar" |
 | PAUSE/SET | menú de Retro-Go |
