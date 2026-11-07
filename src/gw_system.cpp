@@ -200,7 +200,8 @@ public:
 
 class OSystem_GW : public ModularMixerBackend, public ModularGraphicsBackend, Common::EventSource {
 	uint32 _held = 0;              // buttons seen last poll
-	int _mx16 = 160 << 4, _my16 = 100 << 4, _speed = 0;
+	int _mx16 = 160 << 4, _my16 = 100 << 4;
+	uint32 _moveStart = 0, _lastMove = 0;   // when the D-pad was pressed / last moved the pointer (ms)
 	Common::Queue<Common::Event> _queue;
 	GWGraphics *gfx() { return (GWGraphics *)_graphicsManager; }
 public:
@@ -231,13 +232,25 @@ public:
 	void readButtons() {
 		uint32 b = plat_buttons(), down = b & ~_held, up = _held & ~b;
 		_held = b;
-		// D-pad: a mouse that speeds up while held (sub-pixel position in 1/16)
+		// D-pad: a mouse that speeds up while held. Driven by time, not by polls: ScummVM polls
+		// far more often on the console than in an emulator, and a per-poll step sent the
+		// pointer flying to the edges. 60 px/s at first, up to 240 px/s after ~0.7 s.
 		int dx = (b & PLAT_RIGHT ? 1 : 0) - (b & PLAT_LEFT ? 1 : 0);
 		int dy = (b & PLAT_DOWN ? 1 : 0) - (b & PLAT_UP ? 1 : 0);
+		uint32 now = plat_millis();
 		if (dx || dy) {
-			if (_speed < 64) _speed += 3;
-			int step = 12 + _speed;              // 0.75 px per poll up to 4.75
 			GWGraphics *g = gfx();
+			if (!_moveStart) {
+				_moveStart = _lastMove = now;
+				_mx16 = g->_mouseX << 4; _my16 = g->_mouseY << 4;   // the game may have warped it
+				// a tap moves one pixel, for fine aiming
+				_mx16 += dx << 4; _my16 += dy << 4;
+			}
+			uint32 held = now - _moveStart, dt = now - _lastMove;
+			if (dt > 50) dt = 50;
+			int speed = 60 + (int)(held > 700 ? 180 : held * 180 / 700);    // px/s
+			int step = speed * 16 * (int)dt / 1000;                             // 1/16 px
+			if (step) _lastMove = now;          // else the time keeps adding up until it moves
 			int w = g->_screen.w ? g->_screen.w : 320, h = g->_screen.h ? g->_screen.h : 200;
 			_mx16 = CLIP(_mx16 + dx * step, 0, (w - 1) << 4);
 			_my16 = CLIP(_my16 + dy * step, 0, (h - 1) << 4);
@@ -246,7 +259,7 @@ public:
 				push(Common::EVENT_MOUSEMOVE);
 			}
 		} else
-			_speed = 0;
+			_moveStart = 0;
 		if (down & PLAT_A) push(Common::EVENT_LBUTTONDOWN);
 		if (up & PLAT_A) push(Common::EVENT_LBUTTONUP);
 		if (down & PLAT_B) push(Common::EVENT_RBUTTONDOWN);
