@@ -9,7 +9,8 @@
  *     relocate callback adds (where the image landed - where it was linked) to every word of
  *     the XIP image that points into it (bitmap XIP_RELOCS),
  *  3. do the same for the RAM image's words that point into XIP (bitmap RAM_RELOCS),
- *  4. run the C++ constructors (they live in XIP), then the core's main.
+ *  4. the core's main (platform_core.c), which sets the heap up and only then calls
+ *     svm_run_constructors(): ScummVM's static constructors allocate.
  *
  * On a later launch the firmware finds the .bin already cached (same path, size and date):
  * the callback does not run, the image is already relocated for that same address.
@@ -145,9 +146,14 @@ int svm_boot(void)
 	*(volatile uint32_t *)0xE000EF50 = 0;              /* ICIALLU */
 	__asm volatile("dsb\n isb");
 
-	/* 4. C++ constructors, now that their code is mapped */
-	for (void (**f)(void) = __svm_init_array_start; f < __svm_init_array_end; f++) (*f)();
 	return svm_main();
+}
+
+/* C++ constructors: their code is in XIP and they allocate, so svm_main() calls this once the
+   XIP image is mapped and the heap exists */
+void svm_run_constructors(void)
+{
+	for (void (**f)(void) = __svm_init_array_start; f < __svm_init_array_end; f++) (*f)();
 }
 
 /* entry target (GNW_CORE_ENTRY_TARGET) */

@@ -137,11 +137,12 @@ $(AB)/scummvm.elf: $(ARM_OWN) $(ARM_SVM) ld/scummvm_core.ld ld/hot_objects.ld
 	    -Wl,--gc-sections -Wl,--emit-relocs -Wl,--no-check-sections -Wl,-Map=$(AB)/scummvm.map \
 	    $(ARM_OWN) $(ARM_SVM) -Wl,--start-group -lsupc++ -lc -lm -lgcc -Wl,--end-group -o $@
 
-$(OUT): $(AB)/scummvm.elf tools/xip_pack.py
+$(OUT): $(AB)/scummvm.elf tools/xip_pack.py assets/header.png assets/pad.png
 	@mkdir -p $(dir $@)
 	$(CROSS)objcopy -O binary --only-section=.core_entry --only-section=.data $< $(AB)/ram.bin
 	python3 sdk/tools/pack_core.py --elf $< --bin $(AB)/ram.bin \
 	    --system-name "ScummVM" --dirname scummvm --extensions "scummvm" \
+	    --header-logo assets/header.png --pad-logo assets/pad.png --logo-invert \
 	    --core-name "ScummVM (LucasArts)" --version 0.1.0 \
 	    --nm $(CROSS)nm --objcopy $(CROSS)objcopy --out $(AB)/packed.bin
 	python3 tools/xip_pack.py --elf $< --core $(AB)/packed.bin --build-id $(BUILD_ID) --out $@

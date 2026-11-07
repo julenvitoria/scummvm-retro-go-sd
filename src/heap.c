@@ -4,7 +4,13 @@
  *
  *   RAM_EMU after our image   ~640 KB   (up to the reserve kept for the firmware's ram_malloc)
  *   LCD bonus pool            ~150 KB   (exists in LUT8 mode: 2 x 8-bit framebuffers instead of 16-bit)
- *   DTCM core pool            ~90 KB    (what dtc_malloc() has, minus a margin before the stack)
+ *   DTCM core pool            ~40 KB    (what dtc_malloc() has after ScummVM's stack, minus a margin)
+ *
+ * Two TLSF heaps, to keep the big region in one piece: ScummVM asks for several 64 KB blocks
+ * (screens, text surface) while it also makes thousands of small allocations; mixed in one
+ * heap, the small ones split the free space until no 64 KB hole is left (seen in gwemu: a
+ * 64 KB request failing with 210 KB free). Small requests go to the SMALL heap first (bonus
+ * pool + DTCM), big ones to the BIG heap (RAM_EMU); each falls back to the other.
  *
  * The firmware's own AHB heap is left alone: its menus allocate there (an exhausted AHB heap is
  * what broke the Retro-Go menu in Cannonball).
@@ -19,26 +25,47 @@
 #include <stdio.h>
 #include "third_party/tlsf/tlsf.h"
 
-static tlsf_t g_tlsf;
+#define BIG_REQUEST (8 * 1024)
+
+enum { HEAP_BIG, HEAP_SMALL, HEAPS };
+#define MAX_POOLS 4
+
+static tlsf_t g_tlsf[HEAPS];
+static struct { uintptr_t lo, hi; int heap; } g_pool[MAX_POOLS];
+static int g_pools;
 static uint32_t g_total, g_used, g_peak;
 
-void heap_add(void *mem, size_t bytes)
+/* kind: 0 = big heap, 1 = small heap */
+void heap_add_to(void *mem, size_t bytes, int kind)
 {
 	uintptr_t a = ((uintptr_t)mem + 7) & ~(uintptr_t)7;
 	bytes = (bytes - (a - (uintptr_t)mem)) & ~(size_t)7;
-	if (bytes < tlsf_size() + tlsf_pool_overhead() + 1024) return;
-	if (!g_tlsf) {
-		g_tlsf = tlsf_create_with_pool((void *)a, bytes);
+	if (bytes < tlsf_size() + tlsf_pool_overhead() + 1024 || g_pools >= MAX_POOLS) return;
+	if (!g_tlsf[kind]) {
+		g_tlsf[kind] = tlsf_create_with_pool((void *)a, bytes);
 		g_total += bytes - tlsf_size() - tlsf_pool_overhead();
 	} else {
-		tlsf_add_pool(g_tlsf, (void *)a, bytes);
+		tlsf_add_pool(g_tlsf[kind], (void *)a, bytes);
 		g_total += bytes - tlsf_pool_overhead();
 	}
+	g_pool[g_pools].lo = a;
+	g_pool[g_pools].hi = a + bytes;
+	g_pool[g_pools].heap = kind;
+	g_pools++;
 }
+
+void heap_add(void *mem, size_t bytes) { heap_add_to(mem, bytes, HEAP_BIG); }
 
 uint32_t heap_total(void) { return g_total; }
 uint32_t heap_used(void) { return g_used; }
 uint32_t heap_peak(void) { return g_peak; }
+
+static tlsf_t owner(void *p)
+{
+	for (int i = 0; i < g_pools; i++)
+		if ((uintptr_t)p >= g_pool[i].lo && (uintptr_t)p < g_pool[i].hi) return g_tlsf[g_pool[i].heap];
+	return NULL;
+}
 
 static void *track(void *p)
 {
@@ -49,23 +76,31 @@ static void *track(void *p)
 	return p;
 }
 
-void *malloc(size_t n)
+static void *alloc(size_t align, size_t n)
 {
-	if (!g_tlsf) { errno = ENOMEM; return NULL; }
-	void *p = track(tlsf_malloc(g_tlsf, n ? n : 1));
+	int first = n >= BIG_REQUEST ? HEAP_BIG : HEAP_SMALL;
+	void *p = NULL;
+	for (int k = 0; k < HEAPS && !p; k++) {
+		tlsf_t t = g_tlsf[k ? !first : first];
+		if (t) p = align ? tlsf_memalign(t, align, n) : tlsf_malloc(t, n);
+	}
 	if (!p) {
 		errno = ENOMEM;
-		printf("heap: out of memory for %lu bytes (used %lu of %lu KB, peak %lu KB)\n", (unsigned long)n,
+		if (g_pools) printf("heap: out of memory for %lu bytes (used %lu of %lu KB, peak %lu KB)\n", (unsigned long)n,
 		       (unsigned long)(g_used / 1024), (unsigned long)(g_total / 1024), (unsigned long)(g_peak / 1024));
 	}
-	return p;
+	return track(p);
 }
+
+void *malloc(size_t n) { return alloc(0, n ? n : 1); }
 
 void free(void *p)
 {
 	if (!p) return;
+	tlsf_t t = owner(p);
+	if (!t) return;
 	g_used -= tlsf_block_size(p);
-	tlsf_free(g_tlsf, p);
+	tlsf_free(t, p);
 }
 
 void *calloc(size_t a, size_t b)
@@ -81,14 +116,22 @@ void *realloc(void *p, size_t n)
 {
 	if (!p) return malloc(n);
 	if (!n) { free(p); return NULL; }
+	tlsf_t t = owner(p);
 	size_t old = tlsf_block_size(p);
-	void *q = tlsf_realloc(g_tlsf, p, n);
-	if (!q) { errno = ENOMEM; return NULL; }
-	g_used -= old;
-	return track(q);
+	void *q = t ? tlsf_realloc(t, p, n) : NULL;
+	if (q) {
+		g_used -= old;
+		return track(q);
+	}
+	/* no room in its own heap: move it to the other one */
+	q = malloc(n);
+	if (!q) return NULL;
+	memcpy(q, p, old < n ? old : n);
+	free(p);
+	return q;
 }
 
-void *memalign(size_t align, size_t n) { return g_tlsf ? track(tlsf_memalign(g_tlsf, align, n)) : NULL; }
+void *memalign(size_t align, size_t n) { return alloc(align, n ? n : 1); }
 size_t malloc_usable_size(void *p) { return p ? tlsf_block_size(p) : 0; }
 
 void *_malloc_r(struct _reent *r, size_t n) { (void)r; return malloc(n); }
