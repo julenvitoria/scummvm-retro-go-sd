@@ -15,6 +15,7 @@ extern "C" {
 /* ---- lifetime ---- */
 void     plat_log(const char *msg);               /* one line or a fragment, as ScummVM logs */
 void     plat_quit(void) __attribute__((noreturn)); /* back to the launcher */
+void     plat_fatal(void) __attribute__((noreturn));/* ScummVM's error(): say why, then back to the launcher */
 const char *plat_game_path(void);                 /* folder of the game to run */
 const char *plat_save_path(void);                 /* folder for saves and scummvm.ini */
 

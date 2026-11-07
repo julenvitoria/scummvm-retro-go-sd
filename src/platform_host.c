@@ -28,6 +28,8 @@ static struct timeval g_t0;
 static uint8_t g_pal[768];
 
 void plat_log(const char *msg) { fputs(msg, stdout); fflush(stdout); }
+void plat_fatal(void) { exit(1); }
+
 void plat_quit(void) { exit(0); }
 const char *plat_game_path(void) { return g_game; }
 const char *plat_save_path(void) { return g_saves; }
