@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
 #include "odroid_system.h"
@@ -27,17 +28,21 @@ extern uint8_t __RAM_EMU_END__[];
 extern int svm_boot_error;
 extern char svm_core_path[];
 void heap_add(void *mem, size_t bytes);
+void heap_add_to(void *mem, size_t bytes, int kind);   /* 0 big, 1 small (heap.c) */
 uint32_t heap_total(void);
 int gw_scummvm_main(int argc, const char *const argv[]);
 bool rg_storage_mkdir(const char *dir);
 
 #define FIRMWARE_RESERVE (16 * 1024)    /* RAM_EMU left at the top for the firmware's ram_malloc() */
+#define STACK_SIZE (48 * 1024)          /* ScummVM's stack, in DTCM (the firmware's is 24 KB: too small) */
+#define STACK_PAINT 0x5354434Bu
 #define SAVE_DIR "/saves/scummvm"
 #define LCD_W 320
 #define LCD_H 240
 
 static char g_game[256];
 static uint32_t g_clut[256];
+static void stack_report(void);
 static const uint8_t *g_last;           /* last frame shown, for the PAUSE menu's repaint */
 static int g_last_pitch, g_last_w, g_last_h;
 
@@ -81,9 +86,44 @@ void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 	wdog_refresh();
 	lcd_sleep_while_swap_pending();
 	g_last = pixels; g_last_pitch = pitch; g_last_w = w; g_last_h = h;
+	static uint32_t frames;
+	if ((++frames & 255) == 0) stack_report();
 	draw_frame((uint8_t *)lcd_get_active_buffer(), pixels, pitch, w, h);
 	common_ingame_overlay();
 	lcd_swap();
+}
+
+/* ---------------------------------------------------------------- stack */
+
+/* ScummVM nests deeply and keeps large objects on the stack (a config domain alone is ~700
+   bytes): the firmware's 24 KB stack overflows into its MPU red zone (Memfault) before the
+   game even starts. It runs on its own, larger stack instead; painted, to report how deep it
+   went. */
+static uint32_t *g_stack;
+static uint32_t g_stack_peak_reported;
+
+__attribute__((naked, noinline)) static int run_on_stack(int argc, const char *const *argv,
+                                                        int (*fn)(int, const char *const *), void *top)
+{
+	__asm volatile(
+		"push {r4, lr}\n"
+		"mov r4, sp\n"
+		"mov sp, r3\n"
+		"blx r2\n"
+		"mov sp, r4\n"
+		"pop {r4, pc}\n");
+}
+
+static void stack_report(void)
+{
+	if (!g_stack) return;
+	uint32_t n = STACK_SIZE / 4, i = 0;
+	while (i < n && g_stack[i] == STACK_PAINT) i++;
+	uint32_t used = (n - i) * 4;
+	if (used > g_stack_peak_reported + 1024) {
+		g_stack_peak_reported = used;
+		printf("ScummVM: stack peak %lu of %u KB\n", (unsigned long)(used / 1024), STACK_SIZE / 1024);
+	}
 }
 
 /* ---------------------------------------------------------------- input */
@@ -231,12 +271,16 @@ int svm_main(void)
 	uint8_t *bonus = NULL;
 	size_t bonus_size = 0;
 	lcd_get_bonus_pool(&bonus, &bonus_size);
-	if (bonus) heap_add(bonus, bonus_size);
+	if (bonus) heap_add_to(bonus, bonus_size, 1);
+	g_stack = dtc_malloc(STACK_SIZE);
+	if (!g_stack) g_stack = malloc(STACK_SIZE);       /* DTCM full: from the heap (AXI SRAM) */
 	size_t dtcm = dtc_get_free_size();
 	if (dtcm > 16 * 1024) {
 		void *p = dtc_malloc(dtcm - 8 * 1024);
-		if (p) heap_add(p, dtcm - 8 * 1024);
+		if (p) heap_add_to(p, dtcm - 8 * 1024, 1);
 	}
+	void svm_run_constructors(void);
+	svm_run_constructors();
 	extern uint32_t svm_xip_delta;
 	printf("ScummVM: heap %lu KB, XIP delta 0x%08lx\n", (unsigned long)(heap_total() / 1024), (unsigned long)svm_xip_delta);
 
@@ -250,7 +294,8 @@ int svm_main(void)
 
 	/* no music yet: the AdLib emulator alone would take ~180 KB of heap */
 	const char *argv[] = { "scummvm", "-p", g_game, "--music-driver=null", "--auto-detect", NULL };
-	gw_scummvm_main(5, argv);
+	for (uint32_t i = 0; i < STACK_SIZE / 4; i++) g_stack[i] = STACK_PAINT;
+	run_on_stack(5, argv, gw_scummvm_main, (uint8_t *)g_stack + STACK_SIZE);
 	plat_quit();
 	return 0;
 }
