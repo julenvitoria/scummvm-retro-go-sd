@@ -224,7 +224,26 @@ void plat_date(int *year, int *mon, int *mday, int *hour, int *min, int *sec, in
 
 const char *plat_game_path(void) { return g_game; }
 const char *plat_save_path(void) { return SAVE_DIR; }
-void plat_log(const char *msg) { printf("%s", msg); }
+/* ScummVM's log, also kept in RAM: plat_quit() writes it to the SD card (scummvm.log in the
+   save folder), so a game that drops back to the launcher says why */
+#define LOG_SIZE 4096
+static char g_log[LOG_SIZE];
+static uint32_t g_log_len;                       /* total written; the ring keeps the last 4 KB */
+
+void plat_log(const char *msg)
+{
+	printf("%s", msg);
+	for (const char *p = msg; *p; p++) g_log[g_log_len++ % LOG_SIZE] = *p;
+}
+
+static void log_save(void)
+{
+	FILE *f = fopen(SAVE_DIR "/scummvm.log", "w");
+	if (!f) return;
+	uint32_t n = g_log_len < LOG_SIZE ? g_log_len : LOG_SIZE, start = g_log_len - n;
+	for (uint32_t i = 0; i < n; i++) fputc(g_log[(start + i) % LOG_SIZE], f);
+	fclose(f);
+}
 
 plat_stat_t plat_stat(const char *path)
 {
@@ -286,9 +305,58 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size)
 	return NULL;
 }
 
+/* ---------------------------------------------------------------- which game */
+
+/* The launcher lists /roms/scummvm/<Name>.scummvm; the game's files live elsewhere:
+ *   - the .scummvm file holds a folder: an absolute path, or a name under /scummvm
+ *     ("monkey" -> /scummvm/monkey),
+ *   - empty: /scummvm/<Name>, or else the folder the .scummvm file itself is in (the layout of
+ *     the first version: /roms/scummvm/monkey/Monkey Island.scummvm). */
+#define GAMES_DIR "/scummvm"
+
+static bool is_dir(const char *p) { rg_stat_t s = rg_storage_stat(p); return s.exists && s.is_dir; }
+
+static void find_game(const char *picked)
+{
+	char text[200] = "";
+	FILE *f = fopen(picked, "r");
+	if (f) {
+		size_t n = fread(text, 1, sizeof text - 1, f);
+		text[n] = 0;
+		fclose(f);
+	}
+	/* first line, trimmed (also of a UTF-8 BOM and quotes) */
+	char *t = text;
+	if ((uint8_t)t[0] == 0xEF && (uint8_t)t[1] == 0xBB && (uint8_t)t[2] == 0xBF) t += 3;
+	while (*t == ' ' || *t == '\t' || *t == '"') t++;
+	char *e = t + strcspn(t, "\r\n");
+	while (e > t && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '"' || e[-1] == '/')) e--;
+	*e = 0;
+
+	if (*t) {
+		if (*t == '/') snprintf(g_game, sizeof g_game, "%s", t);
+		else snprintf(g_game, sizeof g_game, GAMES_DIR "/%s", t);
+		if (is_dir(g_game)) return;
+	}
+	const char *base = strrchr(picked, '/');
+	base = base ? base + 1 : picked;
+	snprintf(g_game, sizeof g_game, GAMES_DIR "/%s", base);
+	char *dot = strrchr(g_game, '.');
+	if (dot && dot > g_game + sizeof GAMES_DIR) *dot = 0;
+	if (is_dir(g_game)) return;
+	snprintf(g_game, sizeof g_game, "%s", picked);           /* the first layout */
+	char *slash = strrchr(g_game, '/');
+	if (slash) *slash = 0;
+}
+
 /* ---------------------------------------------------------------- lifetime */
 
-void plat_quit(void) { audio_stop(); odroid_system_switch_app(0); }
+void plat_quit(void)
+{
+	audio_stop();
+	if (g_game[0]) log_save();
+	odroid_system_switch_app(0);
+}
 
 static void message(const char *text)
 {
@@ -334,12 +402,9 @@ int svm_main(void)
 	extern uint32_t svm_xip_delta;
 	printf("ScummVM: heap %lu KB, XIP delta 0x%08lx\n", (unsigned long)(heap_total() / 1024), (unsigned long)svm_xip_delta);
 
-	/* the game: the folder of the file picked in the launcher (e.g. monkey/monkey.scummvm) */
-	const char *picked = ACTIVE_FILE ? ACTIVE_FILE->path : "";
-	snprintf(g_game, sizeof g_game, "%s", picked);
-	char *slash = strrchr(g_game, '/');
-	if (slash) *slash = 0;
+	find_game(ACTIVE_FILE ? ACTIVE_FILE->path : "");
 	rg_storage_mkdir(SAVE_DIR);
+	printf("ScummVM: game folder %s\n", g_game);
 	plat_list_dir(g_game, cache_one, NULL);
 
 	/* no music yet: the AdLib emulator alone would take ~180 KB of heap */

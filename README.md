@@ -14,18 +14,26 @@ Los juegos no se incluyen ni se incluirán: cada uno pone los suyos.
 ## Instalación
 
 1. Copia `scummvm.bin` en `/cores/` de la SD.
-2. Cada juego va en su propia carpeta dentro de `/roms/scummvm/`, con los ficheros del juego
-   tal cual (`000.lfl`, `901.lfl`, `disk01.lec`...) y un fichero vacío `.scummvm` cuyo nombre
-   es el que aparece en el menú:
+2. Los ficheros de cada juego van, tal cual (`000.lfl`, `901.lfl`, `disk01.lec`...), en su
+   propia carpeta dentro de `/scummvm/` (fuera de `/roms`, para que no salga en el menú).
+3. En `/roms/scummvm/` va un fichero `.scummvm` por juego; su nombre es el que aparece en el
+   menú y dentro lleva el nombre de la carpeta del juego:
 
    ```
-   /roms/scummvm/monkey/Monkey Island.scummvm
-   /roms/scummvm/monkey/000.lfl
-   /roms/scummvm/monkey/901.lfl
+   /roms/scummvm/The Secret of Monkey Island.scummvm    (contiene: monkey)
+   /scummvm/monkey/000.lfl
+   /scummvm/monkey/901.lfl
    ...
    ```
-3. La primera vez que se abre un juego, sus ficheros se copian a la flash externa (barras de
+
+   Si el `.scummvm` está vacío se usa la carpeta `/scummvm/<nombre del fichero>`. También vale
+   una ruta completa (`/juegos/monkey`). La disposición de la primera versión (el `.scummvm`
+   dentro de la carpeta del juego) sigue funcionando.
+4. La primera vez que se abre un juego, sus ficheros se copian a la flash externa (barras de
    progreso); las siguientes veces arranca directamente.
+
+Si un juego vuelve al menú de Retro-Go sin más, el motivo queda en
+`/saves/scummvm/scummvm.log`.
 
 ## Controles
 
