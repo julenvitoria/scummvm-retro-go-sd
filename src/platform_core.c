@@ -39,7 +39,7 @@ bool rg_storage_mkdir(const char *dir);
 #define FIRMWARE_RESERVE (16 * 1024)    /* RAM_EMU left at the top for the firmware's ram_malloc() */
 #define STACK_SIZE (48 * 1024)          /* ScummVM's stack, in DTCM (the firmware's is 24 KB: too small) */
 #define STACK_PAINT 0x5354434Bu
-#define SCREEN_HEAP (136 * 1024)        /* virtual screens of a 320x200 SCUMM game: ~130 KB */
+#define SCREEN_HEAP (160 * 1024)        /* SCUMM screen buffers: 2 x 64 KB main + verb, text, banner */
 #define SAVE_DIR "/saves/scummvm"
 #define LCD_W 320
 #define LCD_H 240
