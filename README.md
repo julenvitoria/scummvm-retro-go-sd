@@ -1,23 +1,144 @@
-# ScummVM para Game & Watch (Retro-Go SD)
+# ScummVM for Game & Watch (Retro-Go SD)
 
-Core de [ScummVM](https://github.com/scummvm/scummvm) para la Game & Watch con el
-firmware Retro-Go SD de sylverb (rama `external_cores`). Empieza por el motor SCUMM
-(aventuras de LucasArts, versiones 0 a 6).
+[English](#english) · [Español](#español)
 
-**Estado: primera versión de prueba.** Arranca y se juega *The Secret of Monkey Island*
-(EGA), con música y efectos (AdLib / Sound Blaster FM, emulador OPL de DOSBox). Todavía
-**sin partidas guardadas**. El estudio previo está en
+---
+
+## English
+
+A [ScummVM](https://github.com/scummvm/scummvm) core for the Nintendo Game & Watch running
+sylverb's Retro-Go SD firmware (`external_cores` branch). It starts with the SCUMM engine
+(LucasArts adventures, versions 0 to 6).
+
+**Status: test version.** *The Secret of Monkey Island* (EGA and VGA talkie) starts and plays,
+with music and sound effects (AdLib / Sound Blaster FM through DOSBox's OPL emulator) and
+speech. **No saved games yet.**
+
+No games are included, nor will they be: bring your own.
+
+### Installation
+
+1. Copy `scummvm.bin` to `/cores/` on the SD card.
+2. Copy each game's files, as they are (`000.lfl`, `901.lfl`, `disk01.lec`…), to a folder of
+   its own inside `/scummvm/` — outside `/roms`, so that it does not show in the menu.
+3. Put one `.scummvm` text file per game in `/roms/scummvm/`. Its name is what the menu
+   shows; inside it, write the name of the game's folder:
+
+   ```
+   /roms/scummvm/The Secret of Monkey Island.scummvm    (contains: monkey)
+   /scummvm/monkey/000.lfl
+   /scummvm/monkey/901.lfl
+   ...
+   ```
+
+   If the file is empty, the folder `/scummvm/<file name>` is used. A full path also works
+   (`/games/monkey`). Make sure the file does not end in `.txt` (show file extensions on
+   Windows).
+4. The first time a game is opened its files are copied to the external flash (progress
+   bars); after that it starts right away. Files over 24 MB (the speech of talkie versions)
+   are read from the SD card instead.
+
+### Telling ScummVM which game it is
+
+ScummVM recognises a game by a fingerprint of its files, and knows thousands of versions.
+With an unusual copy (a rare release, a fan-made talkie…) it has to guess, and may guess
+wrong. You can tell it, with optional lines in the `.scummvm` file, below the folder name:
+
+```
+monkey_talkie
+game=monkey
+platform=pc
+language=es
+```
+
+| Line | Meaning |
+|---|---|
+| `game=` | which game it is, by ScummVM's short name (table below). Usually all that is needed. |
+| `platform=` | the computer the version was made for: `pc`, `amiga`, `atari`, `fmtowns`, `segacd`… |
+| `language=` | `en`, `es`, `fr`, `de`, `it`… |
+
+With `game=`, only that game is considered, the way you would add it by hand in ScummVM's
+own launcher; `platform=` and `language=` rule out the versions that do not match. Without
+these lines nothing changes: ScummVM picks what it finds in the folder.
+
+| Game | `game=` |
+|---|---|
+| Maniac Mansion | `maniac` |
+| Zak McKracken and the Alien Mindbenders | `zak` |
+| Indiana Jones and the Last Crusade | `indy3` |
+| Loom | `loom` |
+| The Secret of Monkey Island | `monkey` |
+| Monkey Island 2: LeChuck's Revenge | `monkey2` |
+| Indiana Jones and the Fate of Atlantis | `atlantis` |
+| Day of the Tentacle | `tentacle` |
+| Sam & Max Hit the Road | `samnmax` |
+
+They do not fix an incomplete copy, nor the versions this core leaves out on purpose:
+Macintosh and NES versions (their buffers are cut to save memory) and FM-Towns.
+
+### When a game does not start
+
+If a game goes back to the Retro-Go menu, the reason is shown on screen and written to
+`/saves/scummvm/scummvm.log`.
+
+### Controls
+
+| Button | Action |
+|---|---|
+| D-pad | move the pointer (speeds up while held) |
+| B | left click |
+| A | right click |
+| GAME (START) | Esc: skip cutscene |
+| TIME (SELECT) | `.` + Enter: skip line / "press ENTER to continue" |
+| PAUSE/SET | Retro-Go menu |
+
+### How it is made
+
+- The essentials (boot, SD card access, the heap) live in the core's RAM; the rest of
+  ScummVM (~2.5 MB of code) runs straight from the external flash (XIP). At boot the core
+  is copied to the flash and relocated to wherever it landed (`tools/xip_pack.py`,
+  `src/boot.c`).
+- Game files are read from the external flash without being copied to RAM.
+- The heap takes all the RAM the firmware leaves free (~900 KB in several regions,
+  `src/heap.c`); the SCUMM engine's screen buffers have a region of their own so that room
+  changes do not fragment it.
+- `patches/` holds changes to ScummVM applied at build time (`GW_SCUMM_SLIM`): smaller
+  buffers, no GUI dialogs (they go to the log), resources freed when memory runs low, and
+  the fingerprints of a few Spanish copies ScummVM did not know.
+
+### Building
+
+```
+git submodule update --init
+make              # out/scummvm.bin (arm-none-eabi-gcc on the PATH, or GCC_PATH=...)
+make host         # PC test build: build/host/scummvm_host <game folder>
+make host-gwheap  # the same with the console's heap, to find out-of-memory spots
+```
+
+`tools/host/` has the PC memory tools ([tools/host/README.md](tools/host/README.md)).
+
+---
+
+## Español
+
+Core de [ScummVM](https://github.com/scummvm/scummvm) para la Game & Watch con el firmware
+Retro-Go SD de sylverb (rama `external_cores`). Empieza por el motor SCUMM (aventuras de
+LucasArts, versiones 0 a 6).
+
+**Estado: versión de prueba.** Arranca y se juega *The Secret of Monkey Island* (EGA y la
+versión hablada VGA), con música y efectos (AdLib / Sound Blaster FM, emulador OPL de
+DOSBox) y voces. **Todavía sin partidas guardadas.** El estudio previo está en
 [docs/estudio-viabilidad.md](docs/estudio-viabilidad.md).
 
 Los juegos no se incluyen ni se incluirán: cada uno pone los suyos.
 
-## Instalación
+### Instalación
 
 1. Copia `scummvm.bin` en `/cores/` de la SD.
-2. Los ficheros de cada juego van, tal cual (`000.lfl`, `901.lfl`, `disk01.lec`...), en su
-   propia carpeta dentro de `/scummvm/` (fuera de `/roms`, para que no salga en el menú).
-3. En `/roms/scummvm/` va un fichero `.scummvm` por juego; su nombre es el que aparece en el
-   menú y dentro lleva el nombre de la carpeta del juego:
+2. Copia los ficheros de cada juego, tal cual (`000.lfl`, `901.lfl`, `disk01.lec`…), en una
+   carpeta propia dentro de `/scummvm/` — fuera de `/roms`, para que no salga en el menú.
+3. Pon en `/roms/scummvm/` un fichero de texto `.scummvm` por juego. Su nombre es lo que
+   muestra el menú; dentro, escribe el nombre de la carpeta del juego:
 
    ```
    /roms/scummvm/The Secret of Monkey Island.scummvm    (contiene: monkey)
@@ -26,16 +147,58 @@ Los juegos no se incluyen ni se incluirán: cada uno pone los suyos.
    ...
    ```
 
-   Si el `.scummvm` está vacío se usa la carpeta `/scummvm/<nombre del fichero>`. También vale
-   una ruta completa (`/juegos/monkey`). La disposición de la primera versión (el `.scummvm`
-   dentro de la carpeta del juego) sigue funcionando.
-4. La primera vez que se abre un juego, sus ficheros se copian a la flash externa (barras de
-   progreso); las siguientes veces arranca directamente.
+   Si el fichero está vacío se usa la carpeta `/scummvm/<nombre del fichero>`. También vale
+   una ruta completa (`/juegos/monkey`). Comprueba que el fichero no termine en `.txt`
+   (activa ver las extensiones en Windows).
+4. La primera vez que se abre un juego sus ficheros se copian a la flash externa (barras de
+   progreso); después arranca directamente. Los ficheros de más de 24 MB (las voces de las
+   versiones habladas) se leen de la SD.
 
-Si un juego vuelve al menú de Retro-Go sin más, el motivo queda en
+### Decirle a ScummVM qué juego es
+
+ScummVM reconoce cada juego por una huella de sus ficheros y conoce miles de versiones. Con
+una copia poco común (una edición rara, una versión hablada de aficionados…) tiene que
+adivinar, y puede equivocarse. Se lo puedes indicar con líneas opcionales en el `.scummvm`,
+debajo del nombre de la carpeta:
+
+```
+monkey_talkie
+game=monkey
+platform=pc
+language=es
+```
+
+| Línea | Significado |
+|---|---|
+| `game=` | qué juego es, con el nombre corto de ScummVM (tabla abajo). Casi siempre basta con esta. |
+| `platform=` | el ordenador para el que se hizo la versión: `pc`, `amiga`, `atari`, `fmtowns`, `segacd`… |
+| `language=` | `es`, `en`, `fr`, `de`, `it`… |
+
+Con `game=` solo se tiene en cuenta ese juego, igual que al añadirlo a mano en el lanzador de
+ScummVM; `platform=` y `language=` descartan las versiones que no coinciden. Sin estas
+líneas no cambia nada: ScummVM elige lo que encuentra en la carpeta.
+
+| Juego | `game=` |
+|---|---|
+| Maniac Mansion | `maniac` |
+| Zak McKracken and the Alien Mindbenders | `zak` |
+| Indiana Jones y la Última Cruzada | `indy3` |
+| Loom | `loom` |
+| The Secret of Monkey Island | `monkey` |
+| Monkey Island 2: LeChuck's Revenge | `monkey2` |
+| Indiana Jones and the Fate of Atlantis | `atlantis` |
+| Day of the Tentacle | `tentacle` |
+| Sam & Max Hit the Road | `samnmax` |
+
+No arreglan una copia incompleta ni las versiones que este core deja fuera a propósito:
+Macintosh y NES (sus buffers están recortados para ahorrar memoria) y FM-Towns.
+
+### Cuando un juego no arranca
+
+Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escrito en
 `/saves/scummvm/scummvm.log`.
 
-## Controles
+### Controles
 
 | Botón | Acción |
 |---|---|
@@ -46,23 +209,27 @@ Si un juego vuelve al menú de Retro-Go sin más, el motivo queda en
 | TIME (SELECT) | `.` + Enter: saltar frase / "pulsa ENTER para continuar" |
 | PAUSE/SET | menú de Retro-Go |
 
-## Cómo está hecho
+### Cómo está hecho
 
 - Lo esencial (arranque, acceso a la SD, el heap) va en la RAM del core; el resto de ScummVM
   (~2,5 MB de código) se ejecuta directamente desde la flash externa (XIP). Al arrancar, el
   core se copia a la flash y se reubica a la dirección donde quedó (`tools/xip_pack.py`,
   `src/boot.c`).
 - Los ficheros del juego se leen desde la flash externa, sin copiarlos a RAM.
-- El heap usa toda la RAM libre que deja el firmware (~885 KB en tres zonas, `src/heap.c`).
-- `patches/` contiene cambios a ScummVM que se aplican al compilar (buffers de las versiones
-  Macintosh y NES recortados: esas versiones no están soportadas).
+- El heap usa toda la RAM libre que deja el firmware (~900 KB en varias zonas, `src/heap.c`);
+  los buffers de pantalla del motor SCUMM tienen una zona propia para que los cambios de
+  habitación no la fragmenten.
+- `patches/` contiene cambios a ScummVM que se aplican al compilar (`GW_SCUMM_SLIM`): buffers
+  más pequeños, sin diálogos de la GUI (van al registro), recursos liberados cuando falta
+  memoria y las huellas de algunas copias españolas que ScummVM no conocía.
 
-## Compilar
+### Compilar
 
 ```
 git submodule update --init
-make            # out/scummvm.bin (arm-none-eabi-gcc en el PATH o GCC_PATH=...)
-make host       # versión de PC para pruebas: build/host/scummvm_host <carpeta del juego>
+make              # out/scummvm.bin (arm-none-eabi-gcc en el PATH o GCC_PATH=...)
+make host         # versión de PC para pruebas: build/host/scummvm_host <carpeta del juego>
+make host-gwheap  # lo mismo con el heap de la consola, para encontrar faltas de memoria
 ```
 
 `tools/host/` tiene las herramientas de medición de memoria en el PC

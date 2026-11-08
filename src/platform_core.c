@@ -350,6 +350,9 @@ static void last_log_line(char *last, size_t size)
  *     the first version: /roms/scummvm/monkey/Monkey Island.scummvm). */
 #define GAMES_DIR "/scummvm"
 
+/* the optional lines of the .scummvm file */
+static char g_opt_game[48], g_opt_platform[40], g_opt_language[40];
+
 static bool is_dir(const char *p) { rg_stat_t s = rg_storage_stat(p); return s.exists && s.is_dir; }
 
 static void find_game(const char *picked)
@@ -366,13 +369,38 @@ static void find_game(const char *picked)
 			if (text[i]) text[k++] = text[i];
 		text[k] = 0;
 	}
-	/* first line, trimmed (also of a UTF-8 BOM and quotes) */
-	char *t = text;
-	if ((uint8_t)t[0] == 0xEF && (uint8_t)t[1] == 0xBB && (uint8_t)t[2] == 0xBF) t += 3;
-	while (*t == ' ' || *t == '\t' || *t == '"') t++;
-	char *e = t + strcspn(t, "\r\n");
-	while (e > t && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '"' || e[-1] == '/')) e--;
-	*e = 0;
+	/* line by line: "key=value" lines are options (game=, platform=, language=), the first
+	   other line is the folder; trimmed of spaces, quotes, a UTF-8 BOM and a trailing slash */
+	char *t = "", *line = text;
+	if ((uint8_t)line[0] == 0xEF && (uint8_t)line[1] == 0xBB && (uint8_t)line[2] == 0xBF) line += 3;
+	bool have_folder = false;
+	while (*line) {
+		char *next = line + strcspn(line, "\r\n");
+		char *after = next + strspn(next, "\r\n");
+		*next = 0;
+		while (*line == ' ' || *line == '\t' || *line == '"') line++;
+		char *e = next;
+		while (e > line && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '"' || e[-1] == '/')) e--;
+		*e = 0;
+		char *eq = strchr(line, '=');
+		if (eq) {
+			*eq = 0;
+			char *k = line, *v = eq + 1;
+			char *ke = eq;
+			while (ke > k && (ke[-1] == ' ' || ke[-1] == '\t')) *--ke = 0;
+			while (*v == ' ' || *v == '\t') v++;
+			if (!strcasecmp(k, "game")) snprintf(g_opt_game, sizeof g_opt_game, "%s", v);
+			else if (!strcasecmp(k, "platform")) snprintf(g_opt_platform, sizeof g_opt_platform, "--platform=%s", v);
+			else if (!strcasecmp(k, "language")) snprintf(g_opt_language, sizeof g_opt_language, "--language=%s", v);
+			else logf_("ScummVM: unknown option \"%s\" in %s\n", k, picked);
+		} else if (!have_folder && *line) {
+			t = line;
+			have_folder = true;
+		}
+		line = after;
+	}
+	if (g_opt_game[0] || g_opt_platform[0] || g_opt_language[0])
+		logf_("ScummVM: options game=%s %s %s\n", g_opt_game, g_opt_platform, g_opt_language);
 
 	logf_("ScummVM: picked %s, it says \"%s\"\n", picked, t);
 	if (*t) {
@@ -505,9 +533,19 @@ int svm_main(void)
 	}
 
 	audio_start();
-	const char *argv[] = { "scummvm", "-p", g_game, "--auto-detect", NULL };
+	/* with game=: "scummvm -p <folder> [--platform=] [--language=] <game id>" (the game ScummVM
+	   would add by hand); without it: --auto-detect, the first game found in the folder */
+	const char *argv[8];
+	int argc = 0;
+	argv[argc++] = "scummvm";
+	argv[argc++] = "-p";
+	argv[argc++] = g_game;
+	if (g_opt_platform[0]) argv[argc++] = g_opt_platform;
+	if (g_opt_language[0]) argv[argc++] = g_opt_language;
+	argv[argc++] = g_opt_game[0] ? g_opt_game : "--auto-detect";
+	argv[argc] = NULL;
 	for (uint32_t i = 0; i < STACK_SIZE / 4; i++) g_stack[i] = STACK_PAINT;
-	int res = run_on_stack(4, argv, gw_scummvm_main, (uint8_t *)g_stack + STACK_SIZE);
+	int res = run_on_stack(argc, argv, gw_scummvm_main, (uint8_t *)g_stack + STACK_SIZE);
 	if (res) {
 		/* ScummVM gave up (no game detected...): say so instead of just leaving */
 		char last[64];
