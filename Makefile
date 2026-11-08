@@ -36,6 +36,7 @@ $(PATCHED): $(wildcard patches/*.patch)
 HB       := build/host
 HOST_OBJ := $(SVM_SRC:%=$(HB)/svm/%.o) $(OWN_CXX:%=$(HB)/%.o) $(HB)/src/platform_host.c.o
 
+.PHONY: host-gwheap
 host: $(HB)/scummvm_host
 
 $(HB)/svm/%.cpp.o: $(SVM)/%.cpp Makefile | $(PATCHED)
@@ -55,6 +56,16 @@ $(HB)/src/%.c.o: src/%.c src/platform.h
 	gcc -c -O1 -g -Wall $< -o $@
 
 $(HB)/scummvm_host: $(HOST_OBJ)
+	@g++ $^ -o $@ && echo "  LINK $@"
+
+# the same with the console's heap (src/heap.c) instead of the PC's malloc: GW_HEAP_* in
+# tools/host/gwheap.c set its sizes -- shows where a game runs out of memory
+host-gwheap: $(HB)/scummvm_host_gwheap
+$(HB)/gwheap.o: tools/host/gwheap.c src/heap.c
+	gcc -c -O1 -g -Isrc $< -o $@
+$(HB)/tlsf.o: src/third_party/tlsf/tlsf.c
+	gcc -c -O1 -g -DNDEBUG $< -o $@
+$(HB)/scummvm_host_gwheap: $(HOST_OBJ) $(HB)/gwheap.o $(HB)/tlsf.o
 	@g++ $^ -o $@ && echo "  LINK $@"
 
 # ---------------------------------------------------------------- the core

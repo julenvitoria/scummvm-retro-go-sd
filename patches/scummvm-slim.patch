@@ -1,5 +1,75 @@
+diff --git a/audio/midiparser.h b/audio/midiparser.h
+index d8ee41ac..73bdddd1 100644
+--- a/audio/midiparser.h
++++ b/audio/midiparser.h
+@@ -28,7 +28,12 @@
+ #include "common/endian.h"
+ #include "common/stream.h"
+ 
++#ifdef GW_SCUMM_SLIM
++// Game & Watch: SCUMM's iMuse plays plain SMF/XMIDI, one subtrack (35 cost ~17 KB per parser)
++#define AUDIO_MIDIPARSER_MAXIMUM_SUBTRACKS 2
++#else
+ #define AUDIO_MIDIPARSER_MAXIMUM_SUBTRACKS 35
++#endif
+ 
+ class MidiDriver_BASE;
+ 
+diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
+index bf85f13c..5c158960 100644
+--- a/engines/scumm/gfx.cpp
++++ b/engines/scumm/gfx.cpp
+@@ -343,6 +343,11 @@ void ScummEngine::initScreens(int b, int h) {
+ 	int adj = 0;
+ 
+ 	for (i = 0; i < 4; i++) {
++#ifdef GW_SCUMM_SLIM
++		// Game & Watch: the main screen's buffers are kept (initVirtScreen reuses them)
++		if (i == kMainVirtScreen)
++			continue;
++#endif
+ 		_res->nukeResource(rtBuffer, i + 1);
+ 		_res->nukeResource(rtBuffer, i + 5);
+ 	}
+@@ -444,6 +449,24 @@ void ScummEngine::initVirtScreen(VirtScreenNumber slot, int top, int width, int
+ 		}
+ 	}
+ 
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: the main screen's two buffers are made once, for the tallest room, and
++	// kept (initScreens no longer frees them): made again at every room change, with sizes
++	// that follow the room's height, they split the heap until a 64 KB one no longer fit
++	bool keep = false;
++	if (slot == kMainVirtScreen) {
++		uint32 full = vs->pitch * (_screenHeight + 4);
++		if (size < full)
++			size = full;
++		keep = getResourceAddress(rtBuffer, slot + 1) && _res->_types[rtBuffer][slot + 1]._size >= size &&
++		       (!twobufs || (getResourceAddress(rtBuffer, slot + 5) && _res->_types[rtBuffer][slot + 5]._size >= size));
++		if (!keep) {
++			_res->nukeResource(rtBuffer, slot + 1);
++			_res->nukeResource(rtBuffer, slot + 5);
++		}
++	}
++	if (!keep)
++#endif
+ 	_res->createResource(rtBuffer, slot + 1, size);
+ 	vs->setPixels(getResourceAddress(rtBuffer, slot + 1));
+ 	if (_game.platform == Common::kPlatformNES)
+@@ -452,6 +475,11 @@ void ScummEngine::initVirtScreen(VirtScreenNumber slot, int top, int width, int
+ 		memset(vs->getBasePtr(0, 0), 0, size);		// reset background
+ 
+ 	if (twobufs) {
++#ifdef GW_SCUMM_SLIM
++		if (keep)
++			vs->backBuf = getResourceAddress(rtBuffer, slot + 5);
++		else
++#endif
+ 		vs->backBuf = _res->createResource(rtBuffer, slot + 5, size);
+ 	}
+ 
 diff --git a/engines/scumm/resource.cpp b/engines/scumm/resource.cpp
-index df195fef..43455edb 100644
+index df195fef..1f6716ec 100644
 --- a/engines/scumm/resource.cpp
 +++ b/engines/scumm/resource.cpp
 @@ -41,6 +41,10 @@
@@ -33,7 +103,7 @@ index df195fef..43455edb 100644
  
 +#ifdef GW_SCUMM_SLIM
 +	// Game & Watch: screen buffers come from a heap of their own (src/heap.c)
-+	heap_screen_hint = (type == rtBuffer);
++	heap_screen_hint = (type == rtBuffer && size >= 2048);   // small rtBuffers are scratch: elsewhere
 +#endif
  	expireResources(size);
  
@@ -71,7 +141,20 @@ index df195fef..43455edb 100644
  		return;
  
  	oldAllocatedSize = _allocatedSize;
-@@ -1196,7 +1222,7 @@ void ResourceManager::expireResources(uint32 size) {
+@@ -1175,6 +1201,12 @@ void ResourceManager::expireResources(uint32 size) {
+ 	do {
+ 		best_type = rtInvalid;
+ 		best_counter = 2;
++#ifdef GW_SCUMM_SLIM
++		// Game & Watch: short of memory, what was used a moment ago (the room being left)
++		// goes too, as long as it is not in use
++		if (GW_HEAP_LOW(size))
++			best_counter = 1;
++#endif
+ 
+ 		for (ResType type = rtFirst; type <= rtLast; type = ResType(type + 1)) {
+ 			if (_types[type]._mode != kDynamicResTypeMode) {
+@@ -1196,10 +1228,23 @@ void ResourceManager::expireResources(uint32 size) {
  		if (!best_type)
  			break;
  		nukeResource(best_type, best_res);
@@ -80,6 +163,46 @@ index df195fef..43455edb 100644
  
  	increaseResourceCounters();
  
++#ifdef GW_DEBUG_EXPIRE
++	if (GW_HEAP_LOW(size)) {
++		warning("expire: still low for %u, resources %u -> %u", size, oldAllocatedSize, _allocatedSize);
++		for (ResType type = rtFirst; type <= rtLast; type = ResType(type + 1)) {
++			ResId idx = _types[type].size();
++			while (idx-- > 0) {
++				Resource &tmp = _types[type][idx];
++				if (tmp._address)
++					warning("  type %d idx %d size %u locked %d counter %d inuse %d mode %d", type, idx, tmp._size, tmp.isLocked(), tmp.getResourceCounter(), _vm->isResourceInUse(type, idx), _types[type]._mode);
++			}
++		}
++	}
++#endif
+ 	debugC(DEBUG_RESOURCE, "Expired resources, mem %d -> %d", oldAllocatedSize, _allocatedSize);
+ }
+ 
+diff --git a/engines/scumm/scumm-md5.h b/engines/scumm/scumm-md5.h
+index 32b0516f..eaf410a9 100644
+--- a/engines/scumm/scumm-md5.h
++++ b/engines/scumm/scumm-md5.h
+@@ -243,6 +243,9 @@ static const MD5Table md5table[] = {
+ 	{ "41958e24d03181ff9a381a66d048a581", "ft", "", "", -1, Common::PT_BRA, Common::kPlatformUnknown },
+ 	{ "425205754fa749f4f0b0dd9d09fa45fd", "football", "", "Demo", -1, Common::EN_ANY, Common::kPlatformUnknown },
+ 	{ "4252854e7d052cb488b520ba89c3eb6d", "monkey", "SE Talkie", "Unofficial SE Talkie v1.01", 9135, Common::DE_DEU, Common::kPlatformDOS },
++#ifdef GW_SCUMM_SLIM	// Game & Watch: Spanish dumps seen by our users
++	{ "4306dc3e68c73ce8650f479dde3bc5e0", "monkey", "SE Talkie", "Unofficial SE Talkie", 9135, Common::ES_ESP, Common::kPlatformDOS },
++#endif
+ 	{ "430bc518017b6fac046f58bab6baad5d", "monkey2", "FM-TOWNS", "", 11135, Common::JA_JPN, Common::kPlatformFMTowns },
+ 	{ "43950303291675b305178f37a56d72ec", "soccer", "", "Steam", -1, Common::EN_ANY, Common::kPlatformWindows },
+ 	{ "439a7f4adf510489981ac52308e7d7a2", "maniac", "C64", "", 1188, Common::DE_DEU, Common::kPlatformC64 },
+@@ -837,6 +840,9 @@ static const MD5Table md5table[] = {
+ 	{ "fc8d197a22146e74766e9cb0cfcaf1da", "freddi2", "HE 80", "Demo", 27298, Common::EN_ANY, Common::kPlatformUnknown },
+ 	{ "fcb78ebecab2757264c590890c319cc5", "PuttTime", "HE 85", "", 62582, Common::NL_NLD, Common::kPlatformUnknown },
+ 	{ "fce4b8010704b103acfeea9413788f32", "freddi2", "HE 80", "", 65305, Common::DE_DEU, Common::kPlatformUnknown },
++#ifdef GW_SCUMM_SLIM	// Game & Watch: Spanish dumps seen by our users
++	{ "fd21b6e3678ed7f75216819618fd46ff", "monkey", "EGA", "EGA", 8357, Common::ES_ESP, Common::kPlatformDOS },
++#endif
+ 	{ "fe381e45117878b1e942cb876b050fd6", "ft", "", "", 513243679, Common::EN_ANY, Common::kPlatformMacintosh },
+ 	{ "fe60d6b5ff51b0553ac59963123b5777", "comi", "", "", 76791, Common::UNK_LANG, Common::kPlatformWindows },
+ 	{ "febf4a983ea5faea1c9dd6c710ebb09c", "puttcircus", "", "", 36655, Common::DE_DEU, Common::kPlatformWindows },
 diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
 index 88e087d7..f89b6522 100644
 --- a/engines/scumm/scumm.cpp
@@ -147,3 +270,53 @@ index 356a3602..05b4dc17 100644
  
  protected:
  	byte _charsetColor = 0;
+diff --git a/gui/dialog.cpp b/gui/dialog.cpp
+index b6cbe9db..081a1c78 100644
+--- a/gui/dialog.cpp
++++ b/gui/dialog.cpp
+@@ -37,7 +37,9 @@ Dialog::Dialog(int x, int y, int w, int h, bool scale)
+ 	// Thus we need to catch screen changes here too. If we do not do that, it
+ 	// will for example crash after returning to the launcher when the user
+ 	// started a 640x480 game with a non 1x scaler.
++#ifndef GW_SCUMM_SLIM	// Game & Watch: no GUI (see runModal)
+ 	g_gui.checkScreenChange();
++#endif
+ 
+ 	_result = -1;
+ }
+@@ -54,12 +56,19 @@ Dialog::Dialog(const Common::String &name)
+ 	//
+ 	// Fixes bug #2892: "HE: When 3x graphics are chosen, F5 crashes game"
+ 	// and bug #2903: "SCUMM: F5 crashes game (640x480)"
++#ifndef GW_SCUMM_SLIM
+ 	g_gui.checkScreenChange();
++#endif
+ 
+ 	_result = -1;
+ }
+ 
+ int Dialog::runModal() {
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: ScummVM's GUI needs ~140 KB that a game does not leave free; a dialog
++	// is logged (MessageDialog) and answered with its default button
++	return 0;
++#endif
+ 	// Open up
+ 	open();
+ 
+diff --git a/gui/message.cpp b/gui/message.cpp
+index 999ae37a..bb120baa 100644
+--- a/gui/message.cpp
++++ b/gui/message.cpp
+@@ -48,6 +48,11 @@ void MessageDialog::init(const Common::U32String &message,
+ 	// message widgets will be created in reflowLayout as needed
+ 	_message = message;
+ 	_alignment = alignment;
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: no GUI, the message goes to the log (Dialog::runModal)
++	warning("%s", message.encode().c_str());
++	return;
++#endif
+ 	_url = url;
+ 	_extraMessage = nullptr;
+ 

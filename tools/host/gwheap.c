@@ -1,9 +1,10 @@
 /*
- * The console's heap on the PC: LD_PRELOAD this to run build/host/scummvm_host inside
- * src/heap.c with pools of a fixed size, to see where a game runs out of memory.
+ * The console's heap on the PC: linked into build/host/scummvm_host_gwheap (make
+ * host-gwheap), it runs the PC build inside src/heap.c with pools of a fixed size, to see
+ * where a game runs out of memory. (Not as an LD_PRELOAD: the program's own definitions of
+ * heap_free_bytes()/heap_can_alloc() would win over the library's.)
  *
- *   gcc -O2 -shared -fPIC -Isrc tools/host/gwheap.c src/third_party/tlsf/tlsf.c -DNDEBUG -o gwheap.so
- *   GW_WAV=/dev/null GW_HEAP_BIG=800 GW_HEAP_SMALL=260 LD_PRELOAD=./gwheap.so build/host/scummvm_host <game>
+ *   GW_WAV=/dev/null GW_HEAP_BIG=800 GW_HEAP_SMALL=260 GW_HEAP_SCREEN=136 build/host/scummvm_host_gwheap <game>
  *   (GW_WAV: with no sound output ScummVM would not load the music, and use less memory)
  *
  * Sizes in KB. The PC has 64-bit pointers, so the same program needs roughly 1.2-1.3x the
@@ -19,15 +20,7 @@
 #define HEAP_LAZY_INIT
 #include "../../src/heap.c"
 
-#include <execinfo.h>
-void plat_log(const char *msg)
-{
-	fputs(msg, stderr);
-	if (!strncmp(msg, "heap: out of memory", 19)) {     /* who asked */
-		void *bt[16];
-		backtrace_symbols_fd(bt, backtrace(bt, 16), 2);
-	}
-}
+/* plat_log (platform_host.c) prints a backtrace of an allocation that fails */
 
 void heap_lazy_init(void)
 {
