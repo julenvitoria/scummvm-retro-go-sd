@@ -19,6 +19,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <execinfo.h>
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
@@ -27,7 +28,15 @@ static const char *g_game, *g_saves;
 static struct timeval g_t0;
 static uint8_t g_pal[768];
 
-void plat_log(const char *msg) { fputs(msg, stdout); fflush(stdout); }
+void plat_log(const char *msg)
+{
+	fputs(msg, stdout);
+	fflush(stdout);
+	if (!strncmp(msg, "heap: out of memory", 19)) {      /* host-gwheap: who asked */
+		void *bt[16];
+		backtrace_symbols_fd(bt, backtrace(bt, 16), 1);
+	}
+}
 void plat_fatal(void) { exit(1); }
 
 void plat_quit(void) { exit(0); }
@@ -46,7 +55,7 @@ uint32_t plat_millis(void)
 /* the console's heap.c: the PC never runs low */
 uint32_t heap_free_bytes(void) __attribute__((weak));
 uint32_t heap_free_bytes(void) { return 64u << 20; }
-int heap_screen_hint;   /* shared with tools/host/gwheap.c when it is preloaded */
+int heap_screen_hint __attribute__((weak));   /* src/heap.c defines it in host-gwheap */
 int heap_can_alloc(uint32_t n) __attribute__((weak));
 int heap_can_alloc(uint32_t n) { (void)n; return 1; }
 

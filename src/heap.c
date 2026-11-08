@@ -29,7 +29,9 @@
 
 void plat_log(const char *msg);
 
+#ifndef BIG_REQUEST
 #define BIG_REQUEST (8 * 1024)
+#endif
 
 enum { HEAP_BIG, HEAP_SMALL, HEAP_SCREEN, HEAPS };
 
@@ -109,6 +111,9 @@ static void *alloc(size_t align, size_t n)
 		tlsf_t t = order[k] >= 0 ? g_tlsf[order[k]] : NULL;
 		if (t) p = align ? tlsf_memalign(t, align, n) : tlsf_malloc(t, n);
 	}
+#ifdef HEAP_TRACE_SCREEN
+	if (heap_screen_hint) { static char m[96]; snprintf(m, sizeof m, "heap: screen %lu -> %p\n", (unsigned long)n, p); plat_log(m); }
+#endif
 	if (!p) {
 		errno = ENOMEM;
 		if (g_pools) {

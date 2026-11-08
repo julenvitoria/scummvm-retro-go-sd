@@ -295,6 +295,7 @@ void plat_fclose(void *f) { fclose((FILE *)f); }
 /* The game's files, cached in external flash before ScummVM starts (the firmware unmaps the
    flash while it writes it, and most of ScummVM runs from there). */
 #define MAX_MAPPED 64
+#define MAX_CACHED_FILE (24u << 20)
 static struct { char name[64]; const uint8_t *data; uint32_t size; } g_map[MAX_MAPPED];
 static int g_mapped, g_files;
 
@@ -305,6 +306,8 @@ static void cache_one(const char *name, bool is_dir, uint32_t size, void *arg)
 	if (is_dir || g_mapped >= MAX_MAPPED || size == 0 || n >= sizeof g_map[0].name) return;
 	if (n > 8 && !strcasecmp(name + n - 8, ".scummvm")) return;
 	g_files++;
+	/* bigger than this stays on the SD card (a talkie's speech file is ~200 MB, the flash 64) */
+	if (size > MAX_CACHED_FILE) { logf_("ScummVM: %s (%lu KB) is read from the SD card\n", name, (unsigned long)(size / 1024)); return; }
 	char path[320];
 	snprintf(path, sizeof path, "%s/%s", g_game, name);
 	uint32_t got = 0;
