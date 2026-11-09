@@ -133,10 +133,50 @@ index bf85f13c..5c158960 100644
  	}
  
 diff --git a/engines/scumm/gfx_gui.cpp b/engines/scumm/gfx_gui.cpp
-index 133f6ec0..d4127448 100644
+index 133f6ec0..37155b7b 100644
 --- a/engines/scumm/gfx_gui.cpp
 +++ b/engines/scumm/gfx_gui.cpp
-@@ -2454,7 +2454,9 @@ void ScummEngine::showMainMenu() {
+@@ -1433,7 +1433,13 @@ void ScummEngine::saveSurfacesPreGUI() {
+ 		(_game.version == 3 && _game.platform == Common::kPlatformFMTowns))
+ 		return;
+ 
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: no copy of the text surface (64 KB, usually not there to take): it is
++	// cleared when the menu closes instead (restoreSurfacesPostGUI)
++	_tempTextSurface = nullptr;
++#else
+ 	_tempTextSurface = (byte *)malloc(_textSurface.pitch * _textSurface.h * sizeof(byte));
++#endif
+ 	_tempMainSurface = (byte *)malloc(_virtscr[kMainVirtScreen].w * _virtscr[kMainVirtScreen].h * sizeof(byte));
+ 	_tempVerbSurface = (byte *)malloc(_virtscr[kVerbVirtScreen].w * _virtscr[kVerbVirtScreen].h * sizeof(byte));
+ 
+@@ -1504,6 +1510,13 @@ void ScummEngine::restoreSurfacesPostGUI() {
+ 		free(_tempTextSurface);
+ 		_tempTextSurface = nullptr;
+ 	}
++#ifdef GW_SCUMM_SLIM
++	else {
++		// no copy: the menu's text goes, and with it whatever text was showing (the game
++		// prints its next line as usual)
++		memset(_textSurface.getBasePtr(0, 0), CHARSET_MASK_TRANSPARENCY, _textSurface.pitch * _textSurface.h);
++	}
++#endif
+ 
+ 	if (_tempMainSurface) {
+ 		for (int y = 0; y < _virtscr[kMainVirtScreen].h; y++) {
+@@ -1517,6 +1530,11 @@ void ScummEngine::restoreSurfacesPostGUI() {
+ 
+ 		_virtscr[kMainVirtScreen].setDirtyRange(0, _virtscr[kMainVirtScreen].h);
+ 	}
++#ifdef GW_SCUMM_SLIM
++	else {
++		_fullRedraw = true;	// Game & Watch: no copy (out of memory) -- the room is drawn again
++	}
++#endif
+ 
+ 	if (_tempVerbSurface) {
+ 		memcpy(_virtscr[kVerbVirtScreen].getBasePtr(0, 0),
+@@ -2454,7 +2472,9 @@ void ScummEngine::showMainMenu() {
  	}
  
  	// Generate the thumbnail, in case the game is saved
@@ -146,7 +186,7 @@ index 133f6ec0..d4127448 100644
  
  	// Pause the engine
  	PauseToken pt = pauseEngine();
-@@ -2892,6 +2894,16 @@ bool ScummEngine::executeMainMenuOperation(int op, int mouseX, int mouseY, bool
+@@ -2892,6 +2912,16 @@ bool ScummEngine::executeMainMenuOperation(int op, int mouseX, int mouseY, bool
  		break;
  	case GUI_CTRL_OK_BUTTON:
  		if (_menuPage == GUI_PAGE_SAVE) {
