@@ -455,6 +455,8 @@ static void last_log_line(char *last, size_t size)
 
 /* the optional lines of the .scummvm file */
 static char g_opt_game[48], g_opt_platform[40], g_opt_language[40];
+static char g_opt_extra[96];             /* extrapath=: a folder of extra files (CD music tracks) */
+static char g_arg_extra[320];
 
 static bool is_dir(const char *p) { rg_stat_t s = rg_storage_stat(p); return s.exists && s.is_dir; }
 
@@ -495,6 +497,7 @@ static void find_game(const char *picked)
 			if (!strcasecmp(k, "game")) snprintf(g_opt_game, sizeof g_opt_game, "%s", v);
 			else if (!strcasecmp(k, "platform")) snprintf(g_opt_platform, sizeof g_opt_platform, "--platform=%s", v);
 			else if (!strcasecmp(k, "language")) snprintf(g_opt_language, sizeof g_opt_language, "--language=%s", v);
+			else if (!strcasecmp(k, "extrapath")) snprintf(g_opt_extra, sizeof g_opt_extra, "%s", v);
 			else logf_("ScummVM: unknown option \"%s\" in %s\n", k, picked);
 		} else if (!have_folder && *line) {
 			t = line;
@@ -674,13 +677,19 @@ int svm_main(void)
 	audio_start();
 	/* with game=: "scummvm -p <folder> [--platform=] [--language=] <game id>" (the game ScummVM
 	   would add by hand); without it: --auto-detect, the first game found in the folder */
-	const char *argv[10];
+	const char *argv[12];
 	int argc = 0;
 	argv[argc++] = "scummvm";
 	argv[argc++] = "-p";
 	argv[argc++] = g_game;
 	if (g_opt_platform[0]) argv[argc++] = g_opt_platform;
 	if (g_opt_language[0]) argv[argc++] = g_opt_language;
+	if (g_opt_extra[0]) {                    /* under the game's folder, unless absolute */
+		if (g_opt_extra[0] == '/') snprintf(g_arg_extra, sizeof g_arg_extra, "--extrapath=%s", g_opt_extra);
+		else snprintf(g_arg_extra, sizeof g_arg_extra, "--extrapath=%s/%s", g_game, g_opt_extra);
+		argv[argc++] = g_arg_extra;
+		logf_("ScummVM: %s\n", g_arg_extra);
+	}
 	extern uint8_t svm_load_state;
 	extern int8_t svm_save_slot;
 	if (svm_load_state) odroid_system_emu_load_state(svm_save_slot);   /* -> rg_load() */

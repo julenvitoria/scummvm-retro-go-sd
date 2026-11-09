@@ -59,6 +59,7 @@ language=es
 | `game=` | which game it is, by ScummVM's short name (table below). Usually all that is needed. |
 | `platform=` | the computer the version was made for: `pc`, `amiga`, `atari`, `fmtowns`, `segacd`… |
 | `language=` | `en`, `es`, `fr`, `de`, `it`… |
+| `extrapath=` | a subfolder (of the game's folder, or an absolute path) with more of the game's files, such as CD music tracks: `extrapath=cd_music_flac` for the Monkey Island Ultimate Talkie. |
 
 With `game=`, only that game is considered, the way you would add it by hand in ScummVM's
 own launcher; `platform=` and `language=` rule out the versions that do not match. Without
@@ -215,6 +216,7 @@ language=es
 | `game=` | qué juego es, con el nombre corto de ScummVM (tabla abajo). Casi siempre basta con esta. |
 | `platform=` | el ordenador para el que se hizo la versión: `pc`, `amiga`, `atari`, `fmtowns`, `segacd`… |
 | `language=` | `es`, `en`, `fr`, `de`, `it`… |
+| `extrapath=` | una subcarpeta (de la carpeta del juego, o una ruta absoluta) con más ficheros del juego, como las pistas de música de CD: `extrapath=cd_music_flac` para el Monkey Island Ultimate Talkie. |
 
 Con `game=` solo se tiene en cuenta ese juego, igual que al añadirlo a mano en el lanzador de
 ScummVM; `platform=` y `language=` descartan las versiones que no coinciden. Sin estas
