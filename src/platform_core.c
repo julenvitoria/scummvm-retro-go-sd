@@ -47,7 +47,17 @@ bool rg_storage_mkdir(const char *dir);
 #define LCD_H 240
 
 static char g_game[256];
-static uint32_t g_clut[256];
+static uint32_t g_clut[256];           /* the game's palette */
+/* What the LCD gets: the firmware stamps its menu/HUD colours (white, greys...) over CLUT slots
+   [LCD_OVERLAY_CLUT_BASE, +LCD_OVERLAY_CLUT_MAX) while the PAUSE menu or the volume/brightness
+   bars are up, so a game pixel there flashed into a menu colour. Frames never use those slots:
+   their colours move to spare slots (exact duplicates elsewhere in the palette), or failing
+   that to the nearest colour, through g_lut. */
+static uint32_t g_hw[256];
+static uint8_t g_lut[256];
+#define OV0 LCD_OVERLAY_CLUT_BASE
+#define OV1 (LCD_OVERLAY_CLUT_BASE + LCD_OVERLAY_CLUT_MAX)
+static inline int in_ov(int i) { return i >= OV0 && i < OV1; }
 static void stack_report(void);
 static inline void pump(void);
 static const uint8_t *g_last;           /* last frame shown, for the PAUSE menu's repaint */
@@ -65,17 +75,26 @@ static void draw_frame(uint8_t *fb, const uint8_t *pix, int pitch, int w, int h)
 	if (w <= LCD_W && h <= LCD_H) {
 		int x0 = (LCD_W - w) / 2, y0 = (LCD_H - h) / 2;
 		if (y0) { memset(fb, B, y0 * LCD_W); memset(fb + (y0 + h) * LCD_W, B, (LCD_H - y0 - h) * LCD_W); }
+		const uint8_t *L = g_lut;
 		for (int y = 0; y < h; y++) {
 			uint8_t *d = fb + (y0 + y) * LCD_W;
 			if (x0) { memset(d, B, x0); memset(d + x0 + w, B, LCD_W - x0 - w); }
-			memcpy(d + x0, pix + y * pitch, w);
+			const uint8_t *src = pix + y * pitch;
+			d += x0;
+			int x = 0;
+			for (; x + 4 <= w; x += 4) {
+				uint32_t v = *(const uint32_t *)(src + x);   /* 4 at a time, through the LUT */
+				*(uint32_t *)(d + x) = L[v & 255] | (uint32_t)L[(v >> 8) & 255] << 8 |
+				                       (uint32_t)L[(v >> 16) & 255] << 16 | (uint32_t)L[v >> 24] << 24;
+			}
+			for (; x < w; x++) d[x] = L[src[x]];
 		}
 	} else {                               /* 640x400/480 games: every other pixel */
 		int sw = w / 2, sh = h / 2;
 		int x0 = (LCD_W - sw) / 2, y0 = (LCD_H - sh) / 2;
 		memset(fb, B, LCD_W * LCD_H);
 		for (int y = 0; y < sh && y0 + y < LCD_H; y++)
-			for (int x = 0; x < sw && x0 + x < LCD_W; x++) fb[(y0 + y) * LCD_W + x0 + x] = pix[2 * y * pitch + 2 * x];
+			for (int x = 0; x < sw && x0 + x < LCD_W; x++) fb[(y0 + y) * LCD_W + x0 + x] = g_lut[pix[2 * y * pitch + 2 * x]];
 	}
 }
 
@@ -84,21 +103,62 @@ static void repaint(void)
 	uint8_t *fb = (uint8_t *)lcd_get_active_buffer();
 	if (g_last) draw_frame(fb, g_last, g_last_pitch, g_last_w, g_last_h);
 	else memset(fb, 0, LCD_W * LCD_H);
-	osk_draw(fb, g_clut);
+	osk_draw(fb, g_hw);
 }
 
 void plat_redraw(void) { if (g_last) plat_present(g_last, g_last_pitch, g_last_w, g_last_h); }
+
+static uint32_t dist(uint32_t a, uint32_t b)
+{
+	int dr = (int)((a >> 16) & 255) - (int)((b >> 16) & 255), dg = (int)((a >> 8) & 255) - (int)((b >> 8) & 255),
+	    db = (int)(a & 255) - (int)(b & 255);
+	return (uint32_t)(dr * dr * 3 + dg * dg * 4 + db * db * 2);
+}
+
+static void build_hw_clut(void)
+{
+	uint8_t spare_of[256] = { 0 };          /* 1: slot given to an overlay colour; 2: a twin, kept */
+	for (int i = 0; i < 256; i++) { g_hw[i] = g_clut[i]; g_lut[i] = (uint8_t)i; }
+	int s = 255;
+	for (int w = OV0; w < OV1; w++) {
+		/* the same colour elsewhere: nothing to move */
+		int same = -1;
+		for (int j = 0; j < 256 && same < 0; j++)
+			if (!in_ov(j) && spare_of[j] != 1 && g_clut[j] == g_clut[w]) same = j;
+		if (same >= 0) { g_lut[w] = (uint8_t)same; spare_of[same] = 2; continue; }
+		/* a spare: a slot whose colour another (kept) slot has too; its pixels go to that one */
+		int spare = -1, twin = -1;
+		for (; s >= 0 && spare < 0; s--) {
+			if (in_ov(s) || spare_of[s]) continue;
+			for (int j = 0; j < s; j++)
+				if (!in_ov(j) && spare_of[j] != 1 && g_clut[j] == g_clut[s]) { spare = s; twin = j; break; }
+		}
+		if (spare >= 0) {
+			spare_of[spare] = 1;
+			spare_of[twin] = 2;
+			g_lut[spare] = (uint8_t)twin;
+			g_hw[spare] = g_clut[w];
+			g_lut[w] = (uint8_t)spare;
+		} else {                             /* none left: the nearest colour outside */
+			uint32_t best = ~0u;
+			for (int j = 0; j < 256; j++)
+				if (!in_ov(j) && spare_of[j] != 1 && dist(g_clut[j], g_clut[w]) < best) { best = dist(g_clut[j], g_clut[w]); g_lut[w] = (uint8_t)j; }
+		}
+	}
+	uint32_t best = ~0u;
+	for (int i = 0; i < 256; i++) {
+		if (in_ov(i)) continue;
+		uint32_t c = g_hw[i], l = ((c >> 16) & 255) * 3 + ((c >> 8) & 255) * 4 + (c & 255) * 2;
+		if (l < best) { best = l; g_border = (uint8_t)i; }
+	}
+}
 
 void plat_set_palette(const uint8_t *rgb, int start, int count)
 {
 	for (int i = 0; i < count && start + i < 256; i++)
 		g_clut[start + i] = ((uint32_t)rgb[3 * i] << 16) | ((uint32_t)rgb[3 * i + 1] << 8) | rgb[3 * i + 2];
-	lcd_set_clut(g_clut, 256);
-	uint32_t best = ~0u;
-	for (int i = 0; i < 256; i++) {
-		uint32_t c = g_clut[i], l = ((c >> 16) & 255) * 3 + ((c >> 8) & 255) * 4 + (c & 255) * 2;
-		if (l < best) { best = l; g_border = (uint8_t)i; }
-	}
+	build_hw_clut();
+	lcd_set_clut(g_hw, 256);
 }
 
 void plat_present(const uint8_t *pixels, int pitch, int w, int h)
@@ -109,7 +169,7 @@ void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 	static uint32_t frames;
 	if ((++frames & 255) == 0) stack_report();
 	draw_frame((uint8_t *)lcd_get_active_buffer(), pixels, pitch, w, h);
-	osk_draw((uint8_t *)lcd_get_active_buffer(), g_clut);
+	osk_draw((uint8_t *)lcd_get_active_buffer(), g_hw);
 	common_ingame_overlay();
 	lcd_swap();
 	pump();
@@ -245,7 +305,7 @@ uint32_t plat_buttons(void)
 	bool menu = js.values[ODROID_INPUT_VOLUME];
 	if (menu) pcm_audio_set(0, 0);                       /* silence while the menu is open */
 	common_emu_input_loop(&js, menu_options, &repaint);  /* PAUSE/SET menu, power, volume... */
-	if (menu) lcd_set_clut(g_clut, 256);                 /* the menu used part of the CLUT */
+	if (menu) lcd_set_clut(g_hw, 256);                 /* the menu used part of the CLUT */
 	if (g_audio_on) pcm_audio_set(common_emu_sound_get_volume(), 1);   /* the menu may change it */
 	uint32_t b = 0;
 	if (js.values[ODROID_INPUT_UP]) b |= PLAT_UP;
