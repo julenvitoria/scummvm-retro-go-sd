@@ -38,7 +38,7 @@ int gw_scummvm_main(int argc, const char *const argv[]);
 bool rg_storage_mkdir(const char *dir);
 
 #define FIRMWARE_RESERVE (16 * 1024)    /* RAM_EMU left at the top for the firmware's ram_malloc() */
-#define STACK_SIZE (48 * 1024)          /* ScummVM's stack, in DTCM (the firmware's is 24 KB: too small) */
+#define STACK_SIZE (36 * 1024)          /* ScummVM's stack, in DTCM (the firmware's 24 KB is too small; the deepest seen is 26 KB) */
 #define STACK_PAINT 0x5354434Bu
 #define SCREEN_HEAP (160 * 1024)        /* SCUMM screen buffers: 2 x 64 KB main + verb, text, banner */
 #define SAVE_DIR "/saves/scummvm"
@@ -580,7 +580,9 @@ int svm_main(void)
 	argv[argc] = NULL;
 	for (uint32_t i = 0; i < STACK_SIZE / 4; i++) g_stack[i] = STACK_PAINT;
 	int res = run_on_stack(argc, argv, gw_scummvm_main, (uint8_t *)g_stack + STACK_SIZE);
-	if (res) {
+	char tail[64];
+	last_log_line(tail, sizeof tail);
+	if (res || strstr(tail, "Error running game")) {
 		/* ScummVM gave up (no game detected...): say so instead of just leaving */
 		char last[64];
 		last_log_line(last, sizeof last);
