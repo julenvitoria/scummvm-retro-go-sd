@@ -363,10 +363,22 @@ index 133f6ec0..37155b7b 100644
  			if (_mainMenuSavegameLabel > 0 && !_savegameNames[_mainMenuSavegameLabel - 1].substr(labelSkip).empty()) {
  				convertMessageToString((const byte *)getGUIString(gsSaving), (byte *)saveScreenTitle, sizeof(saveScreenTitle));
 diff --git a/engines/scumm/imuse_digi/dimuse_defs.h b/engines/scumm/imuse_digi/dimuse_defs.h
-index d0d900d1..11ff0f62 100644
+index d0d900d1..fb07f4ab 100644
 --- a/engines/scumm/imuse_digi/dimuse_defs.h
 +++ b/engines/scumm/imuse_digi/dimuse_defs.h
-@@ -37,8 +37,14 @@ namespace Scumm {
+@@ -29,7 +29,11 @@ namespace Scumm {
+ #define DIMUSE_MAX_TRIGGERS    8
+ #define DIMUSE_MAX_DEFERS      8
+ #define DIMUSE_MAX_TRACKS      8
++#ifdef GW_V7_SLIM
++#define DIMUSE_MAX_MAP_SIZE    256	// Game & Watch: The Dig's maps are <= 0x400 bytes (dispatchConvertMap); no COMI
++#else
+ #define DIMUSE_MAX_MAP_SIZE    2048
++#endif
+ #define DIMUSE_MAX_DISPATCHES  8
+ #define DIMUSE_MAX_STREAMZONES 50
+ #define DIMUSE_MAX_FADE_VOLUME 8323072
+@@ -37,8 +41,14 @@ namespace Scumm {
  
  #define DIMUSE_LARGE_FADES    1
  #define DIMUSE_SMALL_FADES    4
@@ -440,6 +452,83 @@ index 3c21ee19..8587c29b 100644
  
  	if (_mixer->getOutputBufSize() != 0) {
  		// Let's find the optimal value for the maximum number of streams which can stay in the queue at once;
+diff --git a/engines/scumm/imuse_digi/dimuse_internalmixer.cpp b/engines/scumm/imuse_digi/dimuse_internalmixer.cpp
+index b78115c7..c6f384d6 100644
+--- a/engines/scumm/imuse_digi/dimuse_internalmixer.cpp
++++ b/engines/scumm/imuse_digi/dimuse_internalmixer.cpp
+@@ -28,6 +28,11 @@
+ #include "scumm/imuse_digi/dimuse_engine.h"
+ #include "scumm/imuse_digi/dimuse_internalmixer.h"
+ 
++#ifdef GW_V7_SLIM
++extern "C" const int gw_dimuse_mixtable_words, gw_dimuse_mixtable_channels;
++extern "C" const int32 gw_dimuse_mixtable[53376];
++#endif
++
+ namespace Scumm {
+ 
+ IMuseDigiInternalMixer::IMuseDigiInternalMixer(Audio::Mixer *mixer, int sampleRate, bool isEarlyDiMUSE, bool lowLatencyMode) {
+@@ -52,6 +57,10 @@ IMuseDigiInternalMixer::IMuseDigiInternalMixer(Audio::Mixer *mixer, int sampleRa
+ }
+ 
+ IMuseDigiInternalMixer::~IMuseDigiInternalMixer() {
++#ifdef GW_V7_SLIM
++	if (_gwConstTables)
++		_amp8Table = nullptr;
++#endif
+ 	free(_amp8Table);
+ 	_amp8Table = nullptr;
+ }
+@@ -99,7 +108,15 @@ int IMuseDigiInternalMixer::init(int bytesPerSample, int numChannels, uint8 *mix
+ 	// at different levels of granularity depending on the case (as uint32, uint16 or uint8).
+ 	// The latter is populated from the middle, inside-out; hence _softLMID.
+ 
++#ifdef GW_V7_SLIM
++	// Game & Watch: the tables for the usual parameters are const, in flash (build/gen/
++	// dimuse_mixtable.c, made by tools/gen/dimuse_mixtable.c), not 213 KB of heap
++	bool fill = _outWordSize != gw_dimuse_mixtable_words || mixChannelsNum != gw_dimuse_mixtable_channels;
++	int32 *tableMalloc = fill ? (int32 *)malloc(53376 * sizeof(int32)) : const_cast<int32 *>(gw_dimuse_mixtable);
++	_gwConstTables = !fill;
++#else
+ 	int32 *tableMalloc = (int32 *)malloc(53376 * sizeof(int32));
++#endif
+ 
+ 	_amp8Table = tableMalloc;          // Dim: 2176
+ 	_amp12Table = tableMalloc + 2176;  // Dim: 34816
+@@ -107,6 +124,9 @@ int IMuseDigiInternalMixer::init(int bytesPerSample, int numChannels, uint8 *mix
+ 	_softLMID = tableMalloc + 45184;   // Mid table
+ 
+ 	if (tableMalloc) {
++#ifdef GW_V7_SLIM
++	  if (fill) {
++#endif
+ 		// Any unpopulated cell is expected to be set to 0
+ 		memset(tableMalloc, 0, 53376 * sizeof(int32));
+ 		zeroCenterOffset = 0;
+@@ -162,6 +182,9 @@ int IMuseDigiInternalMixer::init(int bytesPerSample, int numChannels, uint8 *mix
+ 			}
+ 		}
+ 
++#ifdef GW_V7_SLIM
++	  }
++#endif
+ 		// In low latency the following stream is still used
+ 		// for FTSMUSH cutscenes, so let's still play it.
+ 		if (!_lowLatencyMode || _isEarlyDiMUSE) {
+diff --git a/engines/scumm/imuse_digi/dimuse_internalmixer.h b/engines/scumm/imuse_digi/dimuse_internalmixer.h
+index 4e8ea57e..795a38fa 100644
+--- a/engines/scumm/imuse_digi/dimuse_internalmixer.h
++++ b/engines/scumm/imuse_digi/dimuse_internalmixer.h
+@@ -49,6 +49,9 @@ private:
+ 	int32 *_amp12Table = nullptr;
+ 	int32 *_softLMID = nullptr;
+ 	int32 *_softLTable = nullptr;
++#ifdef GW_V7_SLIM
++	bool _gwConstTables = false;
++#endif
+ 
+ 	uint8 *_mixBuf = nullptr;
+ 
 diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
 index 3525910f..16955a29 100644
 --- a/engines/scumm/input.cpp
@@ -484,10 +573,10 @@ index 3525910f..16955a29 100644
  			case 0:
  				ConfMan.setBool("speech_mute", false);
 diff --git a/engines/scumm/metaengine.cpp b/engines/scumm/metaengine.cpp
-index 53fc9986..926f1319 100644
+index 53fc9986..2c3b387a 100644
 --- a/engines/scumm/metaengine.cpp
 +++ b/engines/scumm/metaengine.cpp
-@@ -471,7 +471,11 @@ Common::Error ScummMetaEngine::createInstance(OSystem *syst, Engine **engine,
+@@ -471,7 +471,13 @@ Common::Error ScummMetaEngine::createInstance(OSystem *syst, Engine **engine,
  
  	// Finally, we have massaged the GameDescriptor to our satisfaction, and can
  	// instantiate the appropriate game engine. Hooray!
@@ -496,11 +585,13 @@ index 53fc9986..926f1319 100644
 +	// Game & Watch: v7 for Full Throttle and The Dig; Rebel Assault and Mortimer left out
 +	if (res.game.id == GID_MORTIMER || res.game.id == GID_REBEL1 || res.game.id == GID_REBEL2)
 +		return Common::Error(Common::kUnsupportedGameidError, _s("Rebel Assault and Mortimer are not supported"));
++	if (res.game.version == 8)
++		return Common::Error(Common::kUnsupportedGameidError, _s("The Curse of Monkey Island (640x480) is not supported"));
 +#elif defined(ENABLE_SCUMM_7_8)
  	if (res.game.id == GID_MORTIMER) {
  		*engine = new MortimerEngine(syst, (res.game.features & GF_DEMO) != 0);
  		return Common::kNoError;
-@@ -1172,7 +1176,7 @@ Common::KeymapArray ScummMetaEngine::initKeymaps(const char *target) const {
+@@ -1172,7 +1178,7 @@ Common::KeymapArray ScummMetaEngine::initKeymaps(const char *target) const {
  	Common::String gameId = ConfMan.get("gameid", target);
  	Action *act;
  
@@ -1006,6 +1097,24 @@ index 356a3602..ab876013 100644
  
  protected:
  	byte _charsetColor = 0;
+diff --git a/engines/scumm/smush/codec37.cpp b/engines/scumm/smush/codec37.cpp
+index cb332679..b09efe34 100644
+--- a/engines/scumm/smush/codec37.cpp
++++ b/engines/scumm/smush/codec37.cpp
+@@ -33,7 +33,13 @@ SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(int width, int height, bool reb
+ 	_width = width;
+ 	_height = height;
+ 	_frameSize = _width * _height;
++#ifdef GW_V7_SLIM
++	// Game & Watch: the two frames and the margins around them (motion vectors reach at most
++	// 0x4D80 bytes before or after a frame), without the third frame's worth past the end
++	_deltaSize = _frameSize * 2 + 0x13600;
++#else
+ 	_deltaSize = _frameSize * 3 + 0x13600;
++#endif
+ 	_deltaBuf = (byte *)calloc(_deltaSize, sizeof(byte));
+ 	if (_deltaBuf == nullptr)
+ 		error("SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(): ERROR: Unable to allocate decoder buffer.");
 diff --git a/engines/scumm/smush/smush_player.cpp b/engines/scumm/smush/smush_player.cpp
 index 1c646316..92940450 100644
 --- a/engines/scumm/smush/smush_player.cpp

@@ -28,13 +28,16 @@ void heap_trace(size_t n, void *p)
 {
 	static long min = -1;
 	if (min < 0) min = getenv("GW_HEAP_TRACE") ? atol(getenv("GW_HEAP_TRACE")) : 0;
-	if (!min || (long)n < min) return;
+	static int busy;                       /* backtrace() allocates too */
+	if (!min || (long)n < min || busy) return;
+	busy = 1;
 	char msg[96];
 	snprintf(msg, sizeof msg, "heap: big %zu at %p (used %u KB)\n", n, p, (unsigned)(heap_used() / 1024));
 	fputs(msg, stdout);
 	fflush(stdout);
 	void *bt[12];
 	backtrace_symbols_fd(bt, backtrace(bt, 12), 1);
+	busy = 0;
 }
 
 void heap_lazy_init(void)
