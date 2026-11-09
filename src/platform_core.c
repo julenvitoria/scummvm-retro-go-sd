@@ -305,8 +305,24 @@ void plat_fclose(void *f) { fclose((FILE *)f); }
    flash while it writes it, and most of ScummVM runs from there). */
 #define MAX_MAPPED 160                    /* Indiana Jones 3 VGA: ~95 files, one per room */
 #define MAX_CACHED_FILE (24u << 20)
-static struct { char name[28]; const uint8_t *data; uint32_t size; } g_map[MAX_MAPPED];
+static struct { char name[28]; const uint8_t *data; uint32_t size; uint8_t key; } g_map[MAX_MAPPED];
 static int g_mapped, g_files;
+
+/* Called by the firmware with each 16 KB of a file on its way into flash (OSPI is unmapped
+   then: this must stay resident, and it is -- platform_core.o is in the RAM image). SCUMM
+   v4-v6 data files go in decrypted, so their resources can be used where they lie. */
+uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p, bool byte_swap,
+                                                     void (*relocate_cb)(uint8_t *, uint32_t, uint32_t, uint8_t *, uint32_t));
+static uint8_t g_decrypting;
+static void decrypt_chunk(uint8_t *buf, uint32_t len, uint32_t offset, uint8_t *addr, uint32_t size)
+{
+	(void)addr; (void)size;
+	if (offset == 0) g_decrypting = (uint8_t)svm_xor69_data(buf, len);
+	if (!g_decrypting) return;
+	uint32_t *w = (uint32_t *)buf, i = 0;             /* the buffer is the firmware's, word-aligned */
+	for (; i < len / 4; i++) w[i] ^= 0x69696969u;
+	for (i *= 4; i < len; i++) buf[i] ^= 0x69;
+}
 
 static void cache_one(const char *name, bool is_dir, uint32_t size, void *arg)
 {
@@ -324,7 +340,7 @@ static void cache_one(const char *name, bool is_dir, uint32_t size, void *arg)
 	char path[320];
 	snprintf(path, sizeof path, "%s/%s", g_game, name);
 	uint32_t got = 0;
-	uint8_t *p = odroid_overlay_cache_file_in_flash(path, &got, false);
+	uint8_t *p = odroid_overlay_cache_file_in_flash_relocate(path, &got, false, decrypt_chunk);
 	if (!p) return;                          /* no room: read from the SD card */
 	strcpy(g_map[g_mapped].name, name);
 	g_map[g_mapped].data = p;
@@ -332,12 +348,32 @@ static void cache_one(const char *name, bool is_dir, uint32_t size, void *arg)
 	g_mapped++;
 }
 
-const uint8_t *plat_map_file(const char *path, uint32_t *size)
+/* Which copies are decrypted: decided from what is in flash, since a file cached by an older
+   core (or before this one decrypted) is a cache hit and still holds the original bytes. */
+static void find_keys(void)
+{
+	int xor_index = 0, stale = 0;
+	for (int i = 0; i < g_mapped; i++) xor_index |= svm_xor69_index(g_map[i].data, g_map[i].size);
+	for (int i = 0; i < g_mapped; i++) {
+		g_map[i].key = svm_plain_data(g_map[i].data, g_map[i].size, xor_index) ? 0x69 : 0;
+		if (svm_xor69_data(g_map[i].data, g_map[i].size)) {
+			stale++;
+			logf_("ScummVM: %s is in flash as on the card (cached before); copy it again for more memory\n", g_map[i].name);
+		}
+	}
+	(void)stale;
+}
+
+const uint8_t *plat_map_file(const char *path, uint32_t *size, uint8_t *key)
 {
 	size_t gl = strlen(g_game);
 	if (strncasecmp(path, g_game, gl) || path[gl] != '/') return NULL;
 	for (int i = 0; i < g_mapped; i++)
-		if (!strcasecmp(g_map[i].name, path + gl + 1)) { *size = g_map[i].size; return g_map[i].data; }
+		if (!strcasecmp(g_map[i].name, path + gl + 1)) {
+			*size = g_map[i].size;
+			if (key) *key = g_map[i].key;
+			return g_map[i].data;
+		}
 	logf_("ScummVM: %s is not in external flash\n", path);
 	return NULL;
 }
@@ -558,6 +594,7 @@ int svm_main(void)
 	rg_storage_mkdir(SAVE_DIR);
 	logf_("ScummVM: game folder %s\n", g_game);
 	plat_list_dir(g_game, cache_one, NULL);
+	find_keys();
 	logf_("ScummVM: %d files, %d in external flash\n", g_files, g_mapped);
 	if (!g_files) {
 		message3("Game files not found in", g_game, "(see README / scummvm.log)");
