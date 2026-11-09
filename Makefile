@@ -34,7 +34,7 @@ $(PATCHED): $(wildcard patches/*.patch)
 
 # ---------------------------------------------------------------- host
 HB       := build/host
-HOST_OBJ := $(SVM_SRC:%=$(HB)/svm/%.o) $(OWN_CXX:%=$(HB)/%.o) $(HB)/src/platform_host.c.o
+HOST_OBJ := $(SVM_SRC:%=$(HB)/svm/%.o) $(OWN_CXX:%=$(HB)/%.o) $(HB)/src/platform_host.c.o $(HB)/src/osk.c.o
 
 .PHONY: host-gwheap
 host: $(HB)/scummvm_host
@@ -96,7 +96,7 @@ LIBC_NAMES := memchr memcmp strchr strcmp strlen strncmp strncpy strrchr strstr 
 REDEF    := $(AB)/redefine_syms.txt
 
 ARM_SVM  := $(SVM_SRC:%=$(AB)/svm/%.o) $(AB)/src/gw_system.cpp.o
-ARM_OWN  := $(AB)/boot.o $(AB)/platform_core.o $(AB)/heap.o $(AB)/tlsf.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o
+ARM_OWN  := $(AB)/boot.o $(AB)/platform_core.o $(AB)/osk.o $(AB)/heap.o $(AB)/tlsf.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o
 
 core: $(OUT)
 
@@ -121,6 +121,10 @@ $(AB)/boot.o $(AB)/platform_core.o: $(AB)/%.o: src/%.c src/platform.h src/svm_xi
 	@mkdir -p $(dir $@)
 	$(CROSS)gcc -c $(ARM_C) $< -o $@
 	$(CROSS)objcopy --redefine-syms=$(REDEF) $@
+
+$(AB)/osk.o: src/osk.c src/osk.h src/font_cp437.h
+	@mkdir -p $(dir $@)
+	$(CROSS)gcc -c $(ARM_C) $< -o $@
 
 $(AB)/heap.o: src/heap.c
 	@mkdir -p $(dir $@)

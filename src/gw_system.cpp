@@ -29,6 +29,7 @@
 #include "engines/engine.h"
 #include "common/savefile.h"
 #include "platform.h"
+#include "osk.h"
 
 /* ================================================================ files */
 
@@ -323,9 +324,32 @@ public:
 		_queue.push(e);
 	}
 
+	static void oskEmit(int keycode, int ascii, int shift, void *arg) {
+		OSystem_GW *self = (OSystem_GW *)arg;
+		Common::KeyState ks((Common::KeyCode)keycode, (uint16)ascii, shift ? Common::KBD_SHIFT : 0);
+		Common::Event e;
+		e.mouse = Common::Point(self->gfx()->_mouseX, self->gfx()->_mouseY);
+		e.kbd = ks;
+		e.type = Common::EVENT_KEYDOWN;
+		self->_queue.push(e);
+		e.type = Common::EVENT_KEYUP;
+		self->_queue.push(e);
+	}
+
 	void readButtons() {
 		uint32 b = plat_buttons(), down = b & ~_held, up = _held & ~b;
 		_held = b;
+		// GAME: the on-screen keyboard (osk.c). While it is open, the D-pad, A and B are its
+		if (down & PLAT_GAME) {
+			if (osk_is_open()) osk_close(); else osk_open();
+			plat_redraw();
+			return;
+		}
+		if (osk_is_open()) {
+			if (osk_input(down, PLAT_UP, PLAT_DOWN, PLAT_LEFT, PLAT_RIGHT, PLAT_A, PLAT_B, oskEmit, this))
+				plat_redraw();
+			return;
+		}
 		// D-pad: a mouse that speeds up while held. Driven by time, not by polls: ScummVM polls
 		// far more often on the console than in an emulator, and a per-poll step sent the
 		// pointer flying to the edges. 60 px/s at first, up to 240 px/s after ~0.7 s.
@@ -359,19 +383,15 @@ public:
 		if (up & PLAT_B) push(Common::EVENT_LBUTTONUP);
 		if (down & PLAT_A) push(Common::EVENT_RBUTTONDOWN);
 		if (up & PLAT_A) push(Common::EVENT_RBUTTONUP);
-		// GAME skips a cut-scene (Esc), TIME the current line of dialogue ('.')
-		if (down & PLAT_GAME) push(Common::EVENT_KEYDOWN, Common::KEYCODE_ESCAPE, Common::ASCII_ESCAPE);
-		if (up & PLAT_GAME) push(Common::EVENT_KEYUP, Common::KEYCODE_ESCAPE, Common::ASCII_ESCAPE);
-		/* TIME: '.' (skip the current line of dialogue) and Enter ("press ENTER to continue") */
-		if (down & PLAT_TIME) {
-			push(Common::EVENT_KEYDOWN, Common::KEYCODE_PERIOD, '.');
-			push(Common::EVENT_KEYUP, Common::KEYCODE_PERIOD, '.');
-			push(Common::EVENT_KEYDOWN, Common::KEYCODE_RETURN, Common::ASCII_RETURN);
-		}
-		if (up & PLAT_TIME) push(Common::EVENT_KEYUP, Common::KEYCODE_RETURN, Common::ASCII_RETURN);
-		/* SELECT (Zelda units): F5, the game's own menu (save with a name, load, quit...) */
-		if (down & PLAT_SELECT) push(Common::EVENT_KEYDOWN, Common::KEYCODE_F5, Common::ASCII_F5);
-		if (up & PLAT_SELECT) push(Common::EVENT_KEYUP, Common::KEYCODE_F5, Common::ASCII_F5);
+		// TIME: F5, the game's own menu (save with a name, load, quit...)
+		if (down & PLAT_TIME) push(Common::EVENT_KEYDOWN, Common::KEYCODE_F5, Common::ASCII_F5);
+		if (up & PLAT_TIME) push(Common::EVENT_KEYUP, Common::KEYCODE_F5, Common::ASCII_F5);
+		// Zelda units: START skips a cut-scene (Esc), SELECT the current line of dialogue ('.');
+		// on a Mario unit both are on the keyboard
+		if (down & PLAT_START) push(Common::EVENT_KEYDOWN, Common::KEYCODE_ESCAPE, Common::ASCII_ESCAPE);
+		if (up & PLAT_START) push(Common::EVENT_KEYUP, Common::KEYCODE_ESCAPE, Common::ASCII_ESCAPE);
+		if (down & PLAT_SELECT) push(Common::EVENT_KEYDOWN, Common::KEYCODE_PERIOD, '.');
+		if (up & PLAT_SELECT) push(Common::EVENT_KEYUP, Common::KEYCODE_PERIOD, '.');
 	}
 
 	bool pollEvent(Common::Event &event) override {

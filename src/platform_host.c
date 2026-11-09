@@ -38,6 +38,7 @@ void plat_log(const char *msg)
 	}
 }
 void plat_fatal(void) { exit(1); }
+void plat_redraw(void) {}
 
 void plat_quit(void) { exit(0); }
 const char *plat_game_path(void) { return g_game; }
