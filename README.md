@@ -38,9 +38,8 @@ No games are included, nor will they be: bring your own.
    bars); after that it starts right away. Files over 24 MB (the speech of talkie versions)
    are read from the SD card instead.
 
-   A game copied to the flash by an older version of this core keeps its old copy (the
-   log, `/saves/scummvm/scummvm.log`, says so) and has less memory: copy its files to the
-   SD card again so they are cached afresh.
+   Games copied to the flash by an older version of this core are copied once more (their
+   data files are now stored decrypted, see "How it's made").
 
 ### Telling ScummVM which game it is
 
@@ -180,9 +179,8 @@ Los juegos no se incluyen ni se incluirán: cada uno pone los suyos.
    progreso); después arranca directamente. Los ficheros de más de 24 MB (las voces de las
    versiones habladas) se leen de la SD.
 
-   Un juego que una versión anterior de este core ya copió a la flash conserva esa copia
-   (lo dice el registro, `/saves/scummvm/scummvm.log`) y tiene menos memoria: vuelve a
-   copiar sus ficheros a la SD para que se copien de nuevo.
+   Los juegos que una versión anterior de este core ya copió a la flash se copian una vez
+   más (sus ficheros de datos ahora se guardan descifrados, ver "Cómo está hecho").
 
 ### Decirle a ScummVM qué juego es
 
