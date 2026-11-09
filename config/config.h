@@ -22,13 +22,13 @@
 #undef USE_EDGE_SCALERS
 #undef USE_ASPECT
 #undef USE_OGG
-#undef USE_VORBIS
+#define USE_VORBIS   /* src/gw_audio_decoders.cpp: stb_vorbis, minimp3, dr_flac */
 #undef USE_TREMOR
 #undef ENABLE_OPL2LPT
 #undef USE_RETROWAVE
 #undef USE_NFM
-#undef USE_FLAC
-#undef USE_MAD
+#define USE_FLAC
+#define USE_MAD
 #undef USE_ALSA
 #undef USE_JPEG
 #undef USE_PNG

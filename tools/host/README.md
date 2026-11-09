@@ -51,3 +51,17 @@ shows where the pressure is rather than the console's exact limit.
 resource is loaded into the heap as before the in-place resources: to compare the two.
 Otherwise the files are decrypted as on the console and mapped read-only, so the engine
 writing into a resource it uses in place crashes here instead of passing unnoticed.
+
+## codec_test.c — the audio decoders against a reference
+
+Decodes a file with `src/gw_codecs.h` (what the core uses for speech and CD music) to raw
+PCM, optionally after a seek, to compare with ffmpeg's output:
+
+```
+gcc -O2 -Isrc tools/host/codec_test.c src/codecs/*.c -lm -o codec_test
+./codec_test ogg|mp3|flac in.ogg out.raw [seek_frame]
+ffmpeg -i in.ogg -f s16le ref.raw
+```
+
+MP3 output starts with the encoder's delay (ffmpeg trims it, minimp3 and libmad do not).
+

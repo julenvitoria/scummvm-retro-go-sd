@@ -385,8 +385,7 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size, uint8_t *key)
 			if (key) *key = g_map[i].key;
 			return g_map[i].data;
 		}
-	logf_("ScummVM: %s is not in external flash\n", path);
-	return NULL;
+	return NULL;                             /* read from the SD card (logged once, by cache_one) */
 }
 
 /* the last line of the log, for a message on screen */

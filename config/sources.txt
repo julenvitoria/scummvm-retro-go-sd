@@ -11,17 +11,14 @@ audio/decoders/aac.cpp
 audio/decoders/adpcm.cpp
 audio/decoders/aiff.cpp
 audio/decoders/apc.cpp
-audio/decoders/flac.cpp
 audio/decoders/g711.cpp
 audio/decoders/iff_sound.cpp
 audio/decoders/mac_snd.cpp
 audio/decoders/mac_snd_mace.cpp
-audio/decoders/mp3.cpp
 audio/decoders/qdm2.cpp
 audio/decoders/quicktime.cpp
 audio/decoders/raw.cpp
 audio/decoders/voc.cpp
-audio/decoders/vorbis.cpp
 audio/decoders/wave.cpp
 audio/decoders/wma.cpp
 audio/decoders/xa.cpp

@@ -9,7 +9,8 @@
 
 SVM      := scummvm
 SVM_SRC  := $(shell cat config/sources.txt)
-OWN_CXX  := src/gw_system.cpp
+OWN_CXX  := src/gw_system.cpp src/gw_audio_decoders.cpp
+CODECS   := src/codecs/gwc.c src/codecs/gwc_vorbis.c src/codecs/gwc_mp3.c src/codecs/gwc_flac.c
 
 DEFS     := -DHAVE_CONFIG_H -DENABLE_SCUMM=STATIC_PLUGIN -DRELEASE_BUILD \
             -DDISABLE_HELP -DDISABLE_FANCY_THEMES -DDISABLE_SAVELOADCHOOSER_GRID \
@@ -34,7 +35,7 @@ $(PATCHED): $(wildcard patches/*.patch)
 
 # ---------------------------------------------------------------- host
 HB       := build/host
-HOST_OBJ := $(SVM_SRC:%=$(HB)/svm/%.o) $(OWN_CXX:%=$(HB)/%.o) $(HB)/src/platform_host.c.o $(HB)/src/osk.c.o
+HOST_OBJ := $(SVM_SRC:%=$(HB)/svm/%.o) $(OWN_CXX:%=$(HB)/%.o) $(CODECS:%=$(HB)/%.o) $(HB)/src/platform_host.c.o $(HB)/src/osk.c.o
 
 .PHONY: host-gwheap
 host: $(HB)/scummvm_host
@@ -54,6 +55,10 @@ $(HB)/src/%.cpp.o: src/%.cpp src/platform.h
 $(HB)/src/%.c.o: src/%.c src/platform.h
 	@mkdir -p $(dir $@)
 	gcc -c -O1 -g -Wall $< -o $@
+
+$(HB)/src/codecs/%.c.o: src/codecs/%.c src/codecs/gwc_priv.h src/gw_codecs.h
+	@mkdir -p $(dir $@)
+	gcc -c -O2 -g -w $< -o $@
 
 $(HB)/scummvm_host: $(HOST_OBJ)
 	@g++ $^ -o $@ && echo "  LINK $@"
@@ -95,7 +100,7 @@ LIBC_NAMES := memchr memcmp strchr strcmp strlen strncmp strncpy strrchr strstr 
             strtoul strncat setjmp longjmp __assert_func exit cosf sqrtf log10 getenv
 REDEF    := $(AB)/redefine_syms.txt
 
-ARM_SVM  := $(SVM_SRC:%=$(AB)/svm/%.o) $(AB)/src/gw_system.cpp.o
+ARM_SVM  := $(SVM_SRC:%=$(AB)/svm/%.o) $(OWN_CXX:%=$(AB)/%.o) $(CODECS:%=$(AB)/%.o)
 ARM_OWN  := $(AB)/boot.o $(AB)/platform_core.o $(AB)/osk.o $(AB)/heap.o $(AB)/tlsf.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o
 
 core: $(OUT)
@@ -116,6 +121,12 @@ $(AB)/svm/%.c.o: $(SVM)/%.c Makefile | $(PATCHED)
 $(AB)/src/%.cpp.o: src/%.cpp src/platform.h Makefile
 	@mkdir -p $(dir $@)
 	$(CROSS)g++ -c $(ARM_CXX) $< -o $@
+
+# the audio decoders (src/gw_codecs.h): -O2, they run in the mixer
+$(AB)/src/codecs/%.c.o: src/codecs/%.c src/codecs/gwc_priv.h src/gw_codecs.h
+	@mkdir -p $(dir $@)
+	@echo "  CC   $<"
+	@$(CROSS)gcc -c $(MCU) -O2 -ffunction-sections -fdata-sections -w $< -o $@
 
 $(AB)/boot.o $(AB)/platform_core.o: $(AB)/%.o: src/%.c src/platform.h src/svm_xip.h $(REDEF)
 	@mkdir -p $(dir $@)

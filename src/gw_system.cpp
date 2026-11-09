@@ -28,6 +28,7 @@
 #include "base/main.h"
 #include "engines/engine.h"
 #include "common/savefile.h"
+#include "common/config-manager.h"
 #include "platform.h"
 #include "osk.h"
 
@@ -335,7 +336,11 @@ public:
 		_busy = true;                      // the mixer's own callbacks may end up waiting
 		while (plat_audio_free() >= CHUNK) {
 			_mixer->mixCallback((byte *)_stereo, sizeof _stereo);
-			for (int i = 0; i < CHUNK; i++) _mono[i] = (int16)(((int)_stereo[2 * i] + _stereo[2 * i + 1]) >> 1);
+			// to mono, a quarter louder than the plain average (the console's speaker is quiet)
+			for (int i = 0; i < CHUNK; i++) {
+				int v = (((int)_stereo[2 * i] + _stereo[2 * i + 1]) * 5) >> 3;
+				_mono[i] = (int16)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+			}
 			plat_audio_write(_mono, CHUNK);
 		}
 		_busy = false;
@@ -364,6 +369,10 @@ public:
 		_mixerManager = g_mixerManager = new GWMixerManager();
 		_mixerManager->init();
 		plat_set_pump(pumpAudio);
+		// full volume (ScummVM starts at 192 of 255): the console's own volume is the one to
+		// turn down; transient, as from the command line, over whatever scummvm.ini holds
+		static const char *const vol[] = { "music_volume", "sfx_volume", "speech_volume" };
+		for (const char *k : vol) ConfMan.setInt(k, 255, Common::ConfigManager::kTransientDomain);
 		BaseBackend::initBackend();
 	}
 
