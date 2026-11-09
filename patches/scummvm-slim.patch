@@ -66,6 +66,29 @@ index d8ee41ac..73bdddd1 100644
  
  class MidiDriver_BASE;
  
+diff --git a/base/commandLine.cpp b/base/commandLine.cpp
+index 87b0fafe..060b338d 100644
+--- a/base/commandLine.cpp
++++ b/base/commandLine.cpp
+@@ -278,6 +278,18 @@ static const char *s_appName = "scummvm";
+ static void NORETURN_PRE usage(MSVC_PRINTF const char *s, ...) GCC_PRINTF(1, 2) NORETURN_POST;
+ 
+ static void usage(const char *s, ...) {
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: printf goes nowhere the player sees; warning() reaches scummvm.log
++	{
++		char msg[256];
++		va_list vb;
++		va_start(vb, s);
++		vsnprintf(msg, sizeof msg, s, vb);
++		va_end(vb);
++		warning("%s%s", msg, strncmp(msg, "Unrecognized game", 17) ? "" :
++		        " This core runs the SCUMM games (LucasArts) only.");
++	}
++#endif
+ #ifndef DISABLE_HELP_STRINGS
+ 	char buf[STRINGBUFLEN];
+ 	va_list va;
 diff --git a/base/main.cpp b/base/main.cpp
 index ef3997f1..e9553647 100644
 --- a/base/main.cpp
