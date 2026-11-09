@@ -26,6 +26,7 @@
 #include "ff.h"
 #include "gw_core_bridge.h"
 #include "platform.h"
+#include "osk.h"
 
 extern uint8_t __RAM_EMU_END__[];
 extern int svm_boot_error;
@@ -77,7 +78,10 @@ static void repaint(void)
 	uint8_t *fb = (uint8_t *)lcd_get_active_buffer();
 	if (g_last) draw_frame(fb, g_last, g_last_pitch, g_last_w, g_last_h);
 	else memset(fb, 0, LCD_W * LCD_H);
+	osk_draw(fb, g_clut);
 }
+
+void plat_redraw(void) { if (g_last) plat_present(g_last, g_last_pitch, g_last_w, g_last_h); }
 
 void plat_set_palette(const uint8_t *rgb, int start, int count)
 {
@@ -94,6 +98,7 @@ void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 	static uint32_t frames;
 	if ((++frames & 255) == 0) stack_report();
 	draw_frame((uint8_t *)lcd_get_active_buffer(), pixels, pitch, w, h);
+	osk_draw((uint8_t *)lcd_get_active_buffer(), g_clut);
 	common_ingame_overlay();
 	lcd_swap();
 	pump();
@@ -195,8 +200,12 @@ uint32_t plat_buttons(void)
 	if (js.values[ODROID_INPUT_RIGHT]) b |= PLAT_RIGHT;
 	if (js.values[ODROID_INPUT_A]) b |= PLAT_A;
 	if (js.values[ODROID_INPUT_B]) b |= PLAT_B;
+	/* the firmware's names: GAME is START, TIME is SELECT; a Zelda unit's own START and
+	   SELECT buttons are X and Y */
 	if (js.values[ODROID_INPUT_START]) b |= PLAT_GAME;
-	if (js.values[ODROID_INPUT_SELECT]) b |= PLAT_SELECT;
+	if (js.values[ODROID_INPUT_SELECT]) b |= PLAT_TIME;
+	if (js.values[ODROID_INPUT_X]) b |= PLAT_START;
+	if (js.values[ODROID_INPUT_Y]) b |= PLAT_SELECT;
 	return b;
 }
 

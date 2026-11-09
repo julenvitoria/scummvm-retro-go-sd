@@ -82,9 +82,8 @@ Macintosh and NES versions (their buffers are cut to save memory) and FM-Towns.
   firmware's 4 slots and their previews, as in the other cores. Powering off saves too, and
   *Resume* in the game list carries on from there. These saves live where the firmware keeps
   every core's.
-- **The game's own menu (SELECT, Zelda units):** what F5 opens on a PC — save, load, play,
-  quit. There is no keyboard to type a save's name with: an empty name becomes the date and
-  time. These saves are ScummVM's usual files, in `/saves/scummvm/`.
+- **The game's own menu (TIME):** what F5 opens on a PC — save, load, play, quit. Type the
+  save's name with the on-screen keyboard (GAME); left empty, it becomes the date and time. These saves are ScummVM's usual files, in `/saves/scummvm/`.
 - Saves carry no thumbnail (it would take 128 KB of memory).
 
 ### When a game does not start
@@ -99,10 +98,17 @@ If a game goes back to the Retro-Go menu, the reason is shown on screen and writ
 | D-pad | move the pointer (speeds up while held) |
 | B | left click |
 | A | right click |
-| GAME (START) | Esc: skip cutscene |
-| TIME | `.` + Enter: skip line / "press ENTER to continue" |
-| SELECT (Zelda) | F5: the game's own menu (save, load, quit) |
+| GAME | on-screen keyboard |
+| TIME | F5: the game's own menu (save, load, quit) |
+| START (Zelda) | Esc: skip cutscene |
+| SELECT (Zelda) | `.`: skip the current line of dialogue |
 | PAUSE/SET | Retro-Go menu (save, load, options) |
+
+**On-screen keyboard** (GAME): two rows above the picture and two below it, so the game
+is never covered. D-pad moves, A types, B or GAME closes it; `Shf` makes the next letter a
+capital (press it twice to lock). It has Esc, Enter, Space, Backspace, F1–F10, numbers and
+letters — on a Mario unit, Esc (skip cutscene), `.` (skip line) and Enter ("press ENTER to
+continue") are typed from here.
 
 ### How it is made
 
@@ -212,8 +218,8 @@ Macintosh y NES (sus buffers están recortados para ahorrar memoria) y FM-Towns.
   huecos del firmware y su vista previa, como en los demás cores. Al apagar también se
   guarda, y *Resume* en la lista de juegos sigue desde ahí. Estas partidas van donde el
   firmware guarda las de todos los cores.
-- **Menú propio del juego (SELECT, en la Zelda):** lo que abre F5 en un PC: salvar, cargar,
-  jugar, salir. No hay teclado para escribir el nombre: si se deja vacío, se usa la fecha y
+- **Menú propio del juego (TIME):** lo que abre F5 en un PC: salvar, cargar, jugar, salir.
+  El nombre se escribe con el teclado en pantalla (GAME); si se deja vacío, se usa la fecha y
   la hora. Estas partidas son los ficheros normales de ScummVM, en `/saves/scummvm/`.
 - Las partidas no llevan miniatura (costaría 128 KB de memoria).
 
@@ -229,10 +235,17 @@ Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escr
 | Cruceta | mover el puntero (acelera al mantener) |
 | B | clic izquierdo |
 | A | clic derecho |
-| GAME (START) | Esc: saltar escena |
-| TIME | `.` + Enter: saltar frase / "pulsa ENTER para continuar" |
-| SELECT (Zelda) | F5: menú propio del juego (salvar, cargar, salir) |
+| GAME | teclado en pantalla |
+| TIME | F5: menú propio del juego (salvar, cargar, salir) |
+| START (Zelda) | Esc: saltar escena |
+| SELECT (Zelda) | `.`: saltar la frase actual |
 | PAUSE/SET | menú de Retro-Go (guardar, cargar, opciones) |
+
+**Teclado en pantalla** (GAME): dos filas encima de la imagen y dos debajo, así nunca tapa
+el juego. La cruceta mueve, A escribe, B o GAME lo cierran; `Shf` pone la siguiente letra en
+mayúscula (dos veces: bloqueada). Tiene Esc, Enter, Espacio, Retroceso, F1–F10, números y
+letras; en una Mario, Esc (saltar escena), `.` (saltar frase) y Enter ("pulsa ENTER para
+continuar") se escriben desde aquí.
 
 ### Cómo está hecho
 
