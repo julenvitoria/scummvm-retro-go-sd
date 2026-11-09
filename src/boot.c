@@ -157,9 +157,14 @@ void svm_run_constructors(void)
 }
 
 /* entry target (GNW_CORE_ENTRY_TARGET) */
+uint8_t svm_load_state;                 /* the launcher's "resume": load save_slot at start */
+int8_t svm_save_slot;
+
 int app_main_scummvm(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 {
-	(void)load_state; (void)start_paused; (void)save_slot;
+	(void)start_paused;
+	svm_load_state = load_state;
+	svm_save_slot = save_slot;
 	return svm_boot();
 }
 
