@@ -43,7 +43,7 @@ int heap_screen_hint;
 #define MAX_POOLS 6
 
 static tlsf_t g_tlsf[HEAPS];
-static struct { uintptr_t lo, hi; int heap; } g_pool[MAX_POOLS];
+static struct { uintptr_t lo, hi; int heap; pool_t pool; } g_pool[MAX_POOLS];
 static int g_pools;
 static uint32_t g_total, g_used, g_peak;
 
@@ -60,9 +60,10 @@ void heap_add_to(void *mem, size_t bytes, int kind)
 	}
 	if (!g_tlsf[kind]) {
 		g_tlsf[kind] = tlsf_create_with_pool((void *)a, bytes);
+		g_pool[g_pools].pool = tlsf_get_pool(g_tlsf[kind]);
 		g_total += bytes - tlsf_size() - tlsf_pool_overhead();
 	} else {
-		tlsf_add_pool(g_tlsf[kind], (void *)a, bytes);
+		g_pool[g_pools].pool = tlsf_add_pool(g_tlsf[kind], (void *)a, bytes);
 		g_total += bytes - tlsf_pool_overhead();
 	}
 	g_pool[g_pools].lo = a;
@@ -96,21 +97,42 @@ static void *track(void *p)
 /* the PC test shim (tools/host/gwheap.c) creates its pools on the first allocation */
 #ifdef HEAP_LAZY_INIT
 void heap_lazy_init(void);
-void heap_trace(size_t n, void *p);      /* tools/host/gwheap.c: GW_HEAP_TRACE */
+void heap_trace(size_t n, void *p);      /* tools/host/gwheap.c: GW_HEAP_TRACE, GW_HEAP_PEAK */
+void heap_untrace(void *p);
+void *heap_host_alloc(size_t n);         /* host-only allocations outside the console heap */
+int heap_host_free(void *p);
+void heap_host_oom(void);
+int heap_host_bypass;                    /* set around host libc calls with no console counterpart (opendir) */
 #else
 static inline void heap_lazy_init(void) {}
 #endif
 
-static void *alloc(size_t align, size_t n)
+/* Set by the engine (patches/scummvm-slim.patch: the SCUMM resource cache): frees something
+   it can do without and returns nonzero, or returns 0 when there is nothing left to free.
+   Asked before an allocation is given up. */
+int (*heap_low_memory_hook)(uint32_t n);
+
+static void *alloc(size_t align, size_t n, void *caller)
 {
 	if (!g_pools) heap_lazy_init();
+#ifdef HEAP_LAZY_INIT
+	if (heap_host_bypass) return heap_host_alloc(n);
+#endif
 	int first = n >= BIG_REQUEST ? HEAP_BIG : HEAP_SMALL;
 	int order[3] = { first, !first, -1 };
 	if (heap_screen_hint) { order[0] = HEAP_SCREEN; order[1] = first; order[2] = !first; }
 	void *p = NULL;
-	for (int k = 0; k < 3 && !p; k++) {
-		tlsf_t t = order[k] >= 0 ? g_tlsf[order[k]] : NULL;
-		if (t) p = align ? tlsf_memalign(t, align, n) : tlsf_malloc(t, n);
+	static int in_hook;
+	for (;;) {
+		for (int k = 0; k < 3 && !p; k++) {
+			tlsf_t t = order[k] >= 0 ? g_tlsf[order[k]] : NULL;
+			if (t) p = align ? tlsf_memalign(t, align, n) : tlsf_malloc(t, n);
+		}
+		if (p || !heap_low_memory_hook || in_hook) break;
+		in_hook = 1;
+		int freed = heap_low_memory_hook((uint32_t)n);
+		in_hook = 0;
+		if (!freed) break;
 	}
 #ifdef HEAP_TRACE_SCREEN
 	if (heap_screen_hint) { static char m[96]; snprintf(m, sizeof m, "heap: screen %lu -> %p\n", (unsigned long)n, p); plat_log(m); }
@@ -118,11 +140,14 @@ static void *alloc(size_t align, size_t n)
 	if (!p) {
 		errno = ENOMEM;
 		if (g_pools) {
+#ifdef HEAP_LAZY_INIT
+			heap_host_oom();
+#endif
 			/* to the firmware log and to scummvm.log (plat_log, platform_core.c) */
 			static char msg[112];
-			snprintf(msg, sizeof msg, "heap: out of memory for %lu bytes (used %lu of %lu KB, peak %lu KB)\n",
+			snprintf(msg, sizeof msg, "heap: out of memory for %lu bytes (used %lu of %lu KB, peak %lu KB) from %p\n",
 			         (unsigned long)n, (unsigned long)(g_used / 1024), (unsigned long)(g_total / 1024),
-			         (unsigned long)(g_peak / 1024));
+			         (unsigned long)(g_peak / 1024), caller);
 			plat_log(msg);
 		}
 	}
@@ -132,13 +157,20 @@ static void *alloc(size_t align, size_t n)
 	return track(p);
 }
 
-void *malloc(size_t n) { return alloc(0, n ? n : 1); }
+void *malloc(size_t n) { return alloc(0, n ? n : 1, __builtin_return_address(0)); }
+/* src/gw_new.cpp: operator new, with its own caller for the log */
+void *heap_malloc_from(size_t n, void *caller) { return alloc(0, n ? n : 1, caller); }
 
 void free(void *p)
 {
 	if (!p) return;
 	tlsf_t t = owner(p);
+#ifdef HEAP_LAZY_INIT
+	if (!t) { heap_host_free(p); return; }
+	heap_untrace(p);
+#else
 	if (!t) return;
+#endif
 	g_used -= tlsf_block_size(p);
 	tlsf_free(t, p);
 }
@@ -147,7 +179,7 @@ void *calloc(size_t a, size_t b)
 {
 	size_t n = a * b;
 	if (b && n / b != a) return NULL;
-	void *p = malloc(n);
+	void *p = heap_malloc_from(n, __builtin_return_address(0));
 	if (p) memset(p, 0, n);
 	return p;
 }
@@ -161,6 +193,10 @@ void *realloc(void *p, size_t n)
 	void *q = t ? tlsf_realloc(t, p, n) : NULL;
 	if (q) {
 		g_used -= old;
+#ifdef HEAP_LAZY_INIT
+		heap_untrace(p);
+		heap_trace(n, q);
+#endif
 		return track(q);
 	}
 	/* no room in its own heap: move it to the other one */
@@ -171,7 +207,7 @@ void *realloc(void *p, size_t n)
 	return q;
 }
 
-void *memalign(size_t align, size_t n) { return alloc(align, n ? n : 1); }
+void *memalign(size_t align, size_t n) { return alloc(align, n ? n : 1, __builtin_return_address(0)); }
 size_t malloc_usable_size(void *p) { return p ? tlsf_block_size(p) : 0; }
 
 #ifdef __NEWLIB__
@@ -194,6 +230,15 @@ int heap_can_alloc(uint32_t n)
 	}
 	return 0;
 }
+
+#ifdef HEAP_LAZY_INIT
+/* tools/host/gwheap.c: every block of every pool, for a map of the heap */
+void heap_walk(void (*cb)(void *ptr, size_t size, int used, void *user), void *user)
+{
+	for (int i = 0; i < g_pools; i++)
+		if (g_pool[i].pool) tlsf_walk_pool(g_pool[i].pool, cb, user);
+}
+#endif
 
 /* free bytes in both heaps (not one block: what the SCUMM resource cache measures itself against) */
 uint32_t heap_free_bytes(void) { return g_total - g_used; }

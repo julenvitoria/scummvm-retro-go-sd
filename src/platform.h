@@ -59,6 +59,8 @@ bool     plat_list_dir(const char *path, void (*cb)(const char *name, bool is_di
    SCUMM v4-v6 data files are stored DECRYPTED (key 0x69), so the engine can use its resources
    where they lie instead of copying them into the heap (patches/scummvm-slim.patch) */
 const uint8_t *plat_map_file(const char *path, uint32_t *size, uint8_t *key);
+/* a data file too big for that: its resource pack (src/pack.c, a pack_head_t) in memory, or NULL */
+const void *plat_map_pack(const char *path);
 
 /* Is this the start of a SCUMM data file XORed with 0x69 (v5/v6 "LECF" bundle, v4 "LE" disk)? */
 static inline int svm_xor69_data(const uint8_t *p, uint32_t n)

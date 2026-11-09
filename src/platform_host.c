@@ -13,6 +13,7 @@
  */
 #define _GNU_SOURCE
 #include "platform.h"
+#include "pack.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -154,8 +155,48 @@ uint32_t plat_buttons(void)
 	return held;
 }
 
+/* FatFs finds names in any case, Linux does not: a path that is not there as written is
+   looked up one component at a time, ignoring case (the engine asks for "ft.la0" when the
+   file is FT.LA0, and the core no longer lists whole folders to find out: GW_FS_PROBE) */
+static const char *ci(const char *path)
+{
+	static char out[1024];
+	struct stat st;
+	if (!path || !*path || stat(path, &st) == 0 || strlen(path) >= sizeof out) return path;
+	extern int heap_host_bypass __attribute__((weak));
+	size_t o = 0;
+	const char *p = path;
+	if (*p == '/') { out[o++] = '/'; p++; }
+	out[o] = 0;
+	while (*p) {
+		const char *e = strchr(p, '/');
+		size_t n = e ? (size_t)(e - p) : strlen(p);
+		char comp[256];
+		if (n >= sizeof comp) return path;
+		memcpy(comp, p, n); comp[n] = 0;
+		char trial[1024];
+		snprintf(trial, sizeof trial, "%s%s", out, comp);
+		if (stat(trial, &st) != 0) {
+			if (&heap_host_bypass) heap_host_bypass = 1;
+			DIR *d = opendir(o ? out : ".");
+			if (&heap_host_bypass) heap_host_bypass = 0;
+			if (!d) return path;
+			struct dirent *de;
+			int found = 0;
+			while ((de = readdir(d)))
+				if (!strcasecmp(de->d_name, comp)) { snprintf(comp, sizeof comp, "%s", de->d_name); found = 1; break; }
+			closedir(d);
+			if (!found) return path;
+		}
+		o += snprintf(out + o, sizeof out - o, "%s%s", comp, e ? "/" : "");
+		p += n + (e ? 1 : 0);
+	}
+	return out;
+}
+
 plat_stat_t plat_stat(const char *path)
 {
+	path = ci(path);
 	struct stat s;
 	plat_stat_t r = { false, false, 0 };
 	if (stat(path, &s) == 0) { r.exists = true; r.is_dir = S_ISDIR(s.st_mode); r.size = (uint32_t)s.st_size; }
@@ -164,7 +205,10 @@ plat_stat_t plat_stat(const char *path)
 
 bool plat_list_dir(const char *path, void (*cb)(const char *, bool, uint32_t, void *), void *arg)
 {
+	extern int heap_host_bypass __attribute__((weak));
+	if (&heap_host_bypass) heap_host_bypass = 1;
 	DIR *d = opendir(path);
+	if (&heap_host_bypass) heap_host_bypass = 0;
 	if (!d) return false;
 	struct dirent *e;
 	char full[1024];
@@ -181,6 +225,13 @@ bool plat_list_dir(const char *path, void (*cb)(const char *, bool, uint32_t, vo
 const uint8_t *plat_map_file(const char *path, uint32_t *size, uint8_t *key)
 {
 	static struct { char path[512]; uint8_t *data; uint32_t size; uint8_t key; } map[64];
+	char own[1024];
+	snprintf(own, sizeof own, "%s", ci(path));
+	path = own;
+	/* as on the console: bigger than its flash cache takes stays on the "card" (FT.LA1: its
+	   resource pack is mapped instead, plat_map_pack) */
+	plat_stat_t st0 = plat_stat(path);
+	if (!getenv("GW_MAP_ALL") && st0.size > (24u << 20)) return NULL;
 	if (!g_game || strncmp(path, g_game, strlen(g_game)) != 0) return NULL;   /* only the game's own files */
 	for (int i = 0; i < 64; i++) {
 		if (map[i].data && !strcmp(map[i].path, path)) { *size = map[i].size; if (key) *key = map[i].key; return map[i].data; }
@@ -213,7 +264,7 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size, uint8_t *key)
 }
 
 bool plat_mkdir(const char *path) { return mkdir(path, 0777) == 0; }
-void *plat_fopen(const char *path, const char *mode) { return fopen(path, mode); }
+void *plat_fopen(const char *path, const char *mode) { return fopen(mode[0] == 'r' ? ci(path) : path, mode); }
 uint32_t plat_fread(void *buf, uint32_t n, void *f) { return (uint32_t)fread(buf, 1, n, f); }
 uint32_t plat_fwrite(const void *buf, uint32_t n, void *f) { return (uint32_t)fwrite(buf, 1, n, f); }
 bool plat_fseek(void *f, int32_t off, int whence) { return fseek(f, off, whence) == 0; }
@@ -238,4 +289,41 @@ int main(int argc, char **argv)
 	if (argc == 2) args[n++] = "--auto-detect";   /* as on the console */
 	args[n] = NULL;
 	return gw_scummvm_main(n, args);
+}
+
+/* src/pack.c, as the console does it (platform_core.c, cache_pack()): made once next to the data
+   file, then mapped outside the heap */
+static void host_progress(int pct) { fprintf(stderr, "\rpack: %d%%", pct); if (pct >= 100) fputc('\n', stderr); }
+
+const void *plat_map_pack(const char *path)
+{
+	static struct { char path[512]; const void *head; } packs[2];
+	char own[1024];
+	snprintf(own, sizeof own, "%s", ci(path));   /* ci()'s buffer is reused by the calls below */
+	path = own;
+	for (int i = 0; i < 2; i++) if (packs[i].head && !strcmp(packs[i].path, path)) return packs[i].head;
+	plat_stat_t st = plat_stat(path);
+	if (getenv("GW_MAP_ALL") || st.size <= (24u << 20)) return NULL;
+	if (!svm_pack_candidate(path, st.size)) { fprintf(stderr, "pack: %s is not a v7 data file\n", path); return NULL; }
+	char dst[600];
+	snprintf(dst, sizeof dst, "%s.gwpack", path);
+	pack_head_t h;
+	plat_stat_t ps = plat_stat(dst);
+	int valid = 0;
+	FILE *f = ps.exists ? fopen(dst, "rb") : NULL;
+	if (f) { valid = fread(&h, sizeof h, 1, f) == 1 && svm_pack_valid(&h, ps.size, path, st.size); fclose(f); }
+	if (!valid) {
+		fprintf(stderr, "pack: making %s\n", dst);
+		if (!svm_pack_build(path, st.size, dst, host_progress)) return NULL;
+		ps = plat_stat(dst);
+	}
+	f = fopen(dst, "rb");
+	if (!f) return NULL;
+	void *m = mmap(0, ps.size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (m == MAP_FAILED || fread(m, 1, ps.size, f) != ps.size) { fclose(f); return NULL; }
+	fclose(f);
+	mprotect(m, ps.size, PROT_READ);         /* resources used in place are read-only, as in flash */
+	for (int i = 0; i < 2; i++)
+		if (!packs[i].head) { snprintf(packs[i].path, sizeof packs[i].path, "%s", path); packs[i].head = m; break; }
+	return m;
 }

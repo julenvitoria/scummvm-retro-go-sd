@@ -31,6 +31,7 @@
 #include "common/config-manager.h"
 #include "platform.h"
 #include "osk.h"
+#include "pack.h"
 
 /* ================================================================ files */
 
@@ -73,6 +74,56 @@ public:
 };
 GWMappedStream *GWMappedStream::_open;
 
+/* A data file read from the card that has a resource pack in flash (src/pack.c: FT.LA1):
+   reads that fall inside a packed block come from the flash, the rest from the card. */
+class GWPackedStream : public Common::SeekableReadStream {
+public:
+	void *_f;
+	uint32 _size, _pos = 0, _filePos = 0;
+	const pack_head_t *_head;
+	bool _eos = false;
+	GWPackedStream *_next;
+	static GWPackedStream *_open;
+
+	GWPackedStream(void *f, uint32 size, const pack_head_t *head) : _f(f), _size(size), _head(head) {
+		_next = _open; _open = this;
+	}
+	~GWPackedStream() override {
+		for (GWPackedStream **p = &_open; *p; p = &(*p)->_next)
+			if (*p == this) { *p = _next; break; }
+		plat_fclose(_f);
+	}
+	bool eos() const override { return _eos; }
+	void clearErr() override { _eos = false; }
+	int64 pos() const override { return _pos; }
+	int64 size() const override { return _size; }
+	bool seek(int64 offs, int whence = SEEK_SET) override {
+		int64 p = whence == SEEK_SET ? offs : whence == SEEK_CUR ? _pos + offs : _size + offs;
+		if (p < 0 || p > _size) return false;
+		_pos = (uint32)p; _eos = false;
+		return true;
+	}
+	const byte *inFlash(uint32 n) const {
+		const pack_entry_t *e = svm_pack_find(_head, _pos, n);
+		return e ? (const byte *)_head + e->pack + (_pos - e->src) : nullptr;
+	}
+	uint32 read(void *buf, uint32 n) override {
+		if (n > _size - _pos) { n = _size - _pos; _eos = true; }
+		if (const byte *p = inFlash(n)) {
+			memcpy(buf, p, n);
+			_pos += n;
+			return n;
+		}
+		if (_filePos != _pos && !plat_fseek(_f, (int32_t)_pos, SEEK_SET)) { _eos = true; return 0; }
+		uint32 got = plat_fread(buf, n, _f);
+		_pos += got;
+		_filePos = _pos;
+		if (got < n) _eos = true;
+		return got;
+	}
+};
+GWPackedStream *GWPackedStream::_open;
+
 /* patches/scummvm-slim.patch: the next n bytes of 'stream' where they lie, as the engine
    would read them with its XOR byte 'enc' -- or NULL (not in flash, or stored differently).
    The stream moves past them. */
@@ -83,6 +134,12 @@ const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte 
 			if (m->_key != enc || n > m->_size - m->_pos) return nullptr;
 			const byte *p = m->_data + m->_pos;
 			m->_pos += n;
+			return p;
+		}
+	for (GWPackedStream *m = GWPackedStream::_open; m; m = m->_next)
+		if (m == stream) {
+			const byte *p = enc || n > m->_size - m->_pos ? nullptr : m->inFlash(n);
+			if (p) m->_pos += n;
 			return p;
 		}
 	return nullptr;
@@ -166,7 +223,10 @@ public:
 		const uint8_t *map = plat_map_file(_path.c_str(), &size, &key);
 		if (map) return new GWMappedStream(map, size, key);
 		void *f = plat_fopen(_path.c_str(), "rb");
-		return f ? new GWFileStream(f, st().size) : nullptr;
+		if (!f) return nullptr;
+		if (const void *pack = plat_map_pack(_path.c_str()))
+			return new GWPackedStream(f, st().size, (const pack_head_t *)pack);
+		return new GWFileStream(f, st().size);
 	}
 	Common::SeekableWriteStream *createWriteStream(bool atomic) override {
 		void *f = plat_fopen(_path.c_str(), "wb");

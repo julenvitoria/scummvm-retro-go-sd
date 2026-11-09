@@ -106,6 +106,79 @@ index ef3997f1..e9553647 100644
  		}
  	}
  #ifdef USE_SDL_NET
+diff --git a/common/fs.cpp b/common/fs.cpp
+index 7dd97993..0bcaa7bf 100644
+--- a/common/fs.cpp
++++ b/common/fs.cpp
+@@ -328,7 +328,43 @@ FSNode FSDirectory::getFSNode() const {
+ 	return _node;
+ }
+ 
++#ifdef GW_FS_PROBE
++// Game & Watch: a file is looked for on the card when it is asked for, instead of in a
++// listing of the whole tree kept in memory (~190 bytes a file: 40 KB for Full Throttle's
++// DATA and VIDEO folders); only what is found is kept. Flat directories, and listings
++// (listMembers & co., which call ensureCached() themselves), still cache everything.
++FSNode *FSDirectory::gwProbe(NodeCache &cache, const Path &name) const {
++	if (cache.contains(name))
++		return &cache[name];
++	Path rel = name;
++	if (!_prefix.empty()) {
++		if (!name.isRelativeTo(_prefix))
++			return nullptr;
++		rel = name.relativeTo(_prefix);
++	}
++	StringArray comps = rel.splitComponents();
++	if (comps.empty() || (int)comps.size() > _depth)
++		return nullptr;
++	FSNode node = _node;
++	for (const auto &c : comps) {
++		if (c.empty() || c == "." || c == "..")
++			return nullptr;
++		node = node.getChild(c);
++		if (!node.exists())
++			return nullptr;
++	}
++	if (node.isDirectory() != (&cache == &_subDirCache))
++		return nullptr;
++	cache[name] = node;
++	return &cache[name];
++}
++#endif
++
+ FSNode *FSDirectory::lookupCache(NodeCache &cache, const Path &name) const {
++#ifdef GW_FS_PROBE
++	if (!_flat && !_cached)
++		return name.empty() ? nullptr : gwProbe(cache, name);
++#endif
+ 	// make caching as lazy as possible
+ 	if (!name.empty()) {
+ 		ensureCached();
+@@ -469,6 +505,10 @@ void FSDirectory::cacheDirectoryRecursive(FSNode node, int depth, const Path& pr
+ void FSDirectory::ensureCached() const  {
+ 	if (_cached)
+ 		return;
++#ifdef GW_FS_PROBE
++	_fileCache.clear();		// what gwProbe() kept: the listing has it all
++	_subDirCache.clear();
++#endif
+ 	cacheDirectoryRecursive(_node, _depth, _prefix);
+ 	_cached = true;
+ }
+diff --git a/common/fs.h b/common/fs.h
+index 70081d8f..d24a71a4 100644
+--- a/common/fs.h
++++ b/common/fs.h
+@@ -358,6 +358,9 @@ class FSDirectory : public Archive {
+ 
+ 	// look for a match
+ 	FSNode *lookupCache(NodeCache &cache, const Path &name) const;
++#ifdef GW_FS_PROBE
++	FSNode *gwProbe(NodeCache &cache, const Path &name) const;
++#endif
+ 
+ 	// cache management
+ 	void cacheDirectoryRecursive(FSNode node, int depth, const Path& prefix) const;
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea52..380eb1fa 100644
 --- a/engines/scumm/dialogs.cpp
@@ -362,6 +435,60 @@ index 133f6ec0..37155b7b 100644
  			// We check for an empty label since v4 might generate that...
  			if (_mainMenuSavegameLabel > 0 && !_savegameNames[_mainMenuSavegameLabel - 1].substr(labelSkip).empty()) {
  				convertMessageToString((const byte *)getGUIString(gsSaving), (byte *)saveScreenTitle, sizeof(saveScreenTitle));
+diff --git a/engines/scumm/imuse_digi/dimuse_cmds.cpp b/engines/scumm/imuse_digi/dimuse_cmds.cpp
+index 103fd5f8..339f3345 100644
+--- a/engines/scumm/imuse_digi/dimuse_cmds.cpp
++++ b/engines/scumm/imuse_digi/dimuse_cmds.cpp
+@@ -189,7 +189,7 @@ void IMuseDigital::cmdsSaveLoad(Common::Serializer &ser) {
+ }
+ 
+ int IMuseDigital::cmdsStartSound(int soundId, int priority) {
+-	uint8 *src = _filesHandler->getSoundAddrData(soundId);
++	uint8 *src = _filesHandler->soundData(soundId, 0, 4);
+ 
+ 	if (src == nullptr) {
+ 		debug(5, "IMuseDigital::cmdsStartSound(): ERROR: resource address for sound %d is NULL", soundId);
+diff --git a/engines/scumm/imuse_digi/dimuse_codecs.cpp b/engines/scumm/imuse_digi/dimuse_codecs.cpp
+index 7b9df16a..3b345ba3 100644
+--- a/engines/scumm/imuse_digi/dimuse_codecs.cpp
++++ b/engines/scumm/imuse_digi/dimuse_codecs.cpp
+@@ -40,8 +40,17 @@ namespace BundleCodecs {
+  * varies the size of each "packet" between 2 and 7 bits.
+  */
+ 
++#ifdef GW_V7_SLIM
++// Game & Watch: the tables initializeImcTables() computes, as const data in the flash
++// (tools/gen/dimuse_imctable.c)
++extern "C" const byte gw_imc_table[89];
++extern "C" const uint32 gw_imc_table2[89 * 64];
++static const byte *const _destImcTable = gw_imc_table;
++static const uint32 *const _destImcTable2 = gw_imc_table2;
++#else
+ static byte *_destImcTable = nullptr;
+ static uint32 *_destImcTable2 = nullptr;
++#endif
+ 
+ // This table is the "big brother" of Audio::ADPCMStream::_stepAdjustTable.
+ static const byte imxOtherTable[6][64] = {
+@@ -84,6 +93,10 @@ static const byte imxOtherTable[6][64] = {
+ 	}
+ };
+ 
++#ifdef GW_V7_SLIM
++void releaseImcTables() {}
++void initializeImcTables() {}
++#else
+ void releaseImcTables() {
+ 	free(_destImcTable);
+ 	_destImcTable = nullptr;
+@@ -129,6 +142,7 @@ void initializeImcTables() {
+ 		}
+ 	}
+ }
++#endif
+ 
+ #define NextBit                            \
+ 	do {                                   \
 diff --git a/engines/scumm/imuse_digi/dimuse_defs.h b/engines/scumm/imuse_digi/dimuse_defs.h
 index d0d900d1..fb07f4ab 100644
 --- a/engines/scumm/imuse_digi/dimuse_defs.h
@@ -394,10 +521,24 @@ index d0d900d1..fb07f4ab 100644
  #define DIMUSE_BASE_SAMPLERATE 22050
  #define DIMUSE_BASE_FEEDSIZE   512
 diff --git a/engines/scumm/imuse_digi/dimuse_dispatch.cpp b/engines/scumm/imuse_digi/dimuse_dispatch.cpp
-index 72d3bffe..b00ee928 100644
+index 72d3bffe..c12f50f0 100644
 --- a/engines/scumm/imuse_digi/dimuse_dispatch.cpp
 +++ b/engines/scumm/imuse_digi/dimuse_dispatch.cpp
-@@ -138,7 +138,11 @@ void IMuseDigital::dispatchSaveLoad(Common::Serializer &ser) {
+@@ -25,7 +25,13 @@
+ namespace Scumm {
+ 
+ int IMuseDigital::dispatchInit() {
++#ifdef GW_V7_SLIM
++	// Game & Watch: Full Throttle crossfades through _ftCrossfadeBuffer; these 88 KB of fade
++	// buffers only serve the later DiMUSE (The Dig), dispatchAllocateFade() gives none to FT
++	_dispatchBuffer = (uint8 *)malloc(_isEarlyDiMUSE ? 1 : DIMUSE_SMALL_FADES * DIMUSE_SMALL_FADE_DIM + DIMUSE_LARGE_FADE_DIM * DIMUSE_LARGE_FADES);
++#else
+ 	_dispatchBuffer = (uint8 *)malloc(DIMUSE_SMALL_FADES * DIMUSE_SMALL_FADE_DIM + DIMUSE_LARGE_FADE_DIM * DIMUSE_LARGE_FADES);
++#endif
+ 
+ 	if (_dispatchBuffer) {
+ 		_dispatchLargeFadeBufs = _dispatchBuffer;
+@@ -138,7 +144,11 @@ void IMuseDigital::dispatchSaveLoad(Common::Serializer &ser) {
  int IMuseDigital::dispatchRestoreStreamZones() {
  	IMuseDigiDispatch *curDispatchPtr;
  	IMuseDigiStreamZone *curStreamZone;
@@ -409,7 +550,7 @@ index 72d3bffe..b00ee928 100644
  
  	curDispatchPtr = _dispatches;
  	for (int i = 0; i < _trackCount; i++) {
-@@ -179,7 +183,11 @@ int IMuseDigital::dispatchRestoreStreamZones() {
+@@ -179,7 +189,11 @@ int IMuseDigital::dispatchRestoreStreamZones() {
  int IMuseDigital::dispatchAllocateSound(IMuseDigiTrack *trackPtr, int groupId) {
  	IMuseDigiDispatch *trackDispatch;
  	int navigateMapResult;
@@ -421,18 +562,88 @@ index 72d3bffe..b00ee928 100644
  
  	trackDispatch = trackPtr->dispatchPtr;
  	trackDispatch->currentOffset = 0;
+@@ -636,7 +650,7 @@ void IMuseDigital::dispatchProcessDispatches(IMuseDigiTrack *trackPtr, int feedS
+ 			dispatchPtr->streamZoneList->size -= effRemainingAudio;
+ 			dispatchPtr->streamErrFlag = 0;
+ 		} else {
+-			soundAddrData = _filesHandler->getSoundAddrData(trackPtr->soundId);
++			soundAddrData = _filesHandler->soundData(trackPtr->soundId, dispatchPtr->currentOffset, effRemainingAudio);
+ 			if (!soundAddrData) {
+ 				debug(5, "IMuseDigital::dispatchProcessDispatches(): ERROR: soundAddrData for sound %d is NULL", trackPtr->soundId);
+ 				// Try to gracefully play nothing instead of getting stuck on an infinite loop
+@@ -645,7 +659,7 @@ void IMuseDigital::dispatchProcessDispatches(IMuseDigiTrack *trackPtr, int feedS
+ 				return;
+ 			}
+ 
+-			srcBuf = &soundAddrData[dispatchPtr->currentOffset];
++			srcBuf = soundAddrData;
+ 		}
+ 
+ 		if (dispatchPtr->fadeBuf) {
+@@ -782,10 +796,10 @@ void IMuseDigital::dispatchProcessDispatches(IMuseDigiTrack *trackPtr, int feedS
+ 				return;
+ 			}
+ 		} else {
+-			srcBuf = _filesHandler->getSoundAddrData(trackPtr->soundId);
++			srcBuf = _filesHandler->soundData(trackPtr->soundId, dispatchPtr->currentOffset, inFrameCount);
+ 			if (!srcBuf)
+ 				return;
+-			buffer = &srcBuf[dispatchPtr->currentOffset];
++			buffer = srcBuf;
+ 		}
+ 
+ 		if (dispatchPtr->fadeBuf) {
+@@ -1116,7 +1130,7 @@ int IMuseDigital::dispatchGetMap(IMuseDigiDispatch *dispatchPtr) {
+ 
+ 		} else {
+ 			// Otherwise, this is a SFX and we must load it using its resource pointer
+-			soundAddrData = _filesHandler->getSoundAddrData(dispatchPtr->trackPtr->soundId);
++			soundAddrData = _filesHandler->soundData(dispatchPtr->trackPtr->soundId, 0, 2048);
+ 
+ 			if (!soundAddrData) {
+ 				debug(5, "IMuseDigital::dispatchGetMap(): ERROR: couldn't get sound address");
+@@ -1509,6 +1523,10 @@ IMuseDigiStreamZone *IMuseDigital::dispatchAllocateStreamZone() {
+ 
+ uint8 *IMuseDigital::dispatchAllocateFade(int32 &fadeSize, const char *function) {
+ 	uint8 *allocatedFadeBuf = nullptr;
++#ifdef GW_V7_SLIM
++	if (_isEarlyDiMUSE)
++		return nullptr;
++#endif
+ 	if (fadeSize > DIMUSE_LARGE_FADE_DIM) {
+ 		debug(5, "IMuseDigital::dispatchAllocateFade(): WARNING: requested fade too large (%d) in %s()", fadeSize, function);
+ 		fadeSize = DIMUSE_LARGE_FADE_DIM;
+@@ -1673,12 +1691,12 @@ int IMuseDigital::dispatchSeekToNextChunk(IMuseDigiDispatch *dispatchPtr) {
+ 				return -3;
+ 			}
+ 		} else {
+-			soundAddrData = _filesHandler->getSoundAddrData(dispatchPtr->trackPtr->soundId);
+ 			uint32 soundAddrSize = _filesHandler->getSoundAddrDataSize(dispatchPtr->trackPtr->soundId, dispatchPtr->streamPtr != 0);
+ 			uint32 fetchSize = (soundAddrSize - dispatchPtr->currentOffset) >= 0x30 ? 0x30 : (soundAddrSize - dispatchPtr->currentOffset);
++			soundAddrData = _filesHandler->soundData(dispatchPtr->trackPtr->soundId, dispatchPtr->currentOffset, fetchSize);
+ 
+ 			if (soundAddrData && soundAddrSize > 0) {
+-				memcpy(_currentVOCHeader, &soundAddrData[dispatchPtr->currentOffset], fetchSize);
++				memcpy(_currentVOCHeader, soundAddrData, fetchSize);
+ 			} else {
+ 				return -1;
+ 			}
 diff --git a/engines/scumm/imuse_digi/dimuse_engine.cpp b/engines/scumm/imuse_digi/dimuse_engine.cpp
-index 3c21ee19..8587c29b 100644
+index 3c21ee19..4fd091ff 100644
 --- a/engines/scumm/imuse_digi/dimuse_engine.cpp
 +++ b/engines/scumm/imuse_digi/dimuse_engine.cpp
-@@ -101,6 +101,14 @@ IMuseDigital::IMuseDigital(ScummEngine_v7 *scumm, int sampleRate, Audio::Mixer *
+@@ -101,6 +101,18 @@ IMuseDigital::IMuseDigital(ScummEngine_v7 *scumm, int sampleRate, Audio::Mixer *
  
  	diMUSEInitialize();
  	diMUSEInitializeScript();
 +#ifdef GW_V7_SLIM
 +	// Game & Watch: stream buffers of ~0.5 s refilled more often from the card, not 2.5-15 s
 +	// (a buffer must stay over 4x the dispatch's feed size, 0x1000 here: dimuse_dispatch.cpp)
-+	if (true) {
++	// (FT feeds 0x800 at a time: half the size, 8-bit mono at 11/22 kHz)
++	if (_isEarlyDiMUSE) {
++		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_SPEECH, 12000, 3000, 6000);
++		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_MUSIC, 12000, 3000, 6000);
++	} else if (true) {
 +		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_SPEECH, 24000, 6000, 12000);
 +		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_MUSIC, 24000, 6000, 12000);
 +	} else
@@ -440,18 +651,155 @@ index 3c21ee19..8587c29b 100644
  	if (_vm->_game.id == GID_CMI) {
  		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_SPEECH, 176000, 44000, 88000);
  		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_MUSIC, 528000, 44000, 352000);
-@@ -112,7 +120,11 @@ IMuseDigital::IMuseDigital(ScummEngine_v7 *scumm, int sampleRate, Audio::Mixer *
+@@ -112,7 +124,13 @@ IMuseDigital::IMuseDigital(ScummEngine_v7 *scumm, int sampleRate, Audio::Mixer *
  		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_MUSIC, 220000, 22000, 44000);
  	}
  
 +#ifdef GW_V7_SLIM
-+	_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_SFX, 24000, 0, 0);
++	// the SFX stream buffer takes The Dig's video sound effects; FT has no use for it
++	if (!_isEarlyDiMUSE)
++		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_SFX, 24000, 0, 0);
 +#else
  	_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_SFX, 198000, 0, 0);
 +#endif
  
  	if (_mixer->getOutputBufSize() != 0) {
  		// Let's find the optimal value for the maximum number of streams which can stay in the queue at once;
+diff --git a/engines/scumm/imuse_digi/dimuse_engine.h b/engines/scumm/imuse_digi/dimuse_engine.h
+index eef6b2ca..9d62a077 100644
+--- a/engines/scumm/imuse_digi/dimuse_engine.h
++++ b/engines/scumm/imuse_digi/dimuse_engine.h
+@@ -224,7 +224,13 @@ private:
+ 	IMuseDigiDispatch _dispatches[DIMUSE_MAX_DISPATCHES];
+ 	IMuseDigiStreamZone _streamZones[DIMUSE_MAX_STREAMZONES];
+ 	uint8 *_dispatchBuffer;
++#ifdef GW_V7_SLIM
++	// Game & Watch: a crossfade copies what the old stream has buffered, and FT's stream
++	// buffers hold 12000 bytes here (dimuse_engine.cpp)
++	uint8 _ftCrossfadeBuffer[12000];
++#else
+ 	uint8 _ftCrossfadeBuffer[30000]; // Used by FT & DIG demo
++#endif
+ 	int32 _dispatchSize;
+ 	uint8 *_dispatchSmallFadeBufs;
+ 	uint8 *_dispatchLargeFadeBufs;
+diff --git a/engines/scumm/imuse_digi/dimuse_files.cpp b/engines/scumm/imuse_digi/dimuse_files.cpp
+index 400fcf0f..09af73c9 100644
+--- a/engines/scumm/imuse_digi/dimuse_files.cpp
++++ b/engines/scumm/imuse_digi/dimuse_files.cpp
+@@ -47,6 +47,10 @@ IMuseDigiFilesHandler::IMuseDigiFilesHandler(IMuseDigital *engine, ScummEngine_v
+ }
+ 
+ IMuseDigiFilesHandler::~IMuseDigiFilesHandler() {
++#ifdef GW_V7_SLIM
++	for (auto &w : _gwWin)
++		free(w.buf);
++#endif
+ 	delete _ftSpeechFile;
+ 	delete _sound;
+ }
+@@ -114,10 +118,67 @@ uint8 *IMuseDigiFilesHandler::getSoundAddrData(int soundId) {
+ 	return nullptr;
+ }
+ 
++#ifdef GW_V7_SLIM
++#define GW_SD_WIN 4096
++#endif
++
++uint8 *IMuseDigiFilesHandler::soundData(int soundId, int32 offset, int32 len) {
++#ifdef GW_V7_SLIM
++	// Game & Watch: a big sound resource (Full Throttle's engine noises and ambiences, up to
++	// ~250 KB each) not in memory is played from the card through a few small windows
++	// instead of being loaded whole: the dispatch only ever wants a feed's worth of it
++	uint32 offs, size;
++	if (soundId && !_engine->isEngineDisabled() && _vm->gwSoundOnCard(soundId, offs, size)) {
++		if (offset < 0 || (uint32)offset >= size || len < 0 || len > GW_SD_WIN)
++			return nullptr;
++		GWWindow *w = nullptr, *victim = nullptr;
++		for (auto &cur : _gwWin) {
++			if (cur.buf && cur.soundId == soundId && offset >= cur.base && offset + len <= cur.base + GW_SD_WIN) {
++				w = &cur;
++				break;
++			}
++			// refill this sound's own window (it moves forward), else the least recently used
++			if (cur.soundId == soundId)
++				victim = &cur;
++		}
++		if (!w) {
++			if (!victim) {
++				victim = &_gwWin[0];
++				for (auto &cur : _gwWin)
++					if (cur.stamp < victim->stamp)
++						victim = &cur;
++			}
++			w = victim;
++			if (!w->buf)
++				w->buf = (uint8 *)malloc(GW_SD_WIN);
++			if (!w->buf)
++				return nullptr;
++			int32 n = MIN<uint32>(GW_SD_WIN, size - offset);
++			int got = _vm->gwReadSoundResource(offs + offset, w->buf, n);
++			if (got < 0)
++				got = 0;
++			memset(w->buf + got, 0, GW_SD_WIN - got);
++			w->soundId = soundId;
++			w->base = offset;
++		}
++		w->stamp = ++_gwWinStamp;
++		return w->buf + (offset - w->base);
++	}
++#endif
++	uint8 *ptr = getSoundAddrData(soundId);
++	return ptr ? ptr + offset : nullptr;
++}
++
+ int IMuseDigiFilesHandler::getSoundAddrDataSize(int soundId, bool hasStream) {
+ 	if (_engine->isEngineDisabled())
+ 		return 0;
+ 
++#ifdef GW_V7_SLIM
++	uint32 gwOffs, gwSize;
++	if (!hasStream && _vm->gwSoundOnCard(soundId, gwOffs, gwSize))
++		return gwSize;
++#endif
++
+ 	if (hasStream) {
+ 		ImuseDigiSndMgr::SoundDesc *s = _sound->findSoundById(soundId);
+ 		if (s) {
+@@ -226,6 +287,10 @@ int IMuseDigiFilesHandler::read(int soundId, uint8 *buf, int32 size, int bufId)
+ 				if (curSnd->soundId == soundId) {
+ 					if (_engine->isFTSoundEngine()) { // FT & DIG demo
+ 						resultingSize = size > (curSnd->resSize - curSnd->resCurOffset) ? (curSnd->resSize - curSnd->resCurOffset) : size;
++#ifdef GW_V7_SLIM
++						if (curSnd->gwFileOffs)
++							return _vm->gwReadSoundResource(curSnd->gwFileOffs + curSnd->resCurOffset, buf, resultingSize);
++#endif
+ 						tmpBuf = &curSnd->resPtr[curSnd->resCurOffset];
+ 
+ 						if (resultingSize != size)
+diff --git a/engines/scumm/imuse_digi/dimuse_files.h b/engines/scumm/imuse_digi/dimuse_files.h
+index e6739c3c..536fd9c2 100644
+--- a/engines/scumm/imuse_digi/dimuse_files.h
++++ b/engines/scumm/imuse_digi/dimuse_files.h
+@@ -48,11 +48,18 @@ private:
+ 	int _ftSpeechFileCurPos;
+ 
+ 	void getFilenameFromSoundId(int soundId, char *fileName, size_t size);
++#ifdef GW_V7_SLIM
++	// Game & Watch: windows on the big sound resources left on the card (soundData())
++	struct GWWindow { int soundId; int32 base; uint32 stamp; uint8 *buf; };
++	GWWindow _gwWin[4] = {};
++	uint32 _gwWinStamp = 0;
++#endif
+ public:
+ 	IMuseDigiFilesHandler(IMuseDigital *engine, ScummEngine_v7 *vm);
+ 	~IMuseDigiFilesHandler();
+ 
+ 	uint8 *getSoundAddrData(int soundId);
++	uint8 *soundData(int soundId, int32 offset, int32 len);	// len bytes of a SFX's data at offset
+ 	int getSoundAddrDataSize(int soundId, bool hasStream);
+ 	int getNextSound(int soundId);
+ 	int seek(int soundId, int32 offset, int mode, int bufId);
 diff --git a/engines/scumm/imuse_digi/dimuse_internalmixer.cpp b/engines/scumm/imuse_digi/dimuse_internalmixer.cpp
 index b78115c7..c6f384d6 100644
 --- a/engines/scumm/imuse_digi/dimuse_internalmixer.cpp
@@ -529,11 +877,64 @@ index 4e8ea57e..795a38fa 100644
  
  	uint8 *_mixBuf = nullptr;
  
+diff --git a/engines/scumm/imuse_digi/dimuse_sndmgr.cpp b/engines/scumm/imuse_digi/dimuse_sndmgr.cpp
+index 132b8ed7..c9442c46 100644
+--- a/engines/scumm/imuse_digi/dimuse_sndmgr.cpp
++++ b/engines/scumm/imuse_digi/dimuse_sndmgr.cpp
+@@ -157,6 +157,21 @@ ImuseDigiSndMgr::SoundDesc *ImuseDigiSndMgr::openSound(int32 soundId, const char
+ 	case IMUSE_RESOURCE:
+ 		assert(soundName[0] == 0);	// Paranoia check
+ 
++#ifdef GW_V7_SLIM
++		// Game & Watch: Full Throttle's music is in sound resources of up to ~1.7 MB, in a data
++		// file too big for the flash; a big one not loaded yet stays on the card and is read
++		// from there as the stream asks for it
++		{
++			uint32 offs, size;
++			if (_vm->gwSoundOnCard(soundId, offs, size)) {
++				sound->resPtr = nullptr;
++				sound->resSize = size;
++				sound->gwFileOffs = offs;
++				break;
++			}
++		}
++#endif
++
+ 		_vm->_res->lock(rtSound, soundId);
+ 		ptr = _vm->getResourceAddress(rtSound, soundId);
+ 		if (ptr == nullptr) {
+diff --git a/engines/scumm/imuse_digi/dimuse_sndmgr.h b/engines/scumm/imuse_digi/dimuse_sndmgr.h
+index 048ab26b..b6ee12cc 100644
+--- a/engines/scumm/imuse_digi/dimuse_sndmgr.h
++++ b/engines/scumm/imuse_digi/dimuse_sndmgr.h
+@@ -63,6 +63,9 @@ public:
+ 		char name[15];
+ 		int16 soundId;
+ 		BundleMgr *bundle;
++#ifdef GW_V7_SLIM
++		uint32 gwFileOffs;	// Game & Watch: a big resource left on the card, read from here (dimuse_files.cpp)
++#endif
+ 	};
+ 
+ private:
 diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
-index 3525910f..16955a29 100644
+index 3525910f..fdda7ea4 100644
 --- a/engines/scumm/input.cpp
 +++ b/engines/scumm/input.cpp
-@@ -1010,7 +1010,9 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
+@@ -582,6 +582,12 @@ void ScummEngine_v7::processKeyboard(Common::KeyState lastKeyHit) {
+ 	} else if (cutsceneExitKeyEnabled && lastKeyHit.keycode == Common::KEYCODE_ESCAPE) {
+ 		// Skip cutscene (or active SMUSH video).
+ 		if (_smushActive) {
++#ifdef GW_V7_SLIM
++			if (_game.id == GID_FT && !_insane) {	// no bike scene yet (made when one starts)
++				_smushVideoShouldFinish = true;
++				_splayer->gwResetAudioTracks();
++			} else
++#endif
+ 			if (_game.id == GID_FT)
+ 				_insane->escapeKeyHandler();
+ 			else
+@@ -1010,7 +1016,9 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
  	if (isUsingOriginalGUI()) {
  		if (lastKeyHit.keycode == Common::KEYCODE_F5 && _game.version <= 3) {
  			_savegameThumbnail.free();
@@ -543,7 +944,7 @@ index 3525910f..16955a29 100644
  		}
  
  		char sliderString[256];
-@@ -1078,9 +1080,18 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
+@@ -1078,9 +1086,18 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
  		// Generally allow voice mode settings only for v6, 7 and 8.
  		// Also allow it for Indy4 Talkie, which does its own thing.
  		if (((VAR_VOICE_MODE != 0xFF) || ((_game.features & GF_ULTIMATE_TALKIE) ||
@@ -562,7 +963,7 @@ index 3525910f..16955a29 100644
  
  			voiceMode++;
  			if (voiceMode >= 3) {
-@@ -1102,6 +1113,9 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
+@@ -1102,6 +1119,9 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
  			}
  
  			ConfMan.setInt("original_gui_text_status", voiceMode);
@@ -600,8 +1001,220 @@ index 53fc9986..2c3b387a 100644
  	if (gameId == "mortimer") {
  		for (uint i = 0; i < keymaps.size(); ++i)
  			delete keymaps[i];
+diff --git a/engines/scumm/nut_renderer.cpp b/engines/scumm/nut_renderer.cpp
+index f8fc7110..54ec3cdd 100644
+--- a/engines/scumm/nut_renderer.cpp
++++ b/engines/scumm/nut_renderer.cpp
+@@ -27,6 +27,12 @@
+ 
+ namespace Scumm {
+ 
++#ifdef GW_V7_SLIM
++#define GW_NUT_ROW(c, row) src = gwRow(c, row);
++#else
++#define GW_NUT_ROW(c, row)
++#endif
++
+ NutRenderer::NutRenderer(ScummEngine *vm, const char *filename) :
+ 	_vm(vm),
+ 	_numChars(0),
+@@ -51,7 +57,15 @@ NutRenderer::NutRenderer(ScummEngine *vm, const char *filename) :
+ 			loadFont(filename);
+ }
+ 
++#ifdef GW_V7_SLIM
++static const NutRenderer *curFont;
++#endif
++
+ NutRenderer::~NutRenderer() {
++#ifdef GW_V7_SLIM
++	if (curFont == this)
++		curFont = nullptr;
++#endif
+ 	delete[] _decodedData;
+ 	delete[] _2byteColorTable;
+ }
+@@ -107,8 +121,17 @@ void NutRenderer::loadFont(const char *filename) {
+ 	}
+ 
+ 	uint32 length = file->readUint32BE();
++#ifdef GW_V7_SLIM
++	byte *dataSrc = (byte *)file->directPtr(length);
++	_gwLazy = dataSrc != nullptr;
++	if (!dataSrc) {
++		dataSrc = new byte[length];
++		file->read(dataSrc, length);
++	}
++#else
+ 	byte *dataSrc = new byte[length];
+ 	file->read(dataSrc, length);
++#endif
+ 	file->close();
+ 	delete file;
+ 
+@@ -155,7 +178,11 @@ void NutRenderer::loadFont(const char *filename) {
+ 
+ 	debug(1, "NutRenderer::loadFont('%s') - decodedLength = %d", filename, decodedLength);
+ 
++#ifdef GW_V7_SLIM
++	_decodedData = _gwLazy ? nullptr : new byte[decodedLength];
++#else
+ 	_decodedData = new byte[decodedLength];
++#endif
+ 	byte *decodedPtr = _decodedData;
+ 
+ 	offset = 0;
+@@ -189,6 +216,16 @@ void NutRenderer::loadFont(const char *filename) {
+ 		_chars[l].yoffs = READ_LE_INT16(dataSrc + offset + 12);
+ 		_chars[l].width = READ_LE_UINT16(dataSrc + offset + 14);
+ 		_chars[l].height = READ_LE_UINT16(dataSrc + offset + 16);
++#ifdef GW_V7_SLIM
++		if (_gwLazy) {
++			_chars[l].src = dataSrc + offset + 22;
++			_chars[l].codec = codec;
++			_chars[l].transparency = codec == 44 ? kSmush44TransparentColor : kDefaultTransparentColor;
++			if (codec != 1 && codec != 21 && codec != 44)
++				error("NutRenderer::loadFont: unknown codec: %d", codec);
++			continue;
++		}
++#endif
+ 		_chars[l].src = decodedPtr;
+ 
+ 		decodedPtr += (_chars[l].width * _chars[l].height);
+@@ -218,6 +255,10 @@ void NutRenderer::loadFont(const char *filename) {
+ 		}
+ 	}
+ 
++#ifdef GW_V7_SLIM
++	if (_gwLazy)
++		return;
++#endif
+ 	delete[] dataSrc;
+ }
+ 
+@@ -362,6 +403,48 @@ int NutRenderer::getCharHeight(byte c) const {
+ 	return _chars[c].height;
+ }
+ 
++#ifdef GW_V7_SLIM
++void bompDecodeLine(byte *dst, const byte *src, int size, bool setZero);
++
++static byte *rowBuf;
++static int rowBufSize;
++static int curChar = -1, curRow;
++static const byte *curSrc;
++
++// row `row` of glyph c, decoded: rows are asked for in order, so the walk goes on from the
++// last one (each row of codecs 1 and 21/44 starts with its own size)
++const byte *NutRenderer::gwRow(int c, int row) {
++	if (!_gwLazy)
++		return _chars[c].src + row * _chars[c].width;
++	int w = _chars[c].width;
++	if (w > rowBufSize) {
++		free(rowBuf);
++		rowBufSize = MAX(w, 320);
++		rowBuf = (byte *)malloc(rowBufSize);
++		if (!rowBuf) {
++			rowBufSize = 0;
++			error("NutRenderer: no memory for a row");
++		}
++	}
++	if (curFont != this || curChar != c || row < curRow) {
++		curFont = this;
++		curChar = c;
++		curRow = 0;
++		curSrc = _chars[c].src;
++	}
++	while (curRow < row) {
++		curSrc += READ_LE_UINT16(curSrc) + 2;
++		curRow++;
++	}
++	memset(rowBuf, _chars[c].transparency, w);
++	if (_chars[c].codec == 1)
++		bompDecodeLine(rowBuf, curSrc + 2, w, false);
++	else
++		codec21(rowBuf, curSrc, w, 1, w);
++	return rowBuf;
++}
++#endif
++
+ const byte *NutRenderer::getCharData(byte c) {
+ 	if (c >= _numChars)
+ 		error("invalid character in NutRenderer::getCharData: %d (%d)", c, _numChars);
+@@ -393,6 +476,7 @@ void NutRenderer::drawFrame(byte *dst, int c, int x, int y, int pitch) {
+ 	}
+ 
+ 	for (int ty = minY; ty < height; ty++) {
++		GW_NUT_ROW(c, ty)
+ 		for (int tx = minX; tx < width; tx++) {
+ 			bits = src[tx];
+ 			if (bits != 231 && bits) {
+@@ -437,6 +521,7 @@ int NutRenderer::drawCharV7(byte *buffer, Common::Rect &clipRect, int x, int y,
+ 	if (_vm->_game.version == 7) {
+ 		if (hardcodedColors) {
+ 			for (int j = minY; j < height; j++) {
++				GW_NUT_ROW(chr, j)
+ 				for (int i = minX; i < width; i++) {
+ 					int8 value = *src++;
+ 					if (value != _chars[chr].transparency)
+@@ -447,6 +532,7 @@ int NutRenderer::drawCharV7(byte *buffer, Common::Rect &clipRect, int x, int y,
+ 			}
+ 		} else {
+ 			for (int j = minY; j < height; j++) {
++				GW_NUT_ROW(chr, j)
+ 				for (int i = minX; i < width; i++) {
+ 					int8 value = *src++;
+ 					if (value == 1)
+@@ -462,6 +548,7 @@ int NutRenderer::drawCharV7(byte *buffer, Common::Rect &clipRect, int x, int y,
+ 		if (hardcodedColors) {
+ 			// Direct pixel write for NUT fonts with embedded palette colors
+ 			for (int j = minY; j < height; j++) {
++				GW_NUT_ROW(chr, j)
+ 				for (int i = minX; i < width; i++) {
+ 					int8 value = *src++;
+ 					if (value != _chars[chr].transparency)
+@@ -473,6 +560,7 @@ int NutRenderer::drawCharV7(byte *buffer, Common::Rect &clipRect, int x, int y,
+ 		} else if (smushColorMode) {
+ 			// SMUSH subtitle color mode: remap specific values
+ 			for (int j = minY; j < height; j++) {
++				GW_NUT_ROW(chr, j)
+ 				for (int i = minX; i < width; i++) {
+ 					int8 value = *src++;
+ 					if (value == -color)
+@@ -487,6 +575,7 @@ int NutRenderer::drawCharV7(byte *buffer, Common::Rect &clipRect, int x, int y,
+ 			}
+ 		} else {
+ 			for (int j = minY; j < height; j++) {
++				GW_NUT_ROW(chr, j)
+ 				for (int i = minX; i < width; i++) {
+ 					int8 value = *src++;
+ 					if (value != _chars[chr].transparency)
+diff --git a/engines/scumm/nut_renderer.h b/engines/scumm/nut_renderer.h
+index 7dc15ebe..40de4b63 100644
+--- a/engines/scumm/nut_renderer.h
++++ b/engines/scumm/nut_renderer.h
+@@ -58,8 +58,19 @@ protected:
+ 		int16 yoffs;   // Y offset from NUT frame header (for sprite positioning)
+ 		byte *src;
+ 		byte transparency;
++#ifdef GW_V7_SLIM
++		byte codec;
++#endif
+ 	} _chars[256];
+ 
++#ifdef GW_V7_SLIM
++	// Game & Watch: a font whose file is in the flash is not decoded up front (Full Throttle's
++	// fonts and Insane's sprites: ~150 KB decoded) -- src is the glyph's FOBJ data there, and
++	// the drawing loops decode one row at a time (gwRow)
++	bool _gwLazy = false;
++	const byte *gwRow(int c, int row);
++#endif
++
+ 	void codec1(byte *dst, const byte *src, int width, int height, int pitch);
+ 	void codec21(byte *dst, const byte *src, int width, int height, int pitch);
+ 
 diff --git a/engines/scumm/resource.cpp b/engines/scumm/resource.cpp
-index df195fef..b24962a4 100644
+index df195fef..6dded9d5 100644
 --- a/engines/scumm/resource.cpp
 +++ b/engines/scumm/resource.cpp
 @@ -41,6 +41,10 @@
@@ -711,7 +1324,7 @@ index df195fef..b24962a4 100644
  const byte *ScummEngine::findResourceData(uint32 tag, const byte *ptr) {
  	if (_game.features & GF_OLD_BUNDLE)
  		error("findResourceData must not be used in GF_OLD_BUNDLE games");
-@@ -1156,6 +1205,17 @@ void ResourceManager::Resource::setOnHeap() {
+@@ -1156,6 +1205,47 @@ void ResourceManager::Resource::setOnHeap() {
  	_status &= ~RF_OFFHEAP;
  }
  
@@ -726,10 +1339,40 @@ index df195fef..b24962a4 100644
 +#define GW_HEAP_LOW(size) false
 +#endif
 +
++#ifdef GW_SCUMM_SLIM
++// Game & Watch: the heap is about to give up an allocation (src/heap.c's low-memory hook,
++// scumm.cpp): one cached resource the engine can load again goes, the least recently used
++// of those not locked nor in use
++bool ResourceManager::gwFreeOne() {
++	byte best_counter = 1;
++	ResType best_type = rtInvalid;
++	int best_res = 0;
++	for (ResType type = rtFirst; type <= rtLast; type = ResType(type + 1)) {
++		if (_types[type]._mode == kDynamicResTypeMode)
++			continue;
++		ResId idx = _types[type].size();
++		while (idx-- > 0) {
++			Resource &tmp = _types[type][idx];
++			byte counter = tmp.getResourceCounter();
++			if (tmp._address && !tmp.isLocked() && counter >= best_counter && !tmp.isOffHeap() && !tmp.isInPlace() &&
++			    !_vm->isResourceInUse(type, idx)) {
++				best_counter = counter;
++				best_type = type;
++				best_res = idx;
++			}
++		}
++	}
++	if (!best_type)
++		return false;
++	nukeResource(best_type, best_res);
++	return true;
++}
++#endif
++
  void ResourceManager::expireResources(uint32 size) {
  	byte best_counter;
  	ResType best_type;
-@@ -1167,7 +1227,7 @@ void ResourceManager::expireResources(uint32 size) {
+@@ -1167,7 +1257,7 @@ void ResourceManager::expireResources(uint32 size) {
  		increaseResourceCounters();
  	}
  
@@ -738,7 +1381,7 @@ index df195fef..b24962a4 100644
  		return;
  
  	oldAllocatedSize = _allocatedSize;
-@@ -1175,6 +1235,12 @@ void ResourceManager::expireResources(uint32 size) {
+@@ -1175,6 +1265,12 @@ void ResourceManager::expireResources(uint32 size) {
  	do {
  		best_type = rtInvalid;
  		best_counter = 2;
@@ -751,7 +1394,7 @@ index df195fef..b24962a4 100644
  
  		for (ResType type = rtFirst; type <= rtLast; type = ResType(type + 1)) {
  			if (_types[type]._mode != kDynamicResTypeMode) {
-@@ -1184,7 +1250,11 @@ void ResourceManager::expireResources(uint32 size) {
+@@ -1184,7 +1280,11 @@ void ResourceManager::expireResources(uint32 size) {
  				while (idx-- > 0) {
  					Resource &tmp = _types[type][idx];
  					byte counter = tmp.getResourceCounter();
@@ -764,7 +1407,7 @@ index df195fef..b24962a4 100644
  						best_counter = counter;
  						best_type = type;
  						best_res = idx;
-@@ -1196,10 +1266,23 @@ void ResourceManager::expireResources(uint32 size) {
+@@ -1196,10 +1296,23 @@ void ResourceManager::expireResources(uint32 size) {
  		if (!best_type)
  			break;
  		nukeResource(best_type, best_res);
@@ -790,7 +1433,7 @@ index df195fef..b24962a4 100644
  }
  
 diff --git a/engines/scumm/resource.h b/engines/scumm/resource.h
-index 3e684bd7..a91f481d 100644
+index 3e684bd7..70c999f8 100644
 --- a/engines/scumm/resource.h
 +++ b/engines/scumm/resource.h
 @@ -150,6 +150,11 @@ public:
@@ -815,8 +1458,19 @@ index 3e684bd7..a91f481d 100644
  
  //	inline Resource &getRes(ResType type, ResId idx) { return _types[type][idx]; }
  //	inline const Resource &getRes(ResType type, ResId idx) const { return _types[type][idx]; }
+@@ -236,6 +244,10 @@ public:
+ 	bool validateResource(const char *str, ResType type, ResId idx) const;
+ protected:
+ 	void expireResources(uint32 size);
++#ifdef GW_SCUMM_SLIM
++public:
++	bool gwFreeOne();
++#endif
+ };
+ 
+ } // End of namespace Scumm
 diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
-index d1d7a764..70c4e189 100644
+index d1d7a764..36429c9a 100644
 --- a/engines/scumm/saveload.cpp
 +++ b/engines/scumm/saveload.cpp
 @@ -81,7 +81,7 @@ struct SaveInfoSection {
@@ -855,7 +1509,7 @@ index d1d7a764..70c4e189 100644
  	if (_game.id == GID_REBEL1) {
  		const InsaneRebel1 *rebel = (InsaneRebel1 *)((ScummEngine_v7 *)this)->getInsane();
  		return rebel && rebel->hasPlayableLevels();
-@@ -280,6 +280,70 @@ void ScummEngine::requestSave(int slot, const Common::String &name) {
+@@ -280,6 +280,142 @@ void ScummEngine::requestSave(int slot, const Common::String &name) {
  	_saveLoadDescription = name;
  }
  
@@ -868,6 +1522,78 @@ index d1d7a764..70c4e189 100644
 +	Common::String filename;
 +	return saveState(slot, false, filename);
 +}
++
++#ifdef GW_V7_SLIM
++// Where a sound resource's data starts in the room file and how long it is: what
++// readSoundResource() would load, for the 'Crea' (VOC) and 'iMUS' resources of FT and The Dig
++bool ScummEngine::gwLocateSoundResource(ResId idx, uint32 &offs, uint32 &size) {
++	if (!idx || idx >= _res->_types[rtSound].size())
++		return false;
++	for (auto &l : _gwSoundLoc) {
++		if (l.id == idx) {
++			offs = l.offs;
++			size = l.size;
++			return true;
++		}
++	}
++	int roomNr = getResourceRoomNr(rtSound, idx);
++	if (roomNr == 0)
++		roomNr = _roomResource;
++	uint32 fileOffs = getResourceRoomOffset(rtSound, idx);
++	if (fileOffs == RES_INVALID_OFFSET || roomNr <= 0 || roomNr >= (int)_res->_types[rtRoom].size())
++		return false;
++	// where openRoom() would put _fileOffset, without touching _fileHandle (whatever it is
++	// reading for the engine right now): the room's offset in the data file, known once the
++	// file has been opened
++	uint32 roomOffs = _res->_types[rtRoom][roomNr]._roomoffs;
++	if (roomOffs == RES_INVALID_OFFSET || roomOffs == 0)
++		return false;
++	Common::Path name = generateFilename(roomNr);
++	if (!_gwSoundFile || name != _gwSoundFileName) {
++		delete _gwSoundFile;
++		_gwSoundFile = nullptr;
++		BaseScummFile *f = instantiateScummFile();
++		if (!openFile(*f, name)) {
++			delete f;
++			return false;
++		}
++		_gwSoundFile = f;
++		_gwSoundFileName = name;
++	}
++	uint32 start = roomOffs + fileOffs;
++	if (!_gwSoundFile->seek(start + 4, SEEK_SET))
++		return false;
++	uint32 sounSize = _gwSoundFile->readUint32BE();
++	uint32 basetag = _gwSoundFile->readUint32BE();
++	uint32 total = _gwSoundFile->readUint32BE();
++	if (_gwSoundFile->err() || _gwSoundFile->eos())
++		return false;
++	if (basetag == MKTAG('C','r','e','a'))
++		size = sounSize - 8;		// what loadResource() keeps: getResourceSize() - 8
++	else if (basetag == MKTAG('i','M','U','S'))
++		size = total;
++	else
++		return false;
++	offs = start + 8;
++	auto &l = _gwSoundLoc[_gwSoundLocNext++ % ARRAYSIZE(_gwSoundLoc)];
++	l.id = idx;
++	l.offs = offs;
++	l.size = size;
++	return true;
++}
++
++// a big sound resource not in memory: played from the card, never loaded whole
++bool ScummEngine::gwSoundOnCard(ResId idx, uint32 &offs, uint32 &size) {
++	return _game.version == 7 && !_res->isResourceLoaded(rtSound, idx) &&
++		gwLocateSoundResource(idx, offs, size) && size > 48 * 1024;
++}
++
++int ScummEngine::gwReadSoundResource(uint32 offs, byte *buf, int size) {
++	if (!_gwSoundFile || size <= 0 || !_gwSoundFile->seek(offs, SEEK_SET))
++		return 0;
++	return _gwSoundFile->read(buf, size);
++}
++#endif
 +
 +// the Retro-Go menu's Subtitles option (src/platform_core.c): what Ctrl+T cycles through
 +int ScummEngine::gwVoiceMode() {
@@ -926,7 +1652,7 @@ index d1d7a764..70c4e189 100644
  void ScummEngine::requestLoad(int slot) {
  	_saveLoadSlot = slot;
  	_saveTemporaryState = (slot == 100);
-@@ -630,7 +694,8 @@ bool ScummEngine::saveState(Common::SeekableWriteStream *out, bool writeHeader)
+@@ -630,7 +766,8 @@ bool ScummEngine::saveState(Common::SeekableWriteStream *out, bool writeHeader)
  		Common::strlcpy(hdr.name, _saveLoadDescription.c_str(), sizeof(hdr.name));
  		saveSaveGameHeader(out, hdr);
  	}
@@ -936,6 +1662,35 @@ index d1d7a764..70c4e189 100644
  	if (isUsingOriginalGUI() && _mainMenuIsActive) {
  		Graphics::saveThumbnail(*out, _savegameThumbnail);
  	} else {
+diff --git a/engines/scumm/script_v6.cpp b/engines/scumm/script_v6.cpp
+index e1e99d50..10cc07a5 100644
+--- a/engines/scumm/script_v6.cpp
++++ b/engines/scumm/script_v6.cpp
+@@ -1681,6 +1681,11 @@ void ScummEngine_v6::o6_resourceRoutines() {
+ 		break;
+ 	case SO_LOAD_SOUND:
+ 		resid = pop();
++#ifdef GW_V7_SLIM
++		// Game & Watch: a big one stays on the card (IMuseDigiFilesHandler::soundData())
++		if (gwSoundOnCard(resid))
++			break;
++#endif
+ 		ensureResourceLoaded(rtSound, resid);
+ 		break;
+ 	case SO_LOAD_COSTUME:
+@@ -2834,6 +2839,12 @@ void ScummEngine_v7::o6_kernelSetFunctions() {
+ 				const int insaneVarNum = ((_game.features & GF_DEMO) && (_game.platform == Common::kPlatformDOS))
+ 					? 232 : 233;
+ 
++#ifdef GW_V7_SLIM
++				if (!_insane) {
++					_insane = new Insane(this);
++					_splayer->gwSetInsane(_insane);
++				}
++#endif
+ 				_insane->setSmushParams(_smushFrameRate);
+ 				_insane->runScene(insaneVarNum);
+ 			}
 diff --git a/engines/scumm/scumm-md5.h b/engines/scumm/scumm-md5.h
 index 32b0516f..eaf410a9 100644
 --- a/engines/scumm/scumm-md5.h
@@ -961,20 +1716,59 @@ index 32b0516f..eaf410a9 100644
  	{ "fe60d6b5ff51b0553ac59963123b5777", "comi", "", "", 76791, Common::UNK_LANG, Common::kPlatformWindows },
  	{ "febf4a983ea5faea1c9dd6c710ebb09c", "puttcircus", "", "", 36655, Common::DE_DEU, Common::kPlatformWindows },
 diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
-index 88e087d7..940951e4 100644
+index 88e087d7..90c1fa09 100644
 --- a/engines/scumm/scumm.cpp
 +++ b/engines/scumm/scumm.cpp
-@@ -486,6 +486,9 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+@@ -134,6 +134,15 @@ struct dbgChannelDesc {
+ 
+ const char *const insaneKeymapId = "scumm-insane";
+ 
++#ifdef GW_SCUMM_SLIM
++// Game & Watch: src/heap.c asks this before it gives up an allocation
++extern "C" int (*heap_low_memory_hook)(uint32 n);
++static int gwLowMemory(uint32 n) {
++	ScummEngine *vm = static_cast<ScummEngine *>(g_engine);
++	return vm && vm->_res && vm->_res->gwFreeOne();
++}
++#endif
++
+ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 	: Engine(syst),
+ 	  _game(dr.game),
+@@ -166,6 +175,9 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 		_gdi = new Gdi(this);
+ 	}
+ 	_res = new ResourceManager(this);
++#ifdef GW_SCUMM_SLIM
++	heap_low_memory_hook = gwLowMemory;
++#endif
+ 
+ 	// Convert MD5 checksum back into a digest
+ 	for (int i = 0; i < 16; ++i) {
+@@ -486,6 +498,12 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
  
  
  ScummEngine::~ScummEngine() {
 +#ifdef GW_SCUMM_SLIM
 +	delete[] _NESPatTable;
 +#endif
++#ifdef GW_V7_SLIM
++	delete _gwSoundFile;
++#endif
  	delete _musicEngine;
  
  	// Delete the sound object earlier than the actors
-@@ -1012,6 +1015,18 @@ ScummEngine_v8::~ScummEngine_v8() {
+@@ -567,6 +585,9 @@ ScummEngine::~ScummEngine() {
+ #endif
+ #endif
+ 
++#ifdef GW_SCUMM_SLIM
++	heap_low_memory_hook = nullptr;
++#endif
+ 	delete _res;
+ 	delete _gdi;
+ }
+@@ -1012,6 +1033,18 @@ ScummEngine_v8::~ScummEngine_v8() {
  #pragma mark -
  
  Common::Error ScummEngine::init() {
@@ -993,7 +1787,7 @@ index 88e087d7..940951e4 100644
  
  	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
  
-@@ -1460,7 +1475,7 @@ Common::Error ScummEngine::init() {
+@@ -1460,7 +1493,7 @@ Common::Error ScummEngine::init() {
  		if (!_macScreen && _renderMode == Common::kRenderMacintoshBW)
  			_renderMode = Common::kRenderDefault;
  
@@ -1002,21 +1796,36 @@ index 88e087d7..940951e4 100644
  
  		if (_macGui) {
  			if (!_macGui->initialize()) {
-@@ -1818,7 +1833,13 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
+@@ -1726,6 +1759,13 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
+ 	setupCharsetRenderer(macFontFile);
+ 
+ 	// Create and clear the text surface
++#ifdef GW_V7_SLIM
++	// Game & Watch: SCUMM v7 prints its text straight onto the virtual screens (string_v7.cpp)
++	// and never composes this one (drawStripToScreen, restoreBackground: _hasMask stays off)
++	if (_game.version >= 7)
++		_textSurface.create(8, 1, Graphics::PixelFormat::createFormatCLUT8());
++	else
++#endif
+ 	_textSurface.create(_screenWidth * _textSurfaceMultiplier, _screenHeight * _textSurfaceMultiplier, Graphics::PixelFormat::createFormatCLUT8());
+ 	clearTextSurface();
+ 
+@@ -1818,7 +1858,14 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
  #endif
  
  	free(_compositeBuf);
 +#ifdef GW_SCUMM_SLIM
 +	// Game & Watch: drawStripToScreen() composes at most GW_COMPOSITE_ROWS rows at a time,
 +	// a 16 KB buffer instead of a whole 64 KB screen
-+	_compositeBuf = (byte *)malloc(_screenWidth * _textSurfaceMultiplier * MIN<int>(_screenHeight, GW_COMPOSITE_ROWS) * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
++	// (SCUMM v7 blits its screens as they are: no composing, no dithering)
++	_compositeBuf = (byte *)malloc(_game.version >= 7 ? 16 : _screenWidth * _textSurfaceMultiplier * MIN<int>(_screenHeight, GW_COMPOSITE_ROWS) * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
 +#else
  	_compositeBuf = (byte *)malloc(_screenWidth * _textSurfaceMultiplier * _screenHeight * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
 +#endif
  
  	// MI2 NI DOS Demo, load demo.rec playback file if present
  	if ((_game.id == GID_MONKEY2) && (_game.features & GF_DEMO) && (_game.platform == Common::kPlatformDOS) && !ConfMan.getBool("disable_mi2_ni_demo"))
-@@ -1827,6 +1848,7 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
+@@ -1827,6 +1874,7 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
  
  #ifdef ENABLE_SCUMM_7_8
  void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
@@ -1024,7 +1833,7 @@ index 88e087d7..940951e4 100644
  	if (_game.id == GID_REBEL1) {
  		_res->allocResTypeData(rtBuffer, 0, 10, kDynamicResTypeMode);
  		initScreens(0, 200);
-@@ -1902,6 +1924,7 @@ void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
+@@ -1902,6 +1950,7 @@ void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
  		initBanners();
  		return;
  	}
@@ -1032,7 +1841,21 @@ index 88e087d7..940951e4 100644
  
  	// The object line toggle is always synchronized from the main game to
  	// our internal Game Options; at startup we do the opposite, since an user
-@@ -2764,7 +2787,7 @@ int ScummEngine::getTalkSpeed() {
+@@ -1965,7 +2014,13 @@ void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
+ 	}
+ 
+ 	// Create FT INSANE object
++#ifdef GW_V7_SLIM
++	// Game & Watch: made when the first bike scene starts (o6_kernelSetFunctions): ~50 KB of
++	// fonts and tables the rest of the game never uses
++	if (false)
++#else
+ 	if (_game.id == GID_FT)
++#endif
+ 		_insane = new Insane(this);
+ 	else
+ 		_insane = nullptr;
+@@ -2764,7 +2819,7 @@ int ScummEngine::getTalkSpeed() {
  #pragma mark -
  
  Common::Error ScummEngine::go() {
@@ -1042,7 +1865,7 @@ index 88e087d7..940951e4 100644
  		ScummEngine_v7 *vm7 = (ScummEngine_v7 *)this;
  		InsaneRebel1 *rebel = (InsaneRebel1 *)vm7->getInsane();
 diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
-index 356a3602..ab876013 100644
+index 356a3602..22425975 100644
 --- a/engines/scumm/scumm.h
 +++ b/engines/scumm/scumm.h
 @@ -953,7 +953,11 @@ public:
@@ -1057,7 +1880,7 @@ index 356a3602..ab876013 100644
  	byte _NESPalette[2][16];
  	byte _NESBaseTiles = 0;
  
-@@ -1042,6 +1046,13 @@ public:
+@@ -1042,6 +1046,24 @@ public:
  
  	void requestSave(int slot, const Common::String &name);
  	void requestLoad(int slot);
@@ -1066,12 +1889,23 @@ index 356a3602..ab876013 100644
 +	// Game & Watch: the Retro-Go menu's Save, done at once (saveload.cpp)
 +	bool gwSaveNow(int slot, const Common::String &desc);
 +	int gwVoiceMode();                 // 0 voice, 1 voice and text, 2 text; -1: no speech
++#ifdef GW_V7_SLIM
++	// SCUMM v7 sound resources left on the card (saveload.cpp, imuse_digi/dimuse_files.cpp)
++	bool gwLocateSoundResource(ResId idx, uint32 &offs, uint32 &size);
++	bool gwSoundOnCard(ResId idx, uint32 &offs, uint32 &size);
++	bool gwSoundOnCard(ResId idx) { uint32 o, s; return gwSoundOnCard(idx, o, s); }
++	int gwReadSoundResource(uint32 offs, byte *buf, int size);
++	Common::SeekableReadStream *_gwSoundFile = nullptr;
++	Common::Path _gwSoundFileName;
++	struct { ResId id; uint32 offs, size; } _gwSoundLoc[16] = {};
++	int _gwSoundLocNext = 0;
++#endif
 +	void gwSetVoiceMode(int mode);
 +#endif
  
  	Common::String getTargetName() const { return _targetName; }
  	bool canPauseSoundsDuringSave() const { return _pauseSoundsDuringSave; }
-@@ -1415,8 +1426,13 @@ protected:
+@@ -1415,8 +1437,13 @@ protected:
  
  	// HACK Double the array size to handle 16-bit images.
  	// this should be dynamically allocated based on game depth instead.
@@ -1085,7 +1919,7 @@ index 356a3602..ab876013 100644
  	byte _currentCursor = 0;
  
  	byte _newEffect = 0, _switchRoomEffect2 = 0, _switchRoomEffect = 0;
-@@ -1709,7 +1725,11 @@ public:
+@@ -1709,7 +1736,11 @@ public:
  	Graphics::Surface *_macScreen = nullptr;
  	MacGui *_macGui = nullptr;
  	bool _useMacGraphicsSmoothing = true;
@@ -1097,26 +1931,144 @@ index 356a3602..ab876013 100644
  
  protected:
  	byte _charsetColor = 0;
+diff --git a/engines/scumm/scumm_v7.h b/engines/scumm/scumm_v7.h
+index 0e5aa900..596d23d1 100644
+--- a/engines/scumm/scumm_v7.h
++++ b/engines/scumm/scumm_v7.h
+@@ -206,7 +206,11 @@ protected:
+ 	};
+ 
+ 	int _blastTextQueuePos;
++#ifdef GW_V7_SLIM
++	BlastText _blastTextQueue[16];	// Game & Watch: 532 bytes each; a screen shows a handful
++#else
+ 	BlastText _blastTextQueue[50];
++#endif
+ 
+ 	byte *_guiStringTransBuff = nullptr;
+ };
 diff --git a/engines/scumm/smush/codec37.cpp b/engines/scumm/smush/codec37.cpp
-index cb332679..b09efe34 100644
+index cb332679..091c2ca5 100644
 --- a/engines/scumm/smush/codec37.cpp
 +++ b/engines/scumm/smush/codec37.cpp
-@@ -33,7 +33,13 @@ SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(int width, int height, bool reb
+@@ -33,12 +33,28 @@ SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(int width, int height, bool reb
  	_width = width;
  	_height = height;
  	_frameSize = _width * _height;
 +#ifdef GW_V7_SLIM
-+	// Game & Watch: the two frames and the margins around them (motion vectors reach at most
-+	// 0x4D80 bytes before or after a frame), without the third frame's worth past the end
-+	_deltaSize = _frameSize * 2 + 0x13600;
++	// Game & Watch: each of the two frames in a block of its own (two ~84 KB holes are found
++	// where one of 200 KB is not), with a margin as wide as a motion vector reaches before
++	// and after it: 31 rows and 31 pixels (makeTable()), plus a block's width. The procs
++	// only ever see the distance between the two frames, so they need not be one block.
++	_gwMargin = (31 * ((_width + 3) & ~3) + 31 + 16 + 15) & ~15;
++	_deltaSize = _frameSize + 2 * _gwMargin;
++	_deltaBuf = nullptr;
++	for (int i = 0; i < 2; i++) {
++		_gwBlock[i] = (byte *)calloc(_deltaSize, sizeof(byte));
++		if (_gwBlock[i] == nullptr)
++			error("SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(): ERROR: Unable to allocate decoder buffer.");
++		_deltaBufs[i] = _gwBlock[i] + _gwMargin;
++	}
 +#else
  	_deltaSize = _frameSize * 3 + 0x13600;
-+#endif
  	_deltaBuf = (byte *)calloc(_deltaSize, sizeof(byte));
  	if (_deltaBuf == nullptr)
  		error("SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(): ERROR: Unable to allocate decoder buffer.");
+ 	_deltaBufs[0] = _deltaBuf + 0x4D80;
+ 	_deltaBufs[1] = _deltaBuf + 0xE880 + _frameSize;
++#endif
+ 	_offsetTable = new int16[255];
+ 	if (_offsetTable == nullptr)
+ 		error("SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(): ERROR: Unable to allocate decoder offset table.");
+@@ -55,6 +71,11 @@ SmushDeltaBlocksDecoder::~SmushDeltaBlocksDecoder() {
+ 		_tableLastPitch = -1;
+ 		_tableLastIndex = -1;
+ 	}
++#ifdef GW_V7_SLIM
++	free(_gwBlock[0]);
++	free(_gwBlock[1]);
++	_gwBlock[0] = _gwBlock[1] = nullptr;
++#endif
+ 	if (_deltaBuf) {
+ 		free(_deltaBuf);
+ 		_deltaSize = 0;
+@@ -541,6 +562,17 @@ void SmushDeltaBlocksDecoder::proc4WithoutFDFE(byte *dst, const byte *src, int32
+ 	} while (--bh);
+ }
+ 
++#ifdef GW_V7_SLIM
++// what the original's one buffer had around a frame written whole: zeros, in this frame's block
++void SmushDeltaBlocksDecoder::gwClearAround(int32 decodedSize) {
++	byte *block = _gwBlock[_curTable];
++	memset(block, 0, _gwMargin);
++	int32 tail = _deltaSize - _gwMargin - decodedSize;
++	if (tail > 0)
++		memset(_deltaBufs[_curTable] + decodedSize, 0, tail);
++}
++#endif
++
+ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+ 	int32 bw = (_width + 3) / 4, bh = (_height + 3) / 4;
+ 	int32 pitch = bw * 4;
+@@ -553,6 +585,11 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+ 
+ 	switch (src[0]) {
+ 	case 0:
++#ifdef GW_V7_SLIM
++		if (decodedSize > _frameSize + _gwMargin)
++			decodedSize = _frameSize + _gwMargin;
++		gwClearAround(decodedSize);
++#else
+ 		if ((_deltaBufs[_curTable] - _deltaBuf) > 0) {
+ 			memset(_deltaBuf, 0, _deltaBufs[_curTable] - _deltaBuf);
+ 		}
+@@ -560,6 +597,7 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+ 		if (tmp > 0) {
+ 			memset(_deltaBufs[_curTable] + decodedSize, 0, tmp);
+ 		}
++#endif
+ 		memcpy(_deltaBufs[_curTable], src + 16, decodedSize);
+ 		break;
+ 	case 1:
+@@ -570,6 +608,12 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+ 										bw, bh, pitch, _offsetTable);
+ 		break;
+ 	case 2:
++#ifdef GW_V7_SLIM
++		if (decodedSize > _frameSize + _gwMargin)
++			decodedSize = _frameSize + _gwMargin;
++		bompDecodeLine(_deltaBufs[_curTable], src + 16, decodedSize);
++		gwClearAround(decodedSize);
++#else
+ 		bompDecodeLine(_deltaBufs[_curTable], src + 16, decodedSize);
+ 		if ((_deltaBufs[_curTable] - _deltaBuf) > 0) {
+ 			memset(_deltaBuf, 0, _deltaBufs[_curTable] - _deltaBuf);
+@@ -578,6 +622,7 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+ 		if (tmp > 0) {
+ 			memset(_deltaBufs[_curTable] + decodedSize, 0, tmp);
+ 		}
++#endif
+ 		break;
+ 	case 3:
+ 		if ((seqNb & 1) || !(maskFlags & 1)) {
+diff --git a/engines/scumm/smush/codec37.h b/engines/scumm/smush/codec37.h
+index 3cdc7fca..b97f086b 100644
+--- a/engines/scumm/smush/codec37.h
++++ b/engines/scumm/smush/codec37.h
+@@ -32,6 +32,11 @@ private:
+ 	int32 _deltaSize;
+ 	byte *_deltaBufs[2];
+ 	byte *_deltaBuf;
++#ifdef GW_V7_SLIM
++	byte *_gwBlock[2];	// each frame in its own block, with its margins
++	int32 _gwMargin;
++	void gwClearAround(int32 decodedSize);
++#endif
+ 	int16 *_offsetTable;
+ 	int _curTable;
+ 	uint16 _prevSeqNb;
 diff --git a/engines/scumm/smush/smush_player.cpp b/engines/scumm/smush/smush_player.cpp
-index 1c646316..92940450 100644
+index 1c646316..bac9ef28 100644
 --- a/engines/scumm/smush/smush_player.cpp
 +++ b/engines/scumm/smush/smush_player.cpp
 @@ -1609,7 +1609,11 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
@@ -1131,6 +2083,83 @@ index 1c646316..92940450 100644
  
  	if (_imuseDigital)
  		_imuseDigital->setSmushPlayer(this);
+@@ -1688,6 +1692,12 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
+ 	_smushTracks[id].subChunkPtr = nullptr;
+ 	_smushTracks[id].dataSize = 0;
+ 
++#ifdef GW_V7_SLIM
++	// Game & Watch: a track's buffers are made when a video first puts sound in it
++	// (fillAudioTrackInfo): most use two of the four
++	_smushTracks[id].fadeBuf = nullptr;
++	_smushTracks[id].blockPtr = nullptr;
++#else
+ 	_smushTracks[id].fadeBuf = (uint8 *)malloc(SMUSH_FADE_SIZE);
+ 	if (!_smushTracks[id].fadeBuf)
+ 		return -1;
+@@ -1697,6 +1707,7 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
+ 		return -1;
+ 
+ 	memset(_smushTracks[id].blockPtr, 127, _smushTracks[id].blockSize);
++#endif
+ 	// Track the effective number of tracks, so that if only one fails,
+ 	// the others can carry on as they should
+ 	_smushNumTracks++;
+@@ -1853,6 +1864,21 @@ void SmushPlayer::fillAudioTrackInfo(uint8 *srcBuf, uint16 *flagsAccumulator, ui
+ 		}
+ 	}
+ 
++#ifdef GW_V7_SLIM
++	if (maxAccId != -1 && !_smushTracks[maxAccId].blockPtr) {
++		_smushTracks[maxAccId].fadeBuf = (uint8 *)malloc(SMUSH_FADE_SIZE);
++		_smushTracks[maxAccId].blockPtr = (uint8 *)malloc(_smushTracks[maxAccId].blockSize);
++		if (!_smushTracks[maxAccId].fadeBuf || !_smushTracks[maxAccId].blockPtr) {
++			free(_smushTracks[maxAccId].fadeBuf);
++			free(_smushTracks[maxAccId].blockPtr);
++			_smushTracks[maxAccId].fadeBuf = nullptr;
++			_smushTracks[maxAccId].blockPtr = nullptr;
++			warning("SmushPlayer: no memory for an audio track");
++			return;
++		}
++	}
++#endif
++
+ 	if (maxAccId != -1) {
+ 		for (int i = 0; i < _smushNumTracks; i++) {
+ 			if (_smushTracks[i].parsedChunks < 255) {
+diff --git a/engines/scumm/smush/smush_player.h b/engines/scumm/smush/smush_player.h
+index 15975a2a..ee780106 100644
+--- a/engines/scumm/smush/smush_player.h
++++ b/engines/scumm/smush/smush_player.h
+@@ -143,6 +143,12 @@ private:
+ 	ScummEngine_v7 *_vm;
+ 	IMuseDigital *_imuseDigital;
+ 	Insane *_insane;
++#ifdef GW_V7_SLIM
++public:
++	void gwSetInsane(Insane *insane) { _insane = insane; }
++	void gwResetAudioTracks() { resetAudioTracks(); }
++private:
++#endif
+ 	int32 _nbframes;
+ 	int16 _deltaPal[0x300];
+ 	int32 _shiftedDeltaPal[0x300];
+diff --git a/engines/scumm/string_v7.cpp b/engines/scumm/string_v7.cpp
+index 9088be07..cdd555a5 100644
+--- a/engines/scumm/string_v7.cpp
++++ b/engines/scumm/string_v7.cpp
+@@ -413,7 +413,12 @@ void ScummEngine_v7::createTextRenderer(GlyphRenderer_v7 *gr) {
+ #pragma mark -
+ 
+ void ScummEngine_v7::enqueueText(const byte *text, int x, int y, byte color, byte charset, TextStyleFlags flags, bool ttsVoiceText, bool ttsIsSubtitle) {
++#ifdef GW_V7_SLIM
++	if (_blastTextQueuePos + 1 > ARRAYSIZE(_blastTextQueue))
++		return;
++#else
+ 	assert(_blastTextQueuePos + 1 <= ARRAYSIZE(_blastTextQueue));
++#endif
+ 
+ 	if (_useCJKMode) {
+ 		// The Dig expressly checks for x == 160 && y == 189 && charset == 3. Usually, if the game wants to print CJK text at the bottom
 diff --git a/gui/dialog.cpp b/gui/dialog.cpp
 index b6cbe9db..081a1c78 100644
 --- a/gui/dialog.cpp
