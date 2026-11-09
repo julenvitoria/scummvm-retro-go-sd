@@ -123,6 +123,10 @@ continue") are typed from here.
   of SCUMM v4-v6 games (encrypted with XOR 0x69 on disk) are stored decrypted, so the
   engine uses the rooms, costumes and scripts where they lie instead of loading them into
   the heap — what lets Sam & Max and the other big VGA games fit.
+- Speech and CD music in compressed form are decoded by small single-file decoders instead
+  of the libraries ScummVM uses (`src/gw_codecs.h`): Ogg Vorbis with stb_vorbis (`.sog`,
+  `trackN.ogg`), MP3 with minimp3 (`.so3`, `trackN.mp3`) and FLAC with dr_flac (`.sof`,
+  `trackN.flac`). Uncompressed speech (`.sou`) works as in ScummVM.
 - The heap takes all the RAM the firmware leaves free (~900 KB in several regions,
   `src/heap.c`); the SCUMM engine's screen buffers have a region of their own so that room
   changes do not fragment it.
@@ -266,6 +270,10 @@ continuar") se escriben desde aquí.
   de los juegos SCUMM v4-v6 (cifrados con XOR 0x69 en el disco) se guardan descifrados, así
   el motor usa las habitaciones, disfraces y scripts donde están en vez de cargarlos en el
   heap — lo que permite que quepan Sam & Max y los demás juegos VGA grandes.
+- Las voces y la música de CD comprimidas se decodifican con decodificadores pequeños de un
+  solo fichero en vez de las librerías que usa ScummVM (`src/gw_codecs.h`): Ogg Vorbis con
+  stb_vorbis (`.sog`, `trackN.ogg`), MP3 con minimp3 (`.so3`, `trackN.mp3`) y FLAC con
+  dr_flac (`.sof`, `trackN.flac`). Las voces sin comprimir (`.sou`) funcionan como en ScummVM.
 - El heap usa toda la RAM libre que deja el firmware (~900 KB en varias zonas, `src/heap.c`);
   los buffers de pantalla del motor SCUMM tienen una zona propia para que los cambios de
   habitación no la fragmenten.
