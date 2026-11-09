@@ -339,6 +339,17 @@ static void cache_one(const char *name, bool is_dir, uint32_t size, void *arg)
 	if (size > MAX_CACHED_FILE) { logf_("ScummVM: %s (%lu KB) is read from the SD card\n", name, (unsigned long)(size / 1024)); return; }
 	char path[320];
 	snprintf(path, sizeof path, "%s/%s", g_game, name);
+	/* An encrypted SCUMM data file goes in under "folder//name": the same file to FatFs, but a
+	   new key to the firmware's flash cache (path + date + size). A copy cached raw by an
+	   older core is then not found, and this one is decrypted on its way in -- copying the
+	   file to the card again does not help, since a copy keeps the file's date. */
+	uint8_t head[8];
+	void *f = plat_fopen(path, "rb");
+	if (f) {
+		if (plat_fread(head, sizeof head, f) == sizeof head && svm_xor69_data(head, sizeof head))
+			snprintf(path, sizeof path, "%s//%s", g_game, name);
+		plat_fclose(f);
+	}
 	uint32_t got = 0;
 	uint8_t *p = odroid_overlay_cache_file_in_flash_relocate(path, &got, false, decrypt_chunk);
 	if (!p) return;                          /* no room: read from the SD card */
@@ -358,7 +369,7 @@ static void find_keys(void)
 		g_map[i].key = svm_plain_data(g_map[i].data, g_map[i].size, xor_index) ? 0x69 : 0;
 		if (svm_xor69_data(g_map[i].data, g_map[i].size)) {
 			stale++;
-			logf_("ScummVM: %s is in flash as on the card (cached before); copy it again for more memory\n", g_map[i].name);
+			logf_("ScummVM: %s is in flash as on the card (cached before); it is used as on the card\n", g_map[i].name);
 		}
 	}
 	(void)stale;
@@ -498,6 +509,22 @@ static void last_log_line(char *out, size_t size);
    end up here instead of in plat_quit() */
 void svm_fatal_exit(int code) __attribute__((noreturn));
 void plat_fatal(void) { svm_fatal_exit(-1); }      /* error() in ScummVM: its message is the last log line */
+
+void svm_fatal_exit(int code) __attribute__((noreturn));
+/* a failed assert() in ScummVM: newlib's would only print to stderr and abort (exit 1) */
+void __assert_func(const char *file, int line, const char *func, const char *expr)
+{
+	const char *base = strrchr(file, '/');
+	logf_("assert: %s (%s:%d %s)\n", expr, base ? base + 1 : file, line, func ? func : "");
+	svm_fatal_exit(1);
+}
+
+/* abort(): what an allocation with new comes to when the heap is out (the heap logged it) */
+void abort(void)
+{
+	logf_("ScummVM: abort\n");
+	svm_fatal_exit(1);
+}
 
 void svm_fatal_exit(int code)
 {
