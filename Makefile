@@ -38,7 +38,7 @@ $(PATCHED): $(wildcard patches/*.patch)
 
 # ---------------------------------------------------------------- host
 HB       := build/host
-HOST_OBJ := $(SVM_SRC:%=$(HB)/svm/%.o) $(OWN_CXX:%=$(HB)/%.o) $(CODECS:%=$(HB)/%.o) $(HB)/src/platform_host.c.o $(HB)/src/osk.c.o
+HOST_OBJ := $(SVM_SRC:%=$(HB)/svm/%.o) $(OWN_CXX:%=$(HB)/%.o) $(CODECS:%=$(HB)/%.o) $(HB)/gen/dimuse_mixtable.o $(HB)/src/platform_host.c.o $(HB)/src/osk.c.o
 
 .PHONY: host-gwheap
 host: $(HB)/scummvm_host
@@ -103,7 +103,7 @@ LIBC_NAMES := memchr memcmp strchr strcmp strlen strncmp strncpy strrchr strstr 
             strtoul strncat setjmp longjmp __assert_func exit cosf sqrtf log10 getenv
 REDEF    := $(AB)/redefine_syms.txt
 
-ARM_SVM  := $(SVM_SRC:%=$(AB)/svm/%.o) $(OWN_CXX:%=$(AB)/%.o) $(CODECS:%=$(AB)/%.o)
+ARM_SVM  := $(SVM_SRC:%=$(AB)/svm/%.o) $(OWN_CXX:%=$(AB)/%.o) $(CODECS:%=$(AB)/%.o) $(AB)/gen/dimuse_mixtable.o
 ARM_OWN  := $(AB)/boot.o $(AB)/platform_core.o $(AB)/osk.o $(AB)/gw_core_i18n.o $(AB)/heap.o $(AB)/tlsf.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o
 
 core: $(OUT)
@@ -182,3 +182,17 @@ $(OUT): $(AB)/scummvm.elf tools/xip_pack.py assets/header.png assets/pad.png
 
 clean:
 	rm -rf build out
+
+# Digital iMUSE's mixer tables as const data (SCUMM v7): generated on the build machine
+build/gen/dimuse_mixtable.c: tools/gen/dimuse_mixtable.c
+	@mkdir -p $(dir $@)
+	cc -O2 $< -o build/gen/dimuse_mixtable_gen && build/gen/dimuse_mixtable_gen > $@
+
+$(HB)/gen/dimuse_mixtable.o: build/gen/dimuse_mixtable.c
+	@mkdir -p $(dir $@)
+	gcc -c -O1 $< -o $@
+
+$(AB)/gen/dimuse_mixtable.o: build/gen/dimuse_mixtable.c
+	@mkdir -p $(dir $@)
+	$(CROSS)gcc -c $(MCU) -O2 $< -o $@
+
