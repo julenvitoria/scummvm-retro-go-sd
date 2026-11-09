@@ -27,6 +27,7 @@
 #include "gw_core_bridge.h"
 #include "platform.h"
 #include "osk.h"
+#include "gw_core_i18n.h"
 
 extern uint8_t __RAM_EMU_END__[];
 extern int svm_boot_error;
@@ -181,16 +182,59 @@ static inline void pump(void) { if (g_pump) g_pump(); }
 
 /* ---------------------------------------------------------------- input */
 
+/* The PAUSE/SET menu's Subtitles option, in games with speech: what Ctrl+T (the keyboard's Txt)
+   cycles through. The engine's side is in patches/scummvm-slim.patch (saveload.cpp). */
+int gw_scumm_voice_mode(void);                       /* 0 voice, 1 voice and text, 2 text; -1 none */
+void gw_scumm_set_voice_mode(int mode);
+
+static const gw_i18n_entry_t i18n_subtitles[] = { { "en", "Subtitles" }, { "es", "Subtítulos" }, GW_I18N_END };
+static const gw_i18n_entry_t i18n_voice[] = { { "en", "Voice only" }, { "es", "Solo voz" }, GW_I18N_END };
+static const gw_i18n_entry_t i18n_both[] = { { "en", "Voice + text" }, { "es", "Voz y texto" }, GW_I18N_END };
+static const gw_i18n_entry_t i18n_text[] = { { "en", "Text only" }, { "es", "Solo texto" }, GW_I18N_END };
+static char g_voice_value[32];
+
+static void voice_value(char *out, int mode)
+{
+	const gw_i18n_entry_t *t = mode == 0 ? i18n_voice : mode == 2 ? i18n_text : i18n_both;
+	snprintf(out, 16, "%s", gw_i18n(t));
+}
+
+/* the menu draws a copy of the value it was given at open (odroid_overlay_dialog): the new one
+   goes into option->value, the copy */
+static bool subtitles_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
+{
+	(void)repeat;
+	int mode = gw_scumm_voice_mode();
+	if (mode < 0) return false;
+	/* in menu order: voice and text, text only, voice only */
+	if (event == ODROID_DIALOG_NEXT || event == ODROID_DIALOG_ENTER) mode = (mode + 1) % 3;
+	else if (event == ODROID_DIALOG_PREV) mode = (mode + 2) % 3;
+	else { voice_value(option->value, mode); return false; }
+	gw_scumm_set_voice_mode(mode);
+	voice_value(option->value, mode);
+	return false;
+}
+
 uint32_t plat_buttons(void)
 {
-	static odroid_dialog_choice_t options[] = { ODROID_DIALOG_CHOICE_LAST };
+	static odroid_dialog_choice_t options[] = {
+		{ 400, "", g_voice_value, 1, subtitles_cb },
+		ODROID_DIALOG_CHOICE_LAST,
+	};
+	static int talkie = -2;                            /* -2: not asked yet */
+	if (talkie == -2 || talkie == -1) {
+		int mode = gw_scumm_voice_mode();             /* -1 until the engine is up, and without speech */
+		if (mode >= 0) { talkie = 1; options[0].label = gw_i18n(i18n_subtitles); voice_value(g_voice_value, mode); }
+		else talkie = -1;
+	}
+	odroid_dialog_choice_t *menu_options = talkie == 1 ? options : options + 1;
 	odroid_gamepad_state_t js;
 	wdog_refresh();
 	odroid_input_read_gamepad(&js);
 	pump();
 	bool menu = js.values[ODROID_INPUT_VOLUME];
 	if (menu) pcm_audio_set(0, 0);                       /* silence while the menu is open */
-	common_emu_input_loop(&js, options, &repaint);       /* PAUSE/SET menu, power, volume... */
+	common_emu_input_loop(&js, menu_options, &repaint);  /* PAUSE/SET menu, power, volume... */
 	if (menu) lcd_set_clut(g_clut, 256);                 /* the menu used part of the CLUT */
 	if (g_audio_on) pcm_audio_set(common_emu_sound_get_volume(), 1);   /* the menu may change it */
 	uint32_t b = 0;
