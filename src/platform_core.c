@@ -55,20 +55,25 @@ static int g_last_pitch, g_last_w, g_last_h;
 
 /* ---------------------------------------------------------------- screen */
 
+/* the palette's darkest colour, for the bands around a picture smaller than the screen (index 0
+   is not black in every game: grey in the NES Maniac Mansion) */
+static uint8_t g_border;
+
 static void draw_frame(uint8_t *fb, const uint8_t *pix, int pitch, int w, int h)
 {
+	const uint8_t B = g_border;
 	if (w <= LCD_W && h <= LCD_H) {
 		int x0 = (LCD_W - w) / 2, y0 = (LCD_H - h) / 2;
-		if (y0) { memset(fb, 0, y0 * LCD_W); memset(fb + (y0 + h) * LCD_W, 0, (LCD_H - y0 - h) * LCD_W); }
+		if (y0) { memset(fb, B, y0 * LCD_W); memset(fb + (y0 + h) * LCD_W, B, (LCD_H - y0 - h) * LCD_W); }
 		for (int y = 0; y < h; y++) {
 			uint8_t *d = fb + (y0 + y) * LCD_W;
-			if (x0) { memset(d, 0, x0); memset(d + x0 + w, 0, LCD_W - x0 - w); }
+			if (x0) { memset(d, B, x0); memset(d + x0 + w, B, LCD_W - x0 - w); }
 			memcpy(d + x0, pix + y * pitch, w);
 		}
 	} else {                               /* 640x400/480 games: every other pixel */
 		int sw = w / 2, sh = h / 2;
 		int x0 = (LCD_W - sw) / 2, y0 = (LCD_H - sh) / 2;
-		memset(fb, 0, LCD_W * LCD_H);
+		memset(fb, B, LCD_W * LCD_H);
 		for (int y = 0; y < sh && y0 + y < LCD_H; y++)
 			for (int x = 0; x < sw && x0 + x < LCD_W; x++) fb[(y0 + y) * LCD_W + x0 + x] = pix[2 * y * pitch + 2 * x];
 	}
@@ -89,6 +94,11 @@ void plat_set_palette(const uint8_t *rgb, int start, int count)
 	for (int i = 0; i < count && start + i < 256; i++)
 		g_clut[start + i] = ((uint32_t)rgb[3 * i] << 16) | ((uint32_t)rgb[3 * i + 1] << 8) | rgb[3 * i + 2];
 	lcd_set_clut(g_clut, 256);
+	uint32_t best = ~0u;
+	for (int i = 0; i < 256; i++) {
+		uint32_t c = g_clut[i], l = ((c >> 16) & 255) * 3 + ((c >> 8) & 255) * 4 + (c & 255) * 2;
+		if (l < best) { best = l; g_border = (uint8_t)i; }
+	}
 }
 
 void plat_present(const uint8_t *pixels, int pitch, int w, int h)
@@ -687,8 +697,11 @@ int svm_main(void)
 	if (g_opt_extra[0]) {                    /* under the game's folder, unless absolute */
 		if (g_opt_extra[0] == '/') snprintf(g_arg_extra, sizeof g_arg_extra, "--extrapath=%s", g_opt_extra);
 		else snprintf(g_arg_extra, sizeof g_arg_extra, "--extrapath=%s/%s", g_game, g_opt_extra);
-		argv[argc++] = g_arg_extra;
-		logf_("ScummVM: %s\n", g_arg_extra);
+		if (is_dir(g_arg_extra + 12)) {
+			argv[argc++] = g_arg_extra;
+			logf_("ScummVM: %s\n", g_arg_extra);
+		} else
+			logf_("ScummVM: extrapath: no folder %s, left out\n", g_arg_extra + 12);
 	}
 	extern uint8_t svm_load_state;
 	extern int8_t svm_save_slot;
