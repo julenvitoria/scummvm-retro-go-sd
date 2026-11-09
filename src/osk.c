@@ -92,6 +92,7 @@ static uint8_t nearest(const uint32_t *clut, uint32_t rgb)
 {
 	int r = (rgb >> 16) & 255, g = (rgb >> 8) & 255, b = rgb & 255, best = 0, bestd = 1 << 30;
 	for (int i = 0; i < 256; i++) {
+		if (i >= 64 && i < 71) continue;   /* the firmware's menu colours (LCD_OVERLAY_CLUT_BASE..+7) */
 		int dr = (int)((clut[i] >> 16) & 255) - r, dg = (int)((clut[i] >> 8) & 255) - g, db = (int)(clut[i] & 255) - b;
 		int d = dr * dr * 3 + dg * dg * 4 + db * db * 2;
 		if (d < bestd) { bestd = d; best = i; }
