@@ -76,8 +76,14 @@ these lines nothing changes: ScummVM picks what it finds in the folder.
 | Day of the Tentacle | `tentacle` |
 | Sam & Max Hit the Road | `samnmax` |
 
+Every game's short name is in ScummVM's
+[compatibility list](https://www.scummvm.org/compatibility/), column "ScummVM ID", without
+the engine in front (`scumm:ft` → `game=ft`). The list covers every engine, not only
+LucasArts', but this core runs the SCUMM games above for now (not yet Full Throttle, The Dig
+or The Curse of Monkey Island).
+
 They do not fix an incomplete copy, nor the versions this core leaves out on purpose:
-Macintosh and NES versions (their buffers are cut to save memory) and FM-Towns.
+Macintosh (its buffers are cut to save memory) and FM-Towns.
 
 ### Saved games
 
@@ -226,8 +232,14 @@ líneas no cambia nada: ScummVM elige lo que encuentra en la carpeta.
 | Day of the Tentacle | `tentacle` |
 | Sam & Max Hit the Road | `samnmax` |
 
+El nombre corto de cada juego está en la
+[lista de compatibilidad](https://www.scummvm.org/compatibility/) de ScummVM, columna
+"ScummVM ID", sin el motor delante (`scumm:ft` → `game=ft`). La lista incluye todos los
+motores, no solo los de LucasArts, pero por ahora este core ejecuta los juegos SCUMM de la
+tabla (todavía no Full Throttle, The Dig ni The Curse of Monkey Island).
+
 No arreglan una copia incompleta ni las versiones que este core deja fuera a propósito:
-Macintosh y NES (sus buffers están recortados para ahorrar memoria) y FM-Towns.
+Macintosh (sus buffers están recortados para ahorrar memoria) y FM-Towns.
 
 ### Partidas guardadas
 
