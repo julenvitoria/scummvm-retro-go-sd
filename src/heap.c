@@ -96,6 +96,7 @@ static void *track(void *p)
 /* the PC test shim (tools/host/gwheap.c) creates its pools on the first allocation */
 #ifdef HEAP_LAZY_INIT
 void heap_lazy_init(void);
+void heap_trace(size_t n, void *p);      /* tools/host/gwheap.c: GW_HEAP_TRACE */
 #else
 static inline void heap_lazy_init(void) {}
 #endif
@@ -125,6 +126,9 @@ static void *alloc(size_t align, size_t n)
 			plat_log(msg);
 		}
 	}
+#ifdef HEAP_LAZY_INIT
+	if (p) heap_trace(n, p);
+#endif
 	return track(p);
 }
 

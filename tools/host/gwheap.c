@@ -17,10 +17,25 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/mman.h>
+#include <execinfo.h>
 #define HEAP_LAZY_INIT
 #include "../../src/heap.c"
 
 /* plat_log (platform_host.c) prints a backtrace of an allocation that fails */
+
+/* GW_HEAP_TRACE=<bytes>: every allocation at least that big, with who asked and what is used */
+void heap_trace(size_t n, void *p)
+{
+	static long min = -1;
+	if (min < 0) min = getenv("GW_HEAP_TRACE") ? atol(getenv("GW_HEAP_TRACE")) : 0;
+	if (!min || (long)n < min) return;
+	char msg[96];
+	snprintf(msg, sizeof msg, "heap: big %zu at %p (used %u KB)\n", n, p, (unsigned)(heap_used() / 1024));
+	fputs(msg, stdout);
+	fflush(stdout);
+	void *bt[12];
+	backtrace_symbols_fd(bt, backtrace(bt, 12), 1);
+}
 
 void heap_lazy_init(void)
 {

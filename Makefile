@@ -12,10 +12,13 @@ SVM_SRC  := $(shell cat config/sources.txt)
 OWN_CXX  := src/gw_system.cpp src/gw_audio_decoders.cpp
 CODECS   := src/codecs/gwc.c src/codecs/gwc_vorbis.c src/codecs/gwc_mp3.c src/codecs/gwc_flac.c
 
-DEFS     := -DHAVE_CONFIG_H -DENABLE_SCUMM=STATIC_PLUGIN -DRELEASE_BUILD \
+# SCUMM v7 (Full Throttle, The Dig) cut to the console's memory; "make host-gwheap HB=build/hostref
+# V7_SLIM=" builds the PC test program without the cuts, to compare
+V7_SLIM  ?= -DGW_V7_SLIM
+DEFS     := -DHAVE_CONFIG_H -DENABLE_SCUMM=STATIC_PLUGIN -DENABLE_SCUMM_7_8 -DRELEASE_BUILD \
             -DDISABLE_HELP -DDISABLE_FANCY_THEMES -DDISABLE_SAVELOADCHOOSER_GRID \
             -DDISABLE_LAUNCHERDISPLAY_GRID -DDISABLE_TOWNS_DUAL_LAYER_MODE \
-            -DDISABLE_PC98_RHYTHM_CHANNEL -DDISABLE_NES_APU -DDISABLE_MAME_OPL -DREDUCE_MEMORY_USAGE -DGW_SCUMM_SLIM
+            -DDISABLE_PC98_RHYTHM_CHANNEL -DDISABLE_NES_APU -DDISABLE_MAME_OPL -DREDUCE_MEMORY_USAGE -DGW_SCUMM_SLIM $(V7_SLIM)
 INCS     := -Iconfig -I$(SVM) -I$(SVM)/engines -Isrc
 CXXSTD   := -std=c++11 -fno-exceptions -fcheck-new -fno-operator-names
 WARN     := -Wno-multichar -Wno-reorder -Wno-unknown-pragmas -Wno-unused-parameter

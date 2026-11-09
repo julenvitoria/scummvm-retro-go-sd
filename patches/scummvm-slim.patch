@@ -362,6 +362,84 @@ index 133f6ec0..37155b7b 100644
  			// We check for an empty label since v4 might generate that...
  			if (_mainMenuSavegameLabel > 0 && !_savegameNames[_mainMenuSavegameLabel - 1].substr(labelSkip).empty()) {
  				convertMessageToString((const byte *)getGUIString(gsSaving), (byte *)saveScreenTitle, sizeof(saveScreenTitle));
+diff --git a/engines/scumm/imuse_digi/dimuse_defs.h b/engines/scumm/imuse_digi/dimuse_defs.h
+index d0d900d1..11ff0f62 100644
+--- a/engines/scumm/imuse_digi/dimuse_defs.h
++++ b/engines/scumm/imuse_digi/dimuse_defs.h
+@@ -37,8 +37,14 @@ namespace Scumm {
+ 
+ #define DIMUSE_LARGE_FADES    1
+ #define DIMUSE_SMALL_FADES    4
++#ifdef GW_V7_SLIM
++// Game & Watch: crossfades of up to ~1 s instead of ~8 s (fade requests are clamped to these)
++#define DIMUSE_LARGE_FADE_DIM 44100
++#define DIMUSE_SMALL_FADE_DIM 11025
++#else
+ #define DIMUSE_LARGE_FADE_DIM 350000
+ #define DIMUSE_SMALL_FADE_DIM 44100
++#endif
+ 
+ #define DIMUSE_BASE_SAMPLERATE 22050
+ #define DIMUSE_BASE_FEEDSIZE   512
+diff --git a/engines/scumm/imuse_digi/dimuse_dispatch.cpp b/engines/scumm/imuse_digi/dimuse_dispatch.cpp
+index 72d3bffe..b00ee928 100644
+--- a/engines/scumm/imuse_digi/dimuse_dispatch.cpp
++++ b/engines/scumm/imuse_digi/dimuse_dispatch.cpp
+@@ -138,7 +138,11 @@ void IMuseDigital::dispatchSaveLoad(Common::Serializer &ser) {
+ int IMuseDigital::dispatchRestoreStreamZones() {
+ 	IMuseDigiDispatch *curDispatchPtr;
+ 	IMuseDigiStreamZone *curStreamZone;
++#ifdef GW_V7_SLIM
++	int32 sizeToFeed = _isEarlyDiMUSE ? 0x800 : 0x1000;
++#else
+ 	int32 sizeToFeed = _isEarlyDiMUSE ? 0x800 : 0x4000;
++#endif
+ 
+ 	curDispatchPtr = _dispatches;
+ 	for (int i = 0; i < _trackCount; i++) {
+@@ -179,7 +183,11 @@ int IMuseDigital::dispatchRestoreStreamZones() {
+ int IMuseDigital::dispatchAllocateSound(IMuseDigiTrack *trackPtr, int groupId) {
+ 	IMuseDigiDispatch *trackDispatch;
+ 	int navigateMapResult;
++#ifdef GW_V7_SLIM
++	int32 sizeToFeed = _isEarlyDiMUSE ? 0x800 : 0x1000;
++#else
+ 	int32 sizeToFeed = _isEarlyDiMUSE ? 0x800 : 0x4000;
++#endif
+ 
+ 	trackDispatch = trackPtr->dispatchPtr;
+ 	trackDispatch->currentOffset = 0;
+diff --git a/engines/scumm/imuse_digi/dimuse_engine.cpp b/engines/scumm/imuse_digi/dimuse_engine.cpp
+index 3c21ee19..8587c29b 100644
+--- a/engines/scumm/imuse_digi/dimuse_engine.cpp
++++ b/engines/scumm/imuse_digi/dimuse_engine.cpp
+@@ -101,6 +101,14 @@ IMuseDigital::IMuseDigital(ScummEngine_v7 *scumm, int sampleRate, Audio::Mixer *
+ 
+ 	diMUSEInitialize();
+ 	diMUSEInitializeScript();
++#ifdef GW_V7_SLIM
++	// Game & Watch: stream buffers of ~0.5 s refilled more often from the card, not 2.5-15 s
++	// (a buffer must stay over 4x the dispatch's feed size, 0x1000 here: dimuse_dispatch.cpp)
++	if (true) {
++		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_SPEECH, 24000, 6000, 12000);
++		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_MUSIC, 24000, 6000, 12000);
++	} else
++#endif
+ 	if (_vm->_game.id == GID_CMI) {
+ 		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_SPEECH, 176000, 44000, 88000);
+ 		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_MUSIC, 528000, 44000, 352000);
+@@ -112,7 +120,11 @@ IMuseDigital::IMuseDigital(ScummEngine_v7 *scumm, int sampleRate, Audio::Mixer *
+ 		_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_MUSIC, 220000, 22000, 44000);
+ 	}
+ 
++#ifdef GW_V7_SLIM
++	_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_SFX, 24000, 0, 0);
++#else
+ 	_filesHandler->allocSoundBuffer(DIMUSE_BUFFER_SFX, 198000, 0, 0);
++#endif
+ 
+ 	if (_mixer->getOutputBufSize() != 0) {
+ 		// Let's find the optimal value for the maximum number of streams which can stay in the queue at once;
 diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
 index 3525910f..16955a29 100644
 --- a/engines/scumm/input.cpp
@@ -405,6 +483,32 @@ index 3525910f..16955a29 100644
  			switch (voiceMode) {
  			case 0:
  				ConfMan.setBool("speech_mute", false);
+diff --git a/engines/scumm/metaengine.cpp b/engines/scumm/metaengine.cpp
+index 53fc9986..926f1319 100644
+--- a/engines/scumm/metaengine.cpp
++++ b/engines/scumm/metaengine.cpp
+@@ -471,7 +471,11 @@ Common::Error ScummMetaEngine::createInstance(OSystem *syst, Engine **engine,
+ 
+ 	// Finally, we have massaged the GameDescriptor to our satisfaction, and can
+ 	// instantiate the appropriate game engine. Hooray!
+-#ifdef ENABLE_SCUMM_7_8
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: v7 for Full Throttle and The Dig; Rebel Assault and Mortimer left out
++	if (res.game.id == GID_MORTIMER || res.game.id == GID_REBEL1 || res.game.id == GID_REBEL2)
++		return Common::Error(Common::kUnsupportedGameidError, _s("Rebel Assault and Mortimer are not supported"));
++#elif defined(ENABLE_SCUMM_7_8)
+ 	if (res.game.id == GID_MORTIMER) {
+ 		*engine = new MortimerEngine(syst, (res.game.features & GF_DEMO) != 0);
+ 		return Common::kNoError;
+@@ -1172,7 +1176,7 @@ Common::KeymapArray ScummMetaEngine::initKeymaps(const char *target) const {
+ 	Common::String gameId = ConfMan.get("gameid", target);
+ 	Action *act;
+ 
+-#ifdef ENABLE_SCUMM_7_8
++#if defined(ENABLE_SCUMM_7_8) && !defined(GW_SCUMM_SLIM)
+ 	if (gameId == "mortimer") {
+ 		for (uint i = 0; i < keymaps.size(); ++i)
+ 			delete keymaps[i];
 diff --git a/engines/scumm/resource.cpp b/engines/scumm/resource.cpp
 index df195fef..b24962a4 100644
 --- a/engines/scumm/resource.cpp
@@ -621,9 +725,45 @@ index 3e684bd7..a91f481d 100644
  //	inline Resource &getRes(ResType type, ResId idx) { return _types[type][idx]; }
  //	inline const Resource &getRes(ResType type, ResId idx) const { return _types[type][idx]; }
 diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
-index d1d7a764..39b1fa68 100644
+index d1d7a764..70c4e189 100644
 --- a/engines/scumm/saveload.cpp
 +++ b/engines/scumm/saveload.cpp
+@@ -81,7 +81,7 @@ struct SaveInfoSection {
+ #pragma mark -
+ 
+ Common::Error ScummEngine::loadGameState(int slot) {
+-#ifdef ENABLE_SCUMM_7_8
++#if defined(ENABLE_SCUMM_7_8) && !defined(GW_SCUMM_SLIM)
+ 	if (_game.id == GID_REBEL1) {
+ 		InsaneRebel1 *rebel = (InsaneRebel1 *)((ScummEngine_v7 *)this)->getInsane();
+ 		if (rebel)
+@@ -103,7 +103,7 @@ bool ScummEngine::canLoadGameStateCurrently(Common::U32String *msg) {
+ 	if (!_setupIsComplete)
+ 		return false;
+ 
+-#ifdef ENABLE_SCUMM_7_8
++#if defined(ENABLE_SCUMM_7_8) && !defined(GW_SCUMM_SLIM)
+ 	if (_game.id == GID_REBEL1) {
+ 		const InsaneRebel1 *rebel = (InsaneRebel1 *)((ScummEngine_v7 *)this)->getInsane();
+ 		return rebel && rebel->hasPlayableLevels();
+@@ -169,7 +169,7 @@ bool ScummEngine::canLoadGameStateCurrently(Common::U32String *msg) {
+ }
+ 
+ Common::Error ScummEngine::saveGameState(int slot, const Common::String &desc, bool isAutosave) {
+-#ifdef ENABLE_SCUMM_7_8
++#if defined(ENABLE_SCUMM_7_8) && !defined(GW_SCUMM_SLIM)
+ 	if (_game.id == GID_REBEL1) {
+ 		InsaneRebel1 *rebel = (InsaneRebel1 *)((ScummEngine_v7 *)this)->getInsane();
+ 		if (rebel)
+@@ -189,7 +189,7 @@ bool ScummEngine::canSaveGameStateCurrently(Common::U32String *msg) {
+ 	if (!_setupIsComplete)
+ 		return false;
+ 
+-#ifdef ENABLE_SCUMM_7_8
++#if defined(ENABLE_SCUMM_7_8) && !defined(GW_SCUMM_SLIM)
+ 	if (_game.id == GID_REBEL1) {
+ 		const InsaneRebel1 *rebel = (InsaneRebel1 *)((ScummEngine_v7 *)this)->getInsane();
+ 		return rebel && rebel->hasPlayableLevels();
 @@ -280,6 +280,70 @@ void ScummEngine::requestSave(int slot, const Common::String &name) {
  	_saveLoadDescription = name;
  }
@@ -730,7 +870,7 @@ index 32b0516f..eaf410a9 100644
  	{ "fe60d6b5ff51b0553ac59963123b5777", "comi", "", "", 76791, Common::UNK_LANG, Common::kPlatformWindows },
  	{ "febf4a983ea5faea1c9dd6c710ebb09c", "puttcircus", "", "", 36655, Common::DE_DEU, Common::kPlatformWindows },
 diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
-index 88e087d7..ef5f26d6 100644
+index 88e087d7..940951e4 100644
 --- a/engines/scumm/scumm.cpp
 +++ b/engines/scumm/scumm.cpp
 @@ -486,6 +486,9 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
@@ -785,6 +925,31 @@ index 88e087d7..ef5f26d6 100644
  
  	// MI2 NI DOS Demo, load demo.rec playback file if present
  	if ((_game.id == GID_MONKEY2) && (_game.features & GF_DEMO) && (_game.platform == Common::kPlatformDOS) && !ConfMan.getBool("disable_mi2_ni_demo"))
+@@ -1827,6 +1848,7 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
+ 
+ #ifdef ENABLE_SCUMM_7_8
+ void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
++#ifndef GW_SCUMM_SLIM	// Game & Watch: no Rebel Assault (metaengine.cpp refuses it)
+ 	if (_game.id == GID_REBEL1) {
+ 		_res->allocResTypeData(rtBuffer, 0, 10, kDynamicResTypeMode);
+ 		initScreens(0, 200);
+@@ -1902,6 +1924,7 @@ void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
+ 		initBanners();
+ 		return;
+ 	}
++#endif
+ 
+ 	// The object line toggle is always synchronized from the main game to
+ 	// our internal Game Options; at startup we do the opposite, since an user
+@@ -2764,7 +2787,7 @@ int ScummEngine::getTalkSpeed() {
+ #pragma mark -
+ 
+ Common::Error ScummEngine::go() {
+-#ifdef ENABLE_SCUMM_7_8
++#if defined(ENABLE_SCUMM_7_8) && !defined(GW_SCUMM_SLIM)
+ 	if (_game.id == GID_REBEL1) {
+ 		ScummEngine_v7 *vm7 = (ScummEngine_v7 *)this;
+ 		InsaneRebel1 *rebel = (InsaneRebel1 *)vm7->getInsane();
 diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
 index 356a3602..ab876013 100644
 --- a/engines/scumm/scumm.h
@@ -841,6 +1006,22 @@ index 356a3602..ab876013 100644
  
  protected:
  	byte _charsetColor = 0;
+diff --git a/engines/scumm/smush/smush_player.cpp b/engines/scumm/smush/smush_player.cpp
+index 1c646316..92940450 100644
+--- a/engines/scumm/smush/smush_player.cpp
++++ b/engines/scumm/smush/smush_player.cpp
+@@ -1609,7 +1609,11 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
+ }
+ 
+ void SmushPlayer::initAudio(int samplerate, int32 maxChunkSize) {
++#ifdef GW_V7_SLIM
++	int32 maxSizes[SMUSH_MAX_TRACKS] = {16000, 16000, 16000, 64000};   // Game & Watch: ring buffers
++#else
+ 	int32 maxSizes[SMUSH_MAX_TRACKS] = {100000, 100000, 100000, 400000};
++#endif
+ 
+ 	if (_imuseDigital)
+ 		_imuseDigital->setSmushPlayer(this);
 diff --git a/gui/dialog.cpp b/gui/dialog.cpp
 index b6cbe9db..081a1c78 100644
 --- a/gui/dialog.cpp
