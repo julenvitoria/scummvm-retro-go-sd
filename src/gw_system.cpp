@@ -373,6 +373,8 @@ public:
 		// turn down; transient, as from the command line, over whatever scummvm.ini holds
 		static const char *const vol[] = { "music_volume", "sfx_volume", "speech_volume" };
 		for (const char *k : vol) ConfMan.setInt(k, 255, Common::ConfigManager::kTransientDomain);
+		// subtitles on unless a game was switched to voice only (Ctrl+T, the keyboard's Txt key)
+		ConfMan.registerDefault("subtitles", true);
 		BaseBackend::initBackend();
 	}
 
@@ -388,9 +390,10 @@ public:
 		_queue.push(e);
 	}
 
-	static void oskEmit(int keycode, int ascii, int shift, void *arg) {
+	static void oskEmit(int keycode, int ascii, int mods, void *arg) {
 		OSystem_GW *self = (OSystem_GW *)arg;
-		Common::KeyState ks((Common::KeyCode)keycode, (uint16)ascii, shift ? Common::KBD_SHIFT : 0);
+		Common::KeyState ks((Common::KeyCode)keycode, (uint16)ascii,
+		                    (mods & OSK_SHIFT ? Common::KBD_SHIFT : 0) | (mods & OSK_CTRL ? Common::KBD_CTRL : 0));
 		Common::Event e;
 		e.mouse = Common::Point(self->gfx()->_mouseX, self->gfx()->_mouseY);
 		e.kbd = ks;

@@ -340,7 +340,7 @@ index 133f6ec0..37155b7b 100644
  			if (_mainMenuSavegameLabel > 0 && !_savegameNames[_mainMenuSavegameLabel - 1].substr(labelSkip).empty()) {
  				convertMessageToString((const byte *)getGUIString(gsSaving), (byte *)saveScreenTitle, sizeof(saveScreenTitle));
 diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
-index 3525910f..c5a6d294 100644
+index 3525910f..cf712829 100644
 --- a/engines/scumm/input.cpp
 +++ b/engines/scumm/input.cpp
 @@ -1010,7 +1010,9 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
@@ -353,6 +353,25 @@ index 3525910f..c5a6d294 100644
  		}
  
  		char sliderString[256];
+@@ -1078,9 +1080,18 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
+ 		// Generally allow voice mode settings only for v6, 7 and 8.
+ 		// Also allow it for Indy4 Talkie, which does its own thing.
+ 		if (((VAR_VOICE_MODE != 0xFF) || ((_game.features & GF_ULTIMATE_TALKIE) ||
++#ifdef GW_SCUMM_SLIM
++			// Game & Watch: any game with speech (the fan-made v5 talkies), not only these
++			(_game.version == 5 && _sound->hasSfxFile()) ||
++#endif
+ 			(_game.id == GID_INDY4 && strcmp(_game.variant, "Floppy") && strcmp(_game.variant, "Amiga")))) &&
+ 			(lastKeyHit.keycode == Common::KEYCODE_t && lastKeyHit.hasFlags(Common::KBD_CTRL))) {
+ 			int voiceMode = (_game.version == 5) ? _v5VoiceMode : VAR(VAR_VOICE_MODE);
++#ifdef GW_SCUMM_SLIM
++			// Game & Watch: v5 starts from what is set (subtitles are on by default here)
++			if (_game.version == 5)
++				voiceMode = ConfMan.getBool("speech_mute") ? 2 : ConfMan.getBool("subtitles") ? 1 : 0;
++#endif
+ 
+ 			voiceMode++;
+ 			if (voiceMode >= 3) {
 diff --git a/engines/scumm/resource.cpp b/engines/scumm/resource.cpp
 index df195fef..b24962a4 100644
 --- a/engines/scumm/resource.cpp

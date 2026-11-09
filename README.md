@@ -113,6 +113,9 @@ capital (press it twice to lock). It has Esc, Enter, Space, Backspace, F1–F10,
 letters — on a Mario unit, Esc (skip cutscene), `.` (skip line) and Enter ("press ENTER to
 continue") are typed from here.
 
+**Subtitles** in talkie versions are on. `Txt` on the keyboard (Ctrl+T) cycles through
+voice and text / text only / voice only; the game remembers the choice.
+
 ### How it is made
 
 - The essentials (boot, SD card access, the heap) live in the core's RAM; the rest of
@@ -259,6 +262,9 @@ el juego. La cruceta mueve, A escribe, B o GAME lo cierran; `Shf` pone la siguie
 mayúscula (dos veces: bloqueada). Tiene Esc, Enter, Espacio, Retroceso, F1–F10, números y
 letras; en una Mario, Esc (saltar escena), `.` (saltar frase) y Enter ("pulsa ENTER para
 continuar") se escriben desde aquí.
+
+**Subtítulos**: en las versiones habladas están activados. `Txt` en el teclado (Ctrl+T) pasa
+por voz y texto / solo texto / solo voz; el juego recuerda la elección.
 
 ### Cómo está hecho
 
