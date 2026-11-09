@@ -39,7 +39,7 @@ No games are included, nor will they be: bring your own.
    are read from the SD card instead.
 
    Games copied to the flash by an older version of this core are copied once more (their
-   data files are now stored decrypted, see "How it's made").
+   data files are now stored decrypted, see "How it is made").
 
 ### Telling ScummVM which game it is
 
