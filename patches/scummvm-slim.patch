@@ -1,3 +1,54 @@
+diff --git a/audio/midiparser.cpp b/audio/midiparser.cpp
+index f054dc28..3232d564 100644
+--- a/audio/midiparser.cpp
++++ b/audio/midiparser.cpp
+@@ -230,6 +230,15 @@ void MidiParser::onTimer() {
+ 	while (!_abortParse) {
+ 		EventInfo &info = *_nextEvent;
+ 		uint8 subtrack = info.subtrack;
++#ifdef GW_SCUMM_SLIM
++		// Game & Watch: belt and braces for the fix in determineNextEvent(): stop the tune rather
++		// than write past _subtracks[]
++		if (subtrack >= MAXIMUM_SUBTRACKS) {
++			warning("MidiParser: event on subtrack %d, tune stopped", subtrack);
++			_position.stopTracking();
++			return;
++		}
++#endif
+ 
+ 		eventTick = _position._subtracks[subtrack]._lastEventTick + info.delta;
+ 		eventTime = _position._lastEventTime + (eventTick - _position._lastEventTick) * _psecPerTick;
+@@ -309,6 +318,14 @@ void MidiParser::onTimer() {
+ }
+ 
+ void MidiParser::rebaseTracking() {
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: an event can unload the tune (SCUMM's iMuse does), leaving _activeTrack at
++	// 255 -- past the end of _numSubtracks[], whose stray byte then counted the subtracks
++	// (an assert on the console in Monkey Island 2)
++	if (_activeTrack >= _numTracks) {
++		return;
++	}
++#endif
+ 	uint32 earliestLastEventTick = 0xFFFFFFFF;
+ 	int earliestLastEventTickSubtrack = -1;
+ 	for (int i = 0; i < _numSubtracks[_activeTrack]; i++) {
+@@ -351,6 +368,15 @@ void MidiParser::rebaseTracking() {
+ }
+ 
+ void MidiParser::determineNextEvent() {
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: an event can unload the tune (SCUMM's iMuse does), leaving _activeTrack at
++	// 255 -- past the end of _numSubtracks[], whose stray byte then counted the subtracks
++	// (an assert on the console in Monkey Island 2)
++	if (_activeTrack >= _numTracks) {
++		_nextEvent = &_nextSubtrackEvents[0];
++		return;
++	}
++#endif
+ 	uint32 lowestNextEventTick = 0xFFFFFFFF;
+ 	int lowestNextEventTickSubtrack = -1;
+ 	for (int i = 0; i < _numSubtracks[_activeTrack]; i++) {
 diff --git a/audio/midiparser.h b/audio/midiparser.h
 index d8ee41ac..73bdddd1 100644
 --- a/audio/midiparser.h
