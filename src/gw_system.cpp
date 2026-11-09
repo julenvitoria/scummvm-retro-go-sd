@@ -33,6 +33,60 @@
 
 /* ================================================================ files */
 
+/* A file in external flash (on the PC: in memory). Reads give the file's original bytes even
+   when the copy is stored decrypted (key != 0, see plat_map_file), so detection's MD5s and the
+   engine's own XOR see what they expect; gwDirectResource() hands out the stored bytes. */
+class GWMappedStream : public Common::SeekableReadStream {
+public:
+	const byte *_data;
+	uint32 _size, _pos = 0;
+	byte _key;
+	bool _eos = false;
+	GWMappedStream *_next;
+	static GWMappedStream *_open;                     // every live one, to recognise them
+
+	GWMappedStream(const byte *data, uint32 size, byte key) : _data(data), _size(size), _key(key) {
+		_next = _open; _open = this;
+	}
+	~GWMappedStream() override {
+		for (GWMappedStream **p = &_open; *p; p = &(*p)->_next)
+			if (*p == this) { *p = _next; break; }
+	}
+	bool eos() const override { return _eos; }
+	void clearErr() override { _eos = false; }
+	int64 pos() const override { return _pos; }
+	int64 size() const override { return _size; }
+	bool seek(int64 offs, int whence = SEEK_SET) override {
+		int64 p = whence == SEEK_SET ? offs : whence == SEEK_CUR ? _pos + offs : _size + offs;
+		if (p < 0 || p > _size) return false;
+		_pos = (uint32)p; _eos = false;
+		return true;
+	}
+	uint32 read(void *buf, uint32 n) override {
+		if (n > _size - _pos) { n = _size - _pos; _eos = true; }
+		memcpy(buf, _data + _pos, n);
+		if (_key) for (byte *b = (byte *)buf, *e = b + n; b < e; b++) *b ^= _key;
+		_pos += n;
+		return n;
+	}
+};
+GWMappedStream *GWMappedStream::_open;
+
+/* patches/scummvm-slim.patch: the next n bytes of 'stream' where they lie, as the engine
+   would read them with its XOR byte 'enc' -- or NULL (not in flash, or stored differently).
+   The stream moves past them. */
+const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte enc)
+{
+	for (GWMappedStream *m = GWMappedStream::_open; m; m = m->_next)
+		if (m == stream) {
+			if (m->_key != enc || n > m->_size - m->_pos) return nullptr;
+			const byte *p = m->_data + m->_pos;
+			m->_pos += n;
+			return p;
+		}
+	return nullptr;
+}
+
 class GWFileStream : public Common::SeekableReadStream, public Common::SeekableWriteStream {
 	void *_f;
 	int64 _size;
@@ -107,8 +161,9 @@ public:
 	bool isWritable() const override { return true; }
 	Common::SeekableReadStream *createReadStream() override {
 		uint32_t size = 0;
-		const uint8_t *map = plat_map_file(_path.c_str(), &size);
-		if (map) return new Common::MemoryReadStream(map, size, DisposeAfterUse::NO);
+		uint8_t key = 0;
+		const uint8_t *map = plat_map_file(_path.c_str(), &size, &key);
+		if (map) return new GWMappedStream(map, size, key);
 		void *f = plat_fopen(_path.c_str(), "rb");
 		return f ? new GWFileStream(f, st().size) : nullptr;
 	}

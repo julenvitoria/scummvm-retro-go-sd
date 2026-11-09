@@ -38,6 +38,10 @@ No games are included, nor will they be: bring your own.
    bars); after that it starts right away. Files over 24 MB (the speech of talkie versions)
    are read from the SD card instead.
 
+   A game copied to the flash by an older version of this core keeps its old copy (the
+   log, `/saves/scummvm/scummvm.log`, says so) and has less memory: copy its files to the
+   SD card again so they are cached afresh.
+
 ### Telling ScummVM which game it is
 
 ScummVM recognises a game by a fingerprint of its files, and knows thousands of versions.
@@ -116,7 +120,10 @@ continue") are typed from here.
   ScummVM (~2.5 MB of code) runs straight from the external flash (XIP). At boot the core
   is copied to the flash and relocated to wherever it landed (`tools/xip_pack.py`,
   `src/boot.c`).
-- Game files are read from the external flash without being copied to RAM.
+- Game files are read from the external flash without being copied to RAM. The data files
+  of SCUMM v4-v6 games (encrypted with XOR 0x69 on disk) are stored decrypted, so the
+  engine uses the rooms, costumes and scripts where they lie instead of loading them into
+  the heap — what lets Sam & Max and the other big VGA games fit.
 - The heap takes all the RAM the firmware leaves free (~900 KB in several regions,
   `src/heap.c`); the SCUMM engine's screen buffers have a region of their own so that room
   changes do not fragment it.
@@ -172,6 +179,10 @@ Los juegos no se incluyen ni se incluirán: cada uno pone los suyos.
 4. La primera vez que se abre un juego sus ficheros se copian a la flash externa (barras de
    progreso); después arranca directamente. Los ficheros de más de 24 MB (las voces de las
    versiones habladas) se leen de la SD.
+
+   Un juego que una versión anterior de este core ya copió a la flash conserva esa copia
+   (lo dice el registro, `/saves/scummvm/scummvm.log`) y tiene menos memoria: vuelve a
+   copiar sus ficheros a la SD para que se copien de nuevo.
 
 ### Decirle a ScummVM qué juego es
 
@@ -253,7 +264,10 @@ continuar") se escriben desde aquí.
   (~2,5 MB de código) se ejecuta directamente desde la flash externa (XIP). Al arrancar, el
   core se copia a la flash y se reubica a la dirección donde quedó (`tools/xip_pack.py`,
   `src/boot.c`).
-- Los ficheros del juego se leen desde la flash externa, sin copiarlos a RAM.
+- Los ficheros del juego se leen desde la flash externa, sin copiarlos a RAM. Los de datos
+  de los juegos SCUMM v4-v6 (cifrados con XOR 0x69 en el disco) se guardan descifrados, así
+  el motor usa las habitaciones, disfraces y scripts donde están en vez de cargarlos en el
+  heap — lo que permite que quepan Sam & Max y los demás juegos VGA grandes.
 - El heap usa toda la RAM libre que deja el firmware (~900 KB en varias zonas, `src/heap.c`);
   los buffers de pantalla del motor SCUMM tienen una zona propia para que los cambios de
   habitación no la fragmenten.

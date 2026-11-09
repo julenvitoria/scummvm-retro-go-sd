@@ -178,12 +178,12 @@ bool plat_list_dir(const char *path, void (*cb)(const char *, bool, uint32_t, vo
 	return true;
 }
 
-const uint8_t *plat_map_file(const char *path, uint32_t *size)
+const uint8_t *plat_map_file(const char *path, uint32_t *size, uint8_t *key)
 {
-	static struct { char path[512]; uint8_t *data; uint32_t size; } map[64];
+	static struct { char path[512]; uint8_t *data; uint32_t size; uint8_t key; } map[64];
 	if (!g_game || strncmp(path, g_game, strlen(g_game)) != 0) return NULL;   /* only the game's own files */
 	for (int i = 0; i < 64; i++) {
-		if (map[i].data && !strcmp(map[i].path, path)) { *size = map[i].size; return map[i].data; }
+		if (map[i].data && !strcmp(map[i].path, path)) { *size = map[i].size; if (key) *key = map[i].key; return map[i].data; }
 		if (!map[i].data) {
 			FILE *f = fopen(path, "rb");
 			if (!f) return NULL;
@@ -194,9 +194,18 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size)
 			map[i].data = mmap(0, n ? n : 1, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 			if (map[i].data == MAP_FAILED || fread(map[i].data, 1, n, f) != (size_t)n) { fclose(f); map[i].data = NULL; return NULL; }
 			fclose(f);
+			/* as the console stores it: SCUMM data decrypted. Read-only, so that the engine
+			   writing into a resource used in place is a crash here, not silence */
+			map[i].key = 0;
+			if (!getenv("GW_NO_INPLACE") && svm_xor69_data(map[i].data, (uint32_t)n)) {   /* as before: compare */
+				for (long j = 0; j < n; j++) map[i].data[j] ^= 0x69;
+				map[i].key = 0x69;
+			}
+			mprotect(map[i].data, n ? n : 1, PROT_READ);
 			snprintf(map[i].path, sizeof map[i].path, "%s", path);
 			map[i].size = (uint32_t)n;
 			*size = map[i].size;
+			if (key) *key = map[i].key;
 			return map[i].data;
 		}
 	}

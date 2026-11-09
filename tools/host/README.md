@@ -46,3 +46,8 @@ GW_WAV=/dev/null GW_HEAP_BIG=700 GW_HEAP_SMALL=300 GW_HEAP_SCREEN=136 LD_PRELOAD
 
 The PC has 64-bit pointers: the same game needs more memory than on the console, so this
 shows where the pressure is rather than the console's exact limit.
+
+`GW_NO_INPLACE=1` keeps the SCUMM data files as they are on disk (encrypted), so every
+resource is loaded into the heap as before the in-place resources: to compare the two.
+Otherwise the files are decrypted as on the console and mapped read-only, so the engine
+writing into a resource it uses in place crashes here instead of passing unnoticed.

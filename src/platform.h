@@ -54,8 +54,34 @@ typedef struct {
 plat_stat_t plat_stat(const char *path);
 /* calls cb(name, is_dir, size, arg) for each entry; false if the folder cannot be read */
 bool     plat_list_dir(const char *path, void (*cb)(const char *name, bool is_dir, uint32_t size, void *arg), void *arg);
-/* the whole file readable in memory (external flash on the console), or NULL to stream it */
-const uint8_t *plat_map_file(const char *path, uint32_t *size);
+/* the whole file readable in memory (external flash on the console), or NULL to stream it.
+   *key (may be NULL): the byte the copy in memory is XORed with against the file on the card --
+   SCUMM v4-v6 data files are stored DECRYPTED (key 0x69), so the engine can use its resources
+   where they lie instead of copying them into the heap (patches/scummvm-slim.patch) */
+const uint8_t *plat_map_file(const char *path, uint32_t *size, uint8_t *key);
+
+/* Is this the start of a SCUMM data file XORed with 0x69 (v5/v6 "LECF" bundle, v4 "LE" disk)? */
+static inline int svm_xor69_data(const uint8_t *p, uint32_t n)
+{
+	if (n < 8) return 0;
+	if ((p[0] ^ 0x69) == 'L' && (p[1] ^ 0x69) == 'E' && (p[2] ^ 0x69) == 'C' && (p[3] ^ 0x69) == 'F') return 1;
+	return (p[4] ^ 0x69) == 'L' && (p[5] ^ 0x69) == 'E';
+}
+/* ...and the start of one already decrypted? ("LECF" is also a v7 file that never was encrypted:
+   that one counts only when the game's index is encrypted, the caller's 'xor_index') */
+static inline int svm_plain_data(const uint8_t *p, uint32_t n, int xor_index)
+{
+	if (n < 8) return 0;
+	if (p[0] == 'L' && p[1] == 'E' && p[2] == 'C' && p[3] == 'F') return xor_index;
+	return p[4] == 'L' && p[5] == 'E';
+}
+/* the v5/v6 index ("RNAM"/"MAXS" XORed with 0x69) */
+static inline int svm_xor69_index(const uint8_t *p, uint32_t n)
+{
+	if (n < 4) return 0;
+	uint8_t a = p[0] ^ 0x69, b = p[1] ^ 0x69, c = p[2] ^ 0x69, d = p[3] ^ 0x69;
+	return (a == 'R' && b == 'N' && c == 'A' && d == 'M') || (a == 'M' && b == 'A' && c == 'X' && d == 'S');
+}
 bool     plat_mkdir(const char *path);
 
 void    *plat_fopen(const char *path, const char *mode);
