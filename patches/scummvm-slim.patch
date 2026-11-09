@@ -15,6 +15,23 @@ index d8ee41ac..73bdddd1 100644
  
  class MidiDriver_BASE;
  
+diff --git a/base/main.cpp b/base/main.cpp
+index ef3997f1..e9553647 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -933,7 +933,12 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 				OSystem_PS3::spawnProcess(PREFIX "/scummvm.self", nullptr);
+ 			}
+ #endif
++#ifdef GW_SCUMM_SLIM
++			// Game & Watch: no launcher (its GUI does not fit); back to Retro-Go's
++			break;
++#else
+ 			launcherDialog();
++#endif
+ 		}
+ 	}
+ #ifdef USE_SDL_NET
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea52..380eb1fa 100644
 --- a/engines/scumm/dialogs.cpp
@@ -80,7 +97,7 @@ index 7fb9ea52..380eb1fa 100644
  	}
  }
 diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
-index bf85f13c..5c158960 100644
+index bf85f13c..ad423861 100644
 --- a/engines/scumm/gfx.cpp
 +++ b/engines/scumm/gfx.cpp
 @@ -343,6 +343,11 @@ void ScummEngine::initScreens(int b, int h) {
@@ -132,6 +149,23 @@ index bf85f13c..5c158960 100644
  		vs->backBuf = _res->createResource(rtBuffer, slot + 5, size);
  	}
  
+@@ -665,6 +693,16 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
+ 	if (width <= 0 || height <= 0)
+ 		return;
+ 
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: the composite buffer holds GW_COMPOSITE_ROWS rows (scumm.cpp), so a taller
++	// strip goes in bands
++	if (height > GW_COMPOSITE_ROWS && _game.version < 7) {
++		for (int t = top; t < bottom; t += GW_COMPOSITE_ROWS)
++			drawStripToScreen(vs, x, width, t, MIN(bottom, t + GW_COMPOSITE_ROWS));
++		return;
++	}
++#endif
++
+ 	if (_macScreen && _game.version <= 3) {
+ 		mac_drawStripToScreen(vs, top, x, y, width, height);
+ 		return;
 diff --git a/engines/scumm/gfx_gui.cpp b/engines/scumm/gfx_gui.cpp
 index 133f6ec0..37155b7b 100644
 --- a/engines/scumm/gfx_gui.cpp
@@ -404,22 +438,39 @@ index 32b0516f..eaf410a9 100644
  	{ "fe60d6b5ff51b0553ac59963123b5777", "comi", "", "", 76791, Common::UNK_LANG, Common::kPlatformWindows },
  	{ "febf4a983ea5faea1c9dd6c710ebb09c", "puttcircus", "", "", 36655, Common::DE_DEU, Common::kPlatformWindows },
 diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
-index 88e087d7..f89b6522 100644
+index 88e087d7..ef5f26d6 100644
 --- a/engines/scumm/scumm.cpp
 +++ b/engines/scumm/scumm.cpp
-@@ -1012,6 +1012,11 @@ ScummEngine_v8::~ScummEngine_v8() {
+@@ -486,6 +486,9 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+ 
+ 
+ ScummEngine::~ScummEngine() {
++#ifdef GW_SCUMM_SLIM
++	delete[] _NESPatTable;
++#endif
+ 	delete _musicEngine;
+ 
+ 	// Delete the sound object earlier than the actors
+@@ -1012,6 +1015,18 @@ ScummEngine_v8::~ScummEngine_v8() {
  #pragma mark -
  
  Common::Error ScummEngine::init() {
 +#ifdef GW_SCUMM_SLIM
-+	// Game & Watch: the Macintosh and NES buffers are cut down in scumm.h
-+	if (_game.platform == Common::kPlatformMacintosh || _game.platform == Common::kPlatformNES)
-+		return Common::Error(Common::kUnsupportedGameidError, "Macintosh and NES versions are not supported");
++	// Game & Watch: the Macintosh buffers are cut down in scumm.h; the NES pattern table is
++	// only made for NES games
++	if (_game.platform == Common::kPlatformMacintosh)
++		return Common::Error(Common::kUnsupportedGameidError, "Macintosh versions are not supported");
++	// FM-Towns: 320x240 screens with a second layer (DISABLE_TOWNS_DUAL_LAYER_MODE), more
++	// than the screen heap holds
++	if (_game.platform == Common::kPlatformFMTowns)
++		return Common::Error(Common::kUnsupportedGameidError, "FM-Towns versions are not supported");
++	if (_game.platform == Common::kPlatformNES)
++		_NESPatTable = new byte[2][4096]();
 +#endif
  
  	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
  
-@@ -1460,7 +1465,7 @@ Common::Error ScummEngine::init() {
+@@ -1460,7 +1475,7 @@ Common::Error ScummEngine::init() {
  		if (!_macScreen && _renderMode == Common::kRenderMacintoshBW)
  			_renderMode = Common::kRenderDefault;
  
@@ -428,34 +479,49 @@ index 88e087d7..f89b6522 100644
  
  		if (_macGui) {
  			if (!_macGui->initialize()) {
+@@ -1818,7 +1833,13 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
+ #endif
+ 
+ 	free(_compositeBuf);
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: drawStripToScreen() composes at most GW_COMPOSITE_ROWS rows at a time,
++	// a 16 KB buffer instead of a whole 64 KB screen
++	_compositeBuf = (byte *)malloc(_screenWidth * _textSurfaceMultiplier * MIN<int>(_screenHeight, GW_COMPOSITE_ROWS) * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
++#else
+ 	_compositeBuf = (byte *)malloc(_screenWidth * _textSurfaceMultiplier * _screenHeight * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
++#endif
+ 
+ 	// MI2 NI DOS Demo, load demo.rec playback file if present
+ 	if ((_game.id == GID_MONKEY2) && (_game.features & GF_DEMO) && (_game.platform == Common::kPlatformDOS) && !ConfMan.getBool("disable_mi2_ni_demo"))
 diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
-index 356a3602..c2cf1815 100644
+index 356a3602..5557d92b 100644
 --- a/engines/scumm/scumm.h
 +++ b/engines/scumm/scumm.h
 @@ -953,7 +953,11 @@ public:
  	int _NESCostumeSet = 0;
  	void NES_loadCostumeSet(int n);
  	byte *_NEScostdesc = nullptr, *_NEScostlens = nullptr, *_NEScostoffs = nullptr, *_NEScostdata = nullptr;
-+#ifdef GW_SCUMM_SLIM	// Game & Watch: no NES games (refused in init())
-+	byte _NESPatTable[2][1];
++#ifdef GW_SCUMM_SLIM	// Game & Watch: allocated for NES games only (init())
++	byte (*_NESPatTable)[4096] = nullptr;
 +#else
  	byte _NESPatTable[2][4096];
 +#endif
  	byte _NESPalette[2][16];
  	byte _NESBaseTiles = 0;
  
-@@ -1042,6 +1046,10 @@ public:
+@@ -1042,6 +1046,11 @@ public:
  
  	void requestSave(int slot, const Common::String &name);
  	void requestLoad(int slot);
 +#ifdef GW_SCUMM_SLIM
++#define GW_COMPOSITE_ROWS 48
 +	// Game & Watch: the Retro-Go menu's Save, done at once (saveload.cpp)
 +	bool gwSaveNow(int slot, const Common::String &desc);
 +#endif
  
  	Common::String getTargetName() const { return _targetName; }
  	bool canPauseSoundsDuringSave() const { return _pauseSoundsDuringSave; }
-@@ -1415,8 +1423,13 @@ protected:
+@@ -1415,8 +1424,13 @@ protected:
  
  	// HACK Double the array size to handle 16-bit images.
  	// this should be dynamically allocated based on game depth instead.
@@ -469,7 +535,7 @@ index 356a3602..c2cf1815 100644
  	byte _currentCursor = 0;
  
  	byte _newEffect = 0, _switchRoomEffect2 = 0, _switchRoomEffect = 0;
-@@ -1709,7 +1722,11 @@ public:
+@@ -1709,7 +1723,11 @@ public:
  	Graphics::Surface *_macScreen = nullptr;
  	MacGui *_macGui = nullptr;
  	bool _useMacGraphicsSmoothing = true;
