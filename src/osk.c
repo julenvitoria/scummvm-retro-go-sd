@@ -20,7 +20,7 @@ enum { A_F1 = 315 };                     /* Common::ASCII_F1, F2 = 316... */
 #define K_SHIFT (-1)
 #define FKEY(n) { "F" #n, K_F1 + (n) - 1, A_F1 + (n) - 1 }
 
-typedef struct { const char *label; int keycode, ascii; } key_t;
+typedef struct { const char *label; int keycode, ascii, mods; } key_t;
 
 static const key_t r0[] = { { "Esc", K_ESCAPE, 27 }, { "1", '1', '1' }, { "2", '2', '2' }, { "3", '3', '3' },
 	{ "4", '4', '4' }, { "5", '5', '5' }, { "6", '6', '6' }, { "7", '7', '7' }, { "8", '8', '8' }, { "9", '9', '9' },
@@ -31,7 +31,9 @@ static const key_t r1[] = { { "Q", 'q', 'q' }, { "W", 'w', 'w' }, { "E", 'e', 'e
 	{ "Ent", K_RETURN, 13 }, FKEY(7), FKEY(8), FKEY(9), { "F10", K_F1 + 9, A_F1 + 9 }, { 0, 0, 0 } };
 static const key_t r2[] = { { "Shf", K_SHIFT, 0 }, { "A", 'a', 'a' }, { "S", 's', 's' }, { "D", 'd', 'd' },
 	{ "F", 'f', 'f' }, { "G", 'g', 'g' }, { "H", 'h', 'h' }, { "J", 'j', 'j' }, { "K", 'k', 'k' }, { "L", 'l', 'l' },
-	{ "'", '\'', '\'' }, { "!", '!', '!' }, { "?", '?', '?' }, { ":", ':', ':' }, { 0, 0, 0 } };
+	{ "'", '\'', '\'' }, { "!", '!', '!' }, { "?", '?', '?' }, { ":", ':', ':' },
+	{ "Txt", 't', 20, OSK_CTRL },          /* Ctrl+T: voice only / voice and text / text only */
+	{ 0, 0, 0 } };
 static const key_t r3[] = { { "Z", 'z', 'z' }, { "X", 'x', 'x' }, { "C", 'c', 'c' }, { "V", 'v', 'v' },
 	{ "B", 'b', 'b' }, { "N", 'n', 'n' }, { "M", 'm', 'm' }, { ",", ',', ',' }, { ".", '.', '.' },
 	{ "Spc", K_SPACE, ' ' }, { "Ent", K_RETURN, 13 }, { 0, 0, 0 } };
@@ -77,7 +79,7 @@ int osk_input(uint32_t pressed, uint32_t up, uint32_t down, uint32_t left, uint3
 		if (k->keycode == K_SHIFT) { g_shift = (g_shift + 1) % 3; return 1; }
 		int ascii = k->ascii, shift = g_shift != 0;
 		if (shift && ascii >= 'a' && ascii <= 'z') ascii -= 'a' - 'A';
-		emit(k->keycode, ascii, shift, arg);
+		emit(k->keycode, ascii, (shift ? OSK_SHIFT : 0) | k->mods, arg);
 		if (g_shift == 1) g_shift = 0;
 		return 1;
 	}

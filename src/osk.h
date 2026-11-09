@@ -5,8 +5,9 @@
 extern "C" {
 #endif
 
-/* a key typed: ScummVM key code and ASCII value (shift: uppercase / Shift held) */
-typedef void (*osk_emit_fn)(int keycode, int ascii, int shift, void *arg);
+/* a key typed: ScummVM key code, ASCII value and modifiers (OSK_SHIFT: uppercase / Shift held) */
+enum { OSK_SHIFT = 1, OSK_CTRL = 2 };
+typedef void (*osk_emit_fn)(int keycode, int ascii, int mods, void *arg);
 
 int  osk_is_open(void);
 void osk_open(void);
