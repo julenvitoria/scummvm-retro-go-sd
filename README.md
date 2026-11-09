@@ -11,8 +11,8 @@ sylverb's Retro-Go SD firmware (`external_cores` branch). It starts with the SCU
 (LucasArts adventures, versions 0 to 6).
 
 **Status: test version.** *The Secret of Monkey Island* (EGA and VGA talkie) starts and plays,
-with music and sound effects (AdLib / Sound Blaster FM through DOSBox's OPL emulator) and
-speech. **No saved games yet.**
+with music and sound effects (AdLib / Sound Blaster FM through DOSBox's OPL emulator),
+speech and saved games.
 
 No games are included, nor will they be: bring your own.
 
@@ -76,6 +76,17 @@ these lines nothing changes: ScummVM picks what it finds in the folder.
 They do not fix an incomplete copy, nor the versions this core leaves out on purpose:
 Macintosh and NES versions (their buffers are cut to save memory) and FM-Towns.
 
+### Saved games
+
+- **Retro-Go menu (PAUSE/SET):** *Save & Continue*, *Save & Quit* and *Reload*, with the
+  firmware's 4 slots and their previews, as in the other cores. Powering off saves too, and
+  *Resume* in the game list carries on from there. These saves live where the firmware keeps
+  every core's.
+- **The game's own menu (SELECT, Zelda units):** what F5 opens on a PC — save, load, play,
+  quit. There is no keyboard to type a save's name with: an empty name becomes the date and
+  time. These saves are ScummVM's usual files, in `/saves/scummvm/`.
+- Saves carry no thumbnail (it would take 128 KB of memory).
+
 ### When a game does not start
 
 If a game goes back to the Retro-Go menu, the reason is shown on screen and written to
@@ -89,8 +100,9 @@ If a game goes back to the Retro-Go menu, the reason is shown on screen and writ
 | B | left click |
 | A | right click |
 | GAME (START) | Esc: skip cutscene |
-| TIME (SELECT) | `.` + Enter: skip line / "press ENTER to continue" |
-| PAUSE/SET | Retro-Go menu |
+| TIME | `.` + Enter: skip line / "press ENTER to continue" |
+| SELECT (Zelda) | F5: the game's own menu (save, load, quit) |
+| PAUSE/SET | Retro-Go menu (save, load, options) |
 
 ### How it is made
 
@@ -103,8 +115,9 @@ If a game goes back to the Retro-Go menu, the reason is shown on screen and writ
   `src/heap.c`); the SCUMM engine's screen buffers have a region of their own so that room
   changes do not fragment it.
 - `patches/` holds changes to ScummVM applied at build time (`GW_SCUMM_SLIM`): smaller
-  buffers, no GUI dialogs (they go to the log), resources freed when memory runs low, and
-  the fingerprints of a few Spanish copies ScummVM did not know.
+  buffers, no GUI dialogs (they go to the log), saves without thumbnails and written at
+  once for the Retro-Go menu, resources freed when memory runs low, and the fingerprints of
+  a few Spanish copies ScummVM did not know.
 
 ### Building
 
@@ -127,7 +140,7 @@ LucasArts, versiones 0 a 6).
 
 **Estado: versión de prueba.** Arranca y se juega *The Secret of Monkey Island* (EGA y la
 versión hablada VGA), con música y efectos (AdLib / Sound Blaster FM, emulador OPL de
-DOSBox) y voces. **Todavía sin partidas guardadas.** El estudio previo está en
+DOSBox), voces y partidas guardadas. El estudio previo está en
 [docs/estudio-viabilidad.md](docs/estudio-viabilidad.md).
 
 Los juegos no se incluyen ni se incluirán: cada uno pone los suyos.
@@ -193,6 +206,17 @@ líneas no cambia nada: ScummVM elige lo que encuentra en la carpeta.
 No arreglan una copia incompleta ni las versiones que este core deja fuera a propósito:
 Macintosh y NES (sus buffers están recortados para ahorrar memoria) y FM-Towns.
 
+### Partidas guardadas
+
+- **Menú de Retro-Go (PAUSE/SET):** *Save & Continue*, *Save & Quit* y *Reload*, con los 4
+  huecos del firmware y su vista previa, como en los demás cores. Al apagar también se
+  guarda, y *Resume* en la lista de juegos sigue desde ahí. Estas partidas van donde el
+  firmware guarda las de todos los cores.
+- **Menú propio del juego (SELECT, en la Zelda):** lo que abre F5 en un PC: salvar, cargar,
+  jugar, salir. No hay teclado para escribir el nombre: si se deja vacío, se usa la fecha y
+  la hora. Estas partidas son los ficheros normales de ScummVM, en `/saves/scummvm/`.
+- Las partidas no llevan miniatura (costaría 128 KB de memoria).
+
 ### Cuando un juego no arranca
 
 Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escrito en
@@ -206,8 +230,9 @@ Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escr
 | B | clic izquierdo |
 | A | clic derecho |
 | GAME (START) | Esc: saltar escena |
-| TIME (SELECT) | `.` + Enter: saltar frase / "pulsa ENTER para continuar" |
-| PAUSE/SET | menú de Retro-Go |
+| TIME | `.` + Enter: saltar frase / "pulsa ENTER para continuar" |
+| SELECT (Zelda) | F5: menú propio del juego (salvar, cargar, salir) |
+| PAUSE/SET | menú de Retro-Go (guardar, cargar, opciones) |
 
 ### Cómo está hecho
 
@@ -220,8 +245,9 @@ Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escr
   los buffers de pantalla del motor SCUMM tienen una zona propia para que los cambios de
   habitación no la fragmenten.
 - `patches/` contiene cambios a ScummVM que se aplican al compilar (`GW_SCUMM_SLIM`): buffers
-  más pequeños, sin diálogos de la GUI (van al registro), recursos liberados cuando falta
-  memoria y las huellas de algunas copias españolas que ScummVM no conocía.
+  más pequeños, sin diálogos de la GUI (van al registro), partidas sin miniatura y escritas al
+  momento para el menú de Retro-Go, recursos liberados cuando falta memoria y las huellas de
+  algunas copias españolas que ScummVM no conocía.
 
 ### Compilar
 

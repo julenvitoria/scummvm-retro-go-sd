@@ -15,6 +15,70 @@ index d8ee41ac..73bdddd1 100644
  
  class MidiDriver_BASE;
  
+diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
+index 7fb9ea52..380eb1fa 100644
+--- a/engines/scumm/dialogs.cpp
++++ b/engines/scumm/dialogs.cpp
+@@ -408,7 +408,13 @@ InfoDialog::InfoDialog(ScummEngine *scumm, int res)
+ 	Common::Language lang = isCJKLanguage(_vm->_language) ? _vm->_language : Common::UNK_LANG;
+ 
+ 	// Width and height are dummy
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: no GUI -- a widget would start it (~140 KB), and getGUIString() makes
++	// one of these dialogs only to read a string
++	_text = nullptr;
++#else
+ 	_text = new GUI::StaticTextWidget(this, 0, 0, 10, 10, _message, kTextAlignCenter, Common::U32String(), GUI::ThemeEngine::kFontStyleBold, lang);
++#endif
+ 
+ 	// Store this for the calls to getStringWidth() and getStringHeight() in reflowLayout().
+ 	if (lang != Common::UNK_LANG)
+@@ -421,16 +427,24 @@ InfoDialog::InfoDialog(ScummEngine *scumm, const U32String &message)
+ 	_message = message;
+ 
+ 	// Width and height are dummy
++#ifdef GW_SCUMM_SLIM
++	_text = nullptr;
++#else
+ 	_text = new GUI::StaticTextWidget(this, 0, 0, 10, 10, _message, kTextAlignCenter);
++#endif
+ }
+ 
+ void InfoDialog::setInfoText(const U32String &message) {
+ 	_message = message;
+-	_text->setLabel(_message);
++	if (_text)
++		_text->setLabel(_message);
+ 	//reflowLayout(); // FIXME: Should we call this here? Depends on the usage patterns, I guess...
+ }
+ 
+ void InfoDialog::reflowLayout() {
++#ifdef GW_SCUMM_SLIM
++	return;	// Game & Watch: never shown (no GUI), and g_gui would start it
++#endif
+ 	const int screenW = g_system->getOverlayWidth();
+ 	const int screenH = g_system->getOverlayHeight();
+ 
+@@ -442,7 +456,8 @@ void InfoDialog::reflowLayout() {
+ 	_x = (screenW - width) / 2;
+ 	_y = (screenH - height) / 2;
+ 
+-	_text->setSize(_w, _h);
++	if (_text)
++		_text->setSize(_w, _h);
+ }
+ 
+ const char *InfoDialog::getPlainEngineString(int stringno, bool forceHardcodedString) {
+@@ -882,7 +897,8 @@ ConfirmDialog::ConfirmDialog(ScummEngine *scumm, int res)
+ 		if (_yesKey >= 'A' && _yesKey <= 'Z')
+ 			_yesKey += 'a' - 'A';
+ 
+-		_text->setLabel(_message);
++		if (_text)
++			_text->setLabel(_message);
+ 		reflowLayout();
+ 	}
+ }
 diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
 index bf85f13c..5c158960 100644
 --- a/engines/scumm/gfx.cpp
@@ -68,6 +132,51 @@ index bf85f13c..5c158960 100644
  		vs->backBuf = _res->createResource(rtBuffer, slot + 5, size);
  	}
  
+diff --git a/engines/scumm/gfx_gui.cpp b/engines/scumm/gfx_gui.cpp
+index 133f6ec0..d4127448 100644
+--- a/engines/scumm/gfx_gui.cpp
++++ b/engines/scumm/gfx_gui.cpp
+@@ -2454,7 +2454,9 @@ void ScummEngine::showMainMenu() {
+ 	}
+ 
+ 	// Generate the thumbnail, in case the game is saved
++#ifndef GW_SCUMM_SLIM	// Game & Watch: saves carry no thumbnail (saveload.cpp)
+ 	Graphics::createThumbnail(_savegameThumbnail);
++#endif
+ 
+ 	// Pause the engine
+ 	PauseToken pt = pauseEngine();
+@@ -2892,6 +2894,16 @@ bool ScummEngine::executeMainMenuOperation(int op, int mouseX, int mouseY, bool
+ 		break;
+ 	case GUI_CTRL_OK_BUTTON:
+ 		if (_menuPage == GUI_PAGE_SAVE) {
++#ifdef GW_SCUMM_SLIM
++			// Game & Watch: there is no keyboard to type a name with -- an empty one becomes
++			// the date and time
++			if (_mainMenuSavegameLabel > 0 && _savegameNames[_mainMenuSavegameLabel - 1].substr(labelSkip).empty()) {
++				TimeDate t;
++				_system->getTimeAndDate(t);
++				_savegameNames[_mainMenuSavegameLabel - 1] += Common::String::format("%02d/%02d %02d:%02d",
++					t.tm_mday, t.tm_mon + 1, t.tm_hour, t.tm_min);
++			}
++#endif
+ 			// We check for an empty label since v4 might generate that...
+ 			if (_mainMenuSavegameLabel > 0 && !_savegameNames[_mainMenuSavegameLabel - 1].substr(labelSkip).empty()) {
+ 				convertMessageToString((const byte *)getGUIString(gsSaving), (byte *)saveScreenTitle, sizeof(saveScreenTitle));
+diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
+index 3525910f..c5a6d294 100644
+--- a/engines/scumm/input.cpp
++++ b/engines/scumm/input.cpp
+@@ -1010,7 +1010,9 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
+ 	if (isUsingOriginalGUI()) {
+ 		if (lastKeyHit.keycode == Common::KEYCODE_F5 && _game.version <= 3) {
+ 			_savegameThumbnail.free();
++#ifndef GW_SCUMM_SLIM
+ 			Graphics::createThumbnail(_savegameThumbnail);
++#endif
+ 		}
+ 
+ 		char sliderString[256];
 diff --git a/engines/scumm/resource.cpp b/engines/scumm/resource.cpp
 index df195fef..1f6716ec 100644
 --- a/engines/scumm/resource.cpp
@@ -179,6 +288,57 @@ index df195fef..1f6716ec 100644
  	debugC(DEBUG_RESOURCE, "Expired resources, mem %d -> %d", oldAllocatedSize, _allocatedSize);
  }
  
+diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
+index d1d7a764..d564b970 100644
+--- a/engines/scumm/saveload.cpp
++++ b/engines/scumm/saveload.cpp
+@@ -280,6 +280,36 @@ void ScummEngine::requestSave(int slot, const Common::String &name) {
+ 	_saveLoadDescription = name;
+ }
+ 
++#ifdef GW_SCUMM_SLIM
++// Game & Watch: the Retro-Go PAUSE/SET menu's Save and Load (src/gw_system.cpp). They are
++// called from the backend's pollEvent(), between two frames of the engine's loop -- where a
++// save requested from ScummVM's own menu would also be written, one loop later.
++bool ScummEngine::gwSaveNow(int slot, const Common::String &desc) {
++	_saveLoadDescription = desc;
++	Common::String filename;
++	return saveState(slot, false, filename);
++}
++
++} // End of namespace Scumm
++
++extern "C" int gw_scumm_save(int slot) {
++	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
++	if (!e || !e->canSaveGameStateCurrently())
++		return 0;
++	return e->gwSaveNow(slot, "Retro-Go") ? 1 : 0;
++}
++
++extern "C" int gw_scumm_load(int slot) {
++	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
++	if (!e || !e->canLoadGameStateCurrently())
++		return 0;
++	e->requestLoad(slot);
++	return 1;
++}
++
++namespace Scumm {
++#endif
++
+ void ScummEngine::requestLoad(int slot) {
+ 	_saveLoadSlot = slot;
+ 	_saveTemporaryState = (slot == 100);
+@@ -630,7 +660,8 @@ bool ScummEngine::saveState(Common::SeekableWriteStream *out, bool writeHeader)
+ 		Common::strlcpy(hdr.name, _saveLoadDescription.c_str(), sizeof(hdr.name));
+ 		saveSaveGameHeader(out, hdr);
+ 	}
+-#if !defined(__DS__) && !defined(__N64__)
++// Game & Watch: no thumbnail -- making one takes a 128 KB 16-bit copy of the screen
++#if !defined(__DS__) && !defined(__N64__) && !defined(GW_SCUMM_SLIM)
+ 	if (isUsingOriginalGUI() && _mainMenuIsActive) {
+ 		Graphics::saveThumbnail(*out, _savegameThumbnail);
+ 	} else {
 diff --git a/engines/scumm/scumm-md5.h b/engines/scumm/scumm-md5.h
 index 32b0516f..eaf410a9 100644
 --- a/engines/scumm/scumm-md5.h
@@ -229,7 +389,7 @@ index 88e087d7..f89b6522 100644
  		if (_macGui) {
  			if (!_macGui->initialize()) {
 diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
-index 356a3602..05b4dc17 100644
+index 356a3602..c2cf1815 100644
 --- a/engines/scumm/scumm.h
 +++ b/engines/scumm/scumm.h
 @@ -953,7 +953,11 @@ public:
@@ -244,7 +404,18 @@ index 356a3602..05b4dc17 100644
  	byte _NESPalette[2][16];
  	byte _NESBaseTiles = 0;
  
-@@ -1415,8 +1419,13 @@ protected:
+@@ -1042,6 +1046,10 @@ public:
+ 
+ 	void requestSave(int slot, const Common::String &name);
+ 	void requestLoad(int slot);
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: the Retro-Go menu's Save, done at once (saveload.cpp)
++	bool gwSaveNow(int slot, const Common::String &desc);
++#endif
+ 
+ 	Common::String getTargetName() const { return _targetName; }
+ 	bool canPauseSoundsDuringSave() const { return _pauseSoundsDuringSave; }
+@@ -1415,8 +1423,13 @@ protected:
  
  	// HACK Double the array size to handle 16-bit images.
  	// this should be dynamically allocated based on game depth instead.
@@ -258,7 +429,7 @@ index 356a3602..05b4dc17 100644
  	byte _currentCursor = 0;
  
  	byte _newEffect = 0, _switchRoomEffect2 = 0, _switchRoomEffect = 0;
-@@ -1709,7 +1718,11 @@ public:
+@@ -1709,7 +1722,11 @@ public:
  	Graphics::Surface *_macScreen = nullptr;
  	MacGui *_macGui = nullptr;
  	bool _useMacGraphicsSmoothing = true;

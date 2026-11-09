@@ -26,6 +26,8 @@
 #include "backends/fs/abstract-fs.h"
 #include "backends/fs/fs-factory.h"
 #include "base/main.h"
+#include "engines/engine.h"
+#include "common/savefile.h"
 #include "platform.h"
 
 /* ================================================================ files */
@@ -116,6 +118,58 @@ public:
 	}
 	bool createDirectory() override { _statted = false; return plat_mkdir(_path.c_str()); }
 };
+
+/* ================================================================ saves */
+
+/* ScummVM's own saves go to plat_save_path() under its usual names (<target>.sNN). Slot 99
+   is the Retro-Go PAUSE/SET menu's: while gw_rg_save()/gw_rg_load() run, its file is the
+   one the firmware chose (/saves/<system>/<game>/...), so the launcher's slots, previews
+   and "resume" work as for any other core. */
+#define RG_SLOT 99
+static char g_rgPath[256];
+
+class GWSaveFileManager : public DefaultSaveFileManager {
+	static bool redirected(const Common::String &name) {
+		return g_rgPath[0] && name.hasSuffix(Common::String::format(".s%02d", RG_SLOT));
+	}
+public:
+	GWSaveFileManager() : DefaultSaveFileManager(Common::Path(plat_save_path())) {}
+	Common::InSaveFile *openForLoading(const Common::String &name) override {
+		if (!redirected(name)) return DefaultSaveFileManager::openForLoading(name);
+		plat_stat_t st = plat_stat(g_rgPath);
+		void *f = st.exists ? plat_fopen(g_rgPath, "rb") : nullptr;
+		return f ? new GWFileStream(f, st.size) : nullptr;
+	}
+	Common::OutSaveFile *openForSaving(const Common::String &name, bool compress) override {
+		if (!redirected(name)) return DefaultSaveFileManager::openForSaving(name, compress);
+		void *f = plat_fopen(g_rgPath, "wb");
+		return f ? new Common::OutSaveFile(new GWFileStream(f, 0)) : nullptr;
+	}
+};
+
+extern "C" int gw_scumm_save(int slot);       /* patches/scummvm-slim.patch (saveload.cpp) */
+extern "C" int gw_scumm_load(int slot);
+static bool g_loadAtStart;
+
+/* the firmware's save callback: written now, into path */
+extern "C" int gw_rg_save(const char *path) {
+	Common::strlcpy(g_rgPath, path, sizeof g_rgPath);
+	int ok = gw_scumm_save(RG_SLOT);
+	if (!ok) plat_log("ScummVM: cannot save right now\n");
+	return ok;
+}
+
+/* the firmware's load callback: the engine loads it at the start of its next loop (or, before
+   ScummVM has started, at the game's start: plat_rg_load_at_start) -- the path stays set */
+extern "C" int gw_rg_load(const char *path) {
+	Common::strlcpy(g_rgPath, path, sizeof g_rgPath);
+	if (!g_engine) { g_loadAtStart = true; return 1; }
+	int ok = gw_scumm_load(RG_SLOT);
+	if (!ok) plat_log("ScummVM: cannot load right now\n");
+	return ok;
+}
+
+extern "C" int gw_rg_load_at_start(void) { return g_loadAtStart; }
 
 class GWFilesystemFactory : public FilesystemFactory {
 public:
@@ -249,7 +303,7 @@ public:
 	void initBackend() override {
 		_timerManager = new DefaultTimerManager();
 		_eventManager = new DefaultEventManager(this);
-		_savefileManager = new DefaultSaveFileManager(Common::Path(plat_save_path()));
+		_savefileManager = new GWSaveFileManager();
 		_graphicsManager = new GWGraphics();
 		_mixerManager = g_mixerManager = new GWMixerManager();
 		_mixerManager->init();
@@ -315,6 +369,9 @@ public:
 			push(Common::EVENT_KEYDOWN, Common::KEYCODE_RETURN, Common::ASCII_RETURN);
 		}
 		if (up & PLAT_TIME) push(Common::EVENT_KEYUP, Common::KEYCODE_RETURN, Common::ASCII_RETURN);
+		/* SELECT (Zelda units): F5, the game's own menu (save with a name, load, quit...) */
+		if (down & PLAT_SELECT) push(Common::EVENT_KEYDOWN, Common::KEYCODE_F5, Common::ASCII_F5);
+		if (up & PLAT_SELECT) push(Common::EVENT_KEYUP, Common::KEYCODE_F5, Common::ASCII_F5);
 	}
 
 	bool pollEvent(Common::Event &event) override {

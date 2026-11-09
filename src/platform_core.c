@@ -196,7 +196,7 @@ uint32_t plat_buttons(void)
 	if (js.values[ODROID_INPUT_A]) b |= PLAT_A;
 	if (js.values[ODROID_INPUT_B]) b |= PLAT_B;
 	if (js.values[ODROID_INPUT_START]) b |= PLAT_GAME;
-	if (js.values[ODROID_INPUT_SELECT]) b |= PLAT_TIME;
+	if (js.values[ODROID_INPUT_SELECT]) b |= PLAT_SELECT;
 	return b;
 }
 
@@ -421,6 +421,25 @@ static void find_game(const char *picked)
 	if (slash) *slash = 0;
 }
 
+/* ---------------------------------------------------------------- savestates */
+
+/* the Retro-Go PAUSE/SET menu's Save/Load and the power-off save (gw_system.cpp) */
+int gw_rg_save(const char *path);
+int gw_rg_load(const char *path);
+int gw_rg_load_at_start(void);
+
+static bool rg_save(const char *path) { return path && gw_rg_save(path); }
+static bool rg_load(const char *path) { return path && gw_rg_load(path); }
+
+/* the slot's preview: the game's frame without the menu on top */
+static void *rg_screenshot(void)
+{
+	lcd_wait_for_vblank();
+	uint8_t *fb = (uint8_t *)lcd_get_active_buffer();
+	if (g_last) draw_frame(fb, g_last, g_last_pitch, g_last_w, g_last_h);
+	return fb;
+}
+
 /* ---------------------------------------------------------------- lifetime */
 
 static void message3(const char *a, const char *b, const char *c);
@@ -476,7 +495,7 @@ static void message(const char *text) { message3(text, NULL, NULL); }
 int svm_main(void)
 {
 	odroid_system_init(APPID_CORE, 22050);
-	odroid_system_emu_init(NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+	odroid_system_emu_init(&rg_load, &rg_save, &rg_screenshot, NULL, NULL, NULL, NULL);
 	lcd_setup_framebuffers(LCD_MODE_LUT8);
 	lcd_clear_buffers();
 
@@ -535,13 +554,19 @@ int svm_main(void)
 	audio_start();
 	/* with game=: "scummvm -p <folder> [--platform=] [--language=] <game id>" (the game ScummVM
 	   would add by hand); without it: --auto-detect, the first game found in the folder */
-	const char *argv[8];
+	const char *argv[10];
 	int argc = 0;
 	argv[argc++] = "scummvm";
 	argv[argc++] = "-p";
 	argv[argc++] = g_game;
 	if (g_opt_platform[0]) argv[argc++] = g_opt_platform;
 	if (g_opt_language[0]) argv[argc++] = g_opt_language;
+	extern uint8_t svm_load_state;
+	extern int8_t svm_save_slot;
+	if (svm_load_state) odroid_system_emu_load_state(svm_save_slot);   /* -> rg_load() */
+	/* "resume" in the launcher: the firmware's load callback ran already (svm_main's caller
+	   asked for it), ScummVM loads that file as its slot 99 as soon as the game starts */
+	if (gw_rg_load_at_start()) { argv[argc++] = "-x"; argv[argc++] = "99"; }
 	argv[argc++] = g_opt_game[0] ? g_opt_game : "--auto-detect";
 	argv[argc] = NULL;
 	for (uint32_t i = 0; i < STACK_SIZE / 4; i++) g_stack[i] = STACK_PAINT;
