@@ -101,7 +101,7 @@ LIBC_NAMES := memchr memcmp strchr strcmp strlen strncmp strncpy strrchr strstr 
 REDEF    := $(AB)/redefine_syms.txt
 
 ARM_SVM  := $(SVM_SRC:%=$(AB)/svm/%.o) $(OWN_CXX:%=$(AB)/%.o) $(CODECS:%=$(AB)/%.o)
-ARM_OWN  := $(AB)/boot.o $(AB)/platform_core.o $(AB)/osk.o $(AB)/heap.o $(AB)/tlsf.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o
+ARM_OWN  := $(AB)/boot.o $(AB)/platform_core.o $(AB)/osk.o $(AB)/gw_core_i18n.o $(AB)/heap.o $(AB)/tlsf.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o
 
 core: $(OUT)
 
@@ -132,6 +132,10 @@ $(AB)/boot.o $(AB)/platform_core.o: $(AB)/%.o: src/%.c src/platform.h src/svm_xi
 	@mkdir -p $(dir $@)
 	$(CROSS)gcc -c $(ARM_C) $< -o $@
 	$(CROSS)objcopy --redefine-syms=$(REDEF) $@
+
+$(AB)/gw_core_i18n.o: sdk/src/gw_core_i18n.c sdk/src/gw_core_i18n.h
+	@mkdir -p $(dir $@)
+	$(CROSS)gcc -c $(ARM_C) $< -o $@
 
 $(AB)/osk.o: src/osk.c src/osk.h src/font_cp437.h
 	@mkdir -p $(dir $@)

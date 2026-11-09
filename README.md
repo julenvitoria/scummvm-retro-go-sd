@@ -113,8 +113,9 @@ capital (press it twice to lock). It has Esc, Enter, Space, Backspace, F1–F10,
 letters — on a Mario unit, Esc (skip cutscene), `.` (skip line) and Enter ("press ENTER to
 continue") are typed from here.
 
-**Subtitles** in talkie versions are on. `Txt` on the keyboard (Ctrl+T) cycles through
-voice and text / text only / voice only; the game remembers the choice.
+**Subtitles** in talkie versions are on. To change it: PAUSE/SET → Options → Subtitles
+(voice + text / text only / voice only), or `Txt` on the keyboard (Ctrl+T). The choice is
+kept for every game.
 
 ### How it is made
 
@@ -263,8 +264,9 @@ mayúscula (dos veces: bloqueada). Tiene Esc, Enter, Espacio, Retroceso, F1–F1
 letras; en una Mario, Esc (saltar escena), `.` (saltar frase) y Enter ("pulsa ENTER para
 continuar") se escriben desde aquí.
 
-**Subtítulos**: en las versiones habladas están activados. `Txt` en el teclado (Ctrl+T) pasa
-por voz y texto / solo texto / solo voz; el juego recuerda la elección.
+**Subtítulos**: en las versiones habladas están activados. Para cambiarlo: PAUSE/SET →
+Opciones → Subtítulos (voz y texto / solo texto / solo voz), o `Txt` en el teclado (Ctrl+T).
+La elección se guarda para todos los juegos.
 
 ### Cómo está hecho
 

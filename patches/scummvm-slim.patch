@@ -340,7 +340,7 @@ index 133f6ec0..37155b7b 100644
  			if (_mainMenuSavegameLabel > 0 && !_savegameNames[_mainMenuSavegameLabel - 1].substr(labelSkip).empty()) {
  				convertMessageToString((const byte *)getGUIString(gsSaving), (byte *)saveScreenTitle, sizeof(saveScreenTitle));
 diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
-index 3525910f..cf712829 100644
+index 3525910f..16955a29 100644
 --- a/engines/scumm/input.cpp
 +++ b/engines/scumm/input.cpp
 @@ -1010,7 +1010,9 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
@@ -372,6 +372,16 @@ index 3525910f..cf712829 100644
  
  			voiceMode++;
  			if (voiceMode >= 3) {
+@@ -1102,6 +1113,9 @@ void ScummEngine::processKeyboard(Common::KeyState lastKeyHit) {
+ 			}
+ 
+ 			ConfMan.setInt("original_gui_text_status", voiceMode);
++#ifdef GW_SCUMM_SLIM
++			gwSetVoiceMode(voiceMode);       // Game & Watch: kept for the next time too
++#endif
+ 			switch (voiceMode) {
+ 			case 0:
+ 				ConfMan.setBool("speech_mute", false);
 diff --git a/engines/scumm/resource.cpp b/engines/scumm/resource.cpp
 index df195fef..b24962a4 100644
 --- a/engines/scumm/resource.cpp
@@ -588,10 +598,10 @@ index 3e684bd7..a91f481d 100644
  //	inline Resource &getRes(ResType type, ResId idx) { return _types[type][idx]; }
  //	inline const Resource &getRes(ResType type, ResId idx) const { return _types[type][idx]; }
 diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
-index d1d7a764..d564b970 100644
+index d1d7a764..39b1fa68 100644
 --- a/engines/scumm/saveload.cpp
 +++ b/engines/scumm/saveload.cpp
-@@ -280,6 +280,36 @@ void ScummEngine::requestSave(int slot, const Common::String &name) {
+@@ -280,6 +280,70 @@ void ScummEngine::requestSave(int slot, const Common::String &name) {
  	_saveLoadDescription = name;
  }
  
@@ -605,7 +615,41 @@ index d1d7a764..d564b970 100644
 +	return saveState(slot, false, filename);
 +}
 +
++// the Retro-Go menu's Subtitles option (src/platform_core.c): what Ctrl+T cycles through
++int ScummEngine::gwVoiceMode() {
++	if (!_sound || !_sound->hasSfxFile())
++		return -1;
++	return ConfMan.getBool("speech_mute") ? 2 : ConfMan.getBool("subtitles") ? 1 : 0;
++}
++
++void ScummEngine::gwSetVoiceMode(int mode) {
++	// in the game's domain (what the engine reads) and the application's: a game started with
++	// --auto-detect has a domain that is not saved, so the choice is kept for every game
++	const Common::String app(Common::ConfigManager::kApplicationDomain);
++	ConfMan.setInt("original_gui_text_status", mode, app);
++	ConfMan.setBool("speech_mute", mode == 2, app);
++	ConfMan.setBool("subtitles", mode != 0, app);
++	ConfMan.setInt("original_gui_text_status", mode);
++	ConfMan.setBool("speech_mute", mode == 2);
++	ConfMan.setBool("subtitles", mode != 0);
++	ConfMan.flushToDisk();
++	if (_game.version == 5)
++		_v5VoiceMode = mode;
++	syncSoundSettings();
++}
++
 +} // End of namespace Scumm
++
++extern "C" int gw_scumm_voice_mode(void) {
++	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
++	return e ? e->gwVoiceMode() : -1;
++}
++
++extern "C" void gw_scumm_set_voice_mode(int mode) {
++	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
++	if (e)
++		e->gwSetVoiceMode(mode);
++}
 +
 +extern "C" int gw_scumm_save(int slot) {
 +	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
@@ -628,7 +672,7 @@ index d1d7a764..d564b970 100644
  void ScummEngine::requestLoad(int slot) {
  	_saveLoadSlot = slot;
  	_saveTemporaryState = (slot == 100);
-@@ -630,7 +660,8 @@ bool ScummEngine::saveState(Common::SeekableWriteStream *out, bool writeHeader)
+@@ -630,7 +694,8 @@ bool ScummEngine::saveState(Common::SeekableWriteStream *out, bool writeHeader)
  		Common::strlcpy(hdr.name, _saveLoadDescription.c_str(), sizeof(hdr.name));
  		saveSaveGameHeader(out, hdr);
  	}
@@ -719,7 +763,7 @@ index 88e087d7..ef5f26d6 100644
  	// MI2 NI DOS Demo, load demo.rec playback file if present
  	if ((_game.id == GID_MONKEY2) && (_game.features & GF_DEMO) && (_game.platform == Common::kPlatformDOS) && !ConfMan.getBool("disable_mi2_ni_demo"))
 diff --git a/engines/scumm/scumm.h b/engines/scumm/scumm.h
-index 356a3602..5557d92b 100644
+index 356a3602..ab876013 100644
 --- a/engines/scumm/scumm.h
 +++ b/engines/scumm/scumm.h
 @@ -953,7 +953,11 @@ public:
@@ -734,7 +778,7 @@ index 356a3602..5557d92b 100644
  	byte _NESPalette[2][16];
  	byte _NESBaseTiles = 0;
  
-@@ -1042,6 +1046,11 @@ public:
+@@ -1042,6 +1046,13 @@ public:
  
  	void requestSave(int slot, const Common::String &name);
  	void requestLoad(int slot);
@@ -742,11 +786,13 @@ index 356a3602..5557d92b 100644
 +#define GW_COMPOSITE_ROWS 48
 +	// Game & Watch: the Retro-Go menu's Save, done at once (saveload.cpp)
 +	bool gwSaveNow(int slot, const Common::String &desc);
++	int gwVoiceMode();                 // 0 voice, 1 voice and text, 2 text; -1: no speech
++	void gwSetVoiceMode(int mode);
 +#endif
  
  	Common::String getTargetName() const { return _targetName; }
  	bool canPauseSoundsDuringSave() const { return _pauseSoundsDuringSave; }
-@@ -1415,8 +1424,13 @@ protected:
+@@ -1415,8 +1426,13 @@ protected:
  
  	// HACK Double the array size to handle 16-bit images.
  	// this should be dynamically allocated based on game depth instead.
@@ -760,7 +806,7 @@ index 356a3602..5557d92b 100644
  	byte _currentCursor = 0;
  
  	byte _newEffect = 0, _switchRoomEffect2 = 0, _switchRoomEffect = 0;
-@@ -1709,7 +1723,11 @@ public:
+@@ -1709,7 +1725,11 @@ public:
  	Graphics::Surface *_macScreen = nullptr;
  	MacGui *_macGui = nullptr;
  	bool _useMacGraphicsSmoothing = true;
