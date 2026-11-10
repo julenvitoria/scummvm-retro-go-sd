@@ -182,7 +182,9 @@ engines/dialogs.cpp
 engines/engine.cpp
 engines/game.cpp
 engines/lure/animseq.cpp
+engines/lure/debugger.cpp
 engines/lure/decode.cpp
+engines/lure/detection.cpp
 engines/lure/disk.cpp
 engines/lure/events.cpp
 engines/lure/fights.cpp

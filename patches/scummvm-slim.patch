@@ -191,6 +191,31 @@ index 70081d8f..d24a71a4 100644
  
  	// cache management
  	void cacheDirectoryRecursive(FSNode node, int depth, const Path& prefix) const;
+diff --git a/engines/lure/lure.cpp b/engines/lure/lure.cpp
+index 374f596c..3970e4b4 100644
+--- a/engines/lure/lure.cpp
++++ b/engines/lure/lure.cpp
+@@ -35,6 +35,10 @@
+ #include "lure/game.h"
+ #include "lure/sound.h"
+ 
++#ifdef GW_LURE_SLIM
++extern "C" int heap_screen_spill;		// src/heap.c
++#endif
++
+ namespace Lure {
+ 
+ static LureEngine *int_engine = nullptr;
+@@ -44,6 +48,9 @@ LureEngine::LureEngine(OSystem *system, const LureGameDescription *gameDesc)
+ }
+ 
+ Common::Error LureEngine::init() {
++#ifdef GW_LURE_SLIM
++	heap_screen_spill = 1;	// Game & Watch: no SCUMM screens here, their heap is everyone's
++#endif
+ 	int_engine = this;
+ 	_initialized = false;
+ 	_saveLoadAllowed = false;
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea52..380eb1fa 100644
 --- a/engines/scumm/dialogs.cpp
