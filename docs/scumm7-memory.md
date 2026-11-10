@@ -21,26 +21,33 @@ rooms, scripts and charsets. Loaded into the heap, one costume is more than the 
 - `src/gw_system.cpp`, `GWPackedStream`: the stream FT.LA1 is read through serves reads that
   fall in a packed block from the flash, and `gwDirectResource()` hands those blocks out
   where they lie, so `loadResource()` uses them in place as with v4-v6 data files.
-- Sounds: big ones are never loaded. Music streams read them from the card
-  (`ImuseDigiSndMgr::openSound`), and effects are read through four 4 KB windows
+- Sounds: those over 8 KB are never loaded. Music streams read them from the card
+  (`ImuseDigiSndMgr::openSound`), and effects are read through six 4 KB windows
   (`IMuseDigiFilesHandler::soundData()`); scripts' "load sound" skips them.
+- Of the subfolders (DATA, VIDEO) only the .NUT fonts go to the flash. Caching every small
+  file there (140 with a complete copy) ended on the console in garbage resources and videos
+  not found; the suspicion is the number of files the firmware's flash cache tracks per game.
 
 ## Cuts (all under `GW_V7_SLIM`)
 
 - iMUSE: stream buffers 12 KB each for FT (24 KB for The Dig); no fade buffers for FT (88 KB,
   it crossfades through its own buffer, 12 KB here); mixer and IMC tables as const data in
   flash (`tools/gen/`); maps 1 KB; output delayed 3 feeds instead of 7
-- codec 37: two blocks of frame + 31-row margins (2 x 82 KB) instead of one of 207 KB
-- SMUSH: audio tracks' buffers made when a video uses them and freed after, taken from the
-  room's back buffer first (not drawn from while a video plays; the room is redrawn after);
-  one frame-object buffer per video instead of a malloc per frame
+- codec 37: two blocks of frame + 31-row margins (2 x 82 KB) instead of one of 207 KB. For FT
+  the decoder is made at start and kept (made when a video started, it no longer found two
+  holes that big), and its first block is lent to the room's back buffer while no video
+  plays: a video draws on the front buffer and the room is redrawn whole after it
+- SMUSH: audio tracks' buffers made when a video uses them and freed after (the 64 KB music
+  track lands in what the screen heap has left); one 48 KB frame-object buffer, kept
 - NUT fonts (and Insane's sprites) decoded a row at a time from the flash, not up front
 - Insane (bike scenes) made at the first one: ~50 KB of tables and fonts
 - v7 never composes the text surface: 64 KB, and the composite buffer, gone
 - blast text queue 16 instead of 50 (27 KB -> 8 KB)
 - the game's subfolders are no longer listed into memory (`GW_FS_PROBE`, 40 KB for FT)
 - the heap asks the resource cache to drop something before giving up an allocation, and v7
-  lets small blocks use what its screen buffers leave of their heap
+  lets blocks of 16 KB or more use what its screen buffers leave of their heap
+- `make core HEAP_MAP_LOG=1`: at the first failed allocation, scummvm.log gets every block of
+  2 KB or more with its caller, and the free holes (a heap map from the console itself)
 
 ## What is left (PC, at the peak of a video)
 

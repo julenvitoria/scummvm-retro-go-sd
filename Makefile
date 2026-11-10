@@ -150,7 +150,7 @@ $(AB)/pack.o: src/pack.c src/pack.h src/platform.h
 
 $(AB)/heap.o: src/heap.c
 	@mkdir -p $(dir $@)
-	$(CROSS)gcc -c $(MCU) -O2 -Wall -fno-builtin -Isrc $< -o $@   # -fno-builtin: else malloc+memset becomes a call to calloc
+	$(CROSS)gcc -c $(MCU) -O2 -Wall -fno-builtin $(if $(HEAP_MAP_LOG),-DHEAP_MAP_LOG) -Isrc $< -o $@   # -fno-builtin: else malloc+memset becomes a call to calloc
 
 $(AB)/tlsf.o: src/third_party/tlsf/tlsf.c
 	@mkdir -p $(dir $@)

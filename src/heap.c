@@ -108,6 +108,36 @@ int heap_host_bypass;                    /* set around host libc calls with no c
 static inline void heap_lazy_init(void) {}
 #endif
 
+#ifdef HEAP_MAP_LOG
+/* make HEAP_MAP_LOG=1: the blocks of 2 KB or more and who asked for them, and the free holes,
+   written to scummvm.log at the first failure (a heap map on the console itself) */
+#define MAP_N 192
+static struct { void *p; uint32_t n; void *caller; } g_map[MAP_N];
+static void map_add(void *p, uint32_t n, void *caller)
+{
+	if (n < 2048) return;
+	for (int i = 0; i < MAP_N; i++) if (!g_map[i].p) { g_map[i].p = p; g_map[i].n = n; g_map[i].caller = caller; return; }
+}
+static void map_del(void *p) { for (int i = 0; i < MAP_N; i++) if (g_map[i].p == p) { g_map[i].p = NULL; return; } }
+static void hole_cb(void *ptr, size_t size, int used, void *user)
+{
+	(void)user;
+	if (!used && size >= 2048) { static char m[64]; snprintf(m, sizeof m, "heap: free %p %lu\n", ptr, (unsigned long)size); plat_log(m); }
+}
+static void map_dump(void)
+{
+	static int once;
+	if (once++) return;
+	for (int i = 0; i < MAP_N; i++)
+		if (g_map[i].p) { static char m[64]; snprintf(m, sizeof m, "heap: block %p %lu from %p\n", g_map[i].p, (unsigned long)g_map[i].n, g_map[i].caller); plat_log(m); }
+	for (int i = 0; i < g_pools; i++) if (g_pool[i].pool) tlsf_walk_pool(g_pool[i].pool, hole_cb, NULL);
+}
+#else
+static inline void map_add(void *p, uint32_t n, void *caller) { (void)p; (void)n; (void)caller; }
+static inline void map_del(void *p) { (void)p; }
+static inline void map_dump(void) {}
+#endif
+
 /* Set by the engine (patches/scummvm-slim.patch: the SCUMM resource cache): frees something
    it can do without and returns nonzero, or returns 0 when there is nothing left to free.
    Asked before an allocation is given up. */
@@ -120,9 +150,10 @@ static void *alloc(size_t align, size_t n, void *caller)
 	if (heap_host_bypass) return heap_host_alloc(n);
 #endif
 	int first = n >= BIG_REQUEST ? HEAP_BIG : HEAP_SMALL;
-	/* last, what the screen buffers leave of their heap, for a block small enough not to stand
-	   in their way -- with SCUMM v7 only (heap_screen_spill), whose screens are made once */
-	int order[3] = { first, !first, heap_screen_spill && n <= 32 * 1024 ? HEAP_SCREEN : -1 };
+	/* last, what the screen buffers leave of their heap -- with SCUMM v7 only
+	   (heap_screen_spill), whose screens are made once, and for big blocks only: small ones
+	   split the one hole there that takes a video's 64 KB music track */
+	int order[3] = { first, !first, heap_screen_spill && n >= 16000 ? HEAP_SCREEN : -1 };
 	if (heap_screen_hint) { order[0] = HEAP_SCREEN; order[1] = first; order[2] = !first; }
 	void *p = NULL;
 	static int in_hook;
@@ -152,8 +183,10 @@ static void *alloc(size_t align, size_t n, void *caller)
 			         (unsigned long)n, (unsigned long)(g_used / 1024), (unsigned long)(g_total / 1024),
 			         (unsigned long)(g_peak / 1024), caller);
 			plat_log(msg);
+			map_dump();
 		}
 	}
+	if (p) map_add(p, (uint32_t)n, caller);
 #ifdef HEAP_LAZY_INIT
 	if (p) heap_trace(n, p);
 #endif
@@ -174,6 +207,7 @@ void free(void *p)
 #else
 	if (!t) return;
 #endif
+	map_del(p);
 	g_used -= tlsf_block_size(p);
 	tlsf_free(t, p);
 }
@@ -196,6 +230,8 @@ void *realloc(void *p, size_t n)
 	void *q = t ? tlsf_realloc(t, p, n) : NULL;
 	if (q) {
 		g_used -= old;
+		map_del(p);
+		map_add(q, (uint32_t)n, __builtin_return_address(0));
 #ifdef HEAP_LAZY_INIT
 		heap_untrace(p);
 		heap_trace(n, q);

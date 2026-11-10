@@ -496,6 +496,7 @@ static void cache_rel(const char *name, uint32_t size)
 	if (g_mapped >= MAX_MAPPED || size == 0 || n >= sizeof g_map[0].name) return;
 	if (n > 8 && !strcasecmp(name + n - 8, ".scummvm")) return;
 	if (n > 7 && !strcasecmp(name + n - 7, ".gwpack")) return;
+	if (name[0] == '.') return;              /* macOS's ._files and .DS_Store */
 	/* not game data: manuals, icons, the DOS program (no need to fill the flash with them) */
 	static const char *const skip[] = { ".pdf", ".ico", ".exe", ".com", ".txt", ".doc", ".bat", ".jpg", ".png", ".nfo" };
 	for (unsigned i = 0; i < sizeof skip / sizeof skip[0]; i++)
@@ -530,8 +531,11 @@ static void cache_rel(const char *name, uint32_t size)
 }
 
 /* Subfolders (SCUMM v7: DATA/ with the fonts and the bike scenes' tables, VIDEO/ with the
-   cutscenes): their small files only, after the folder's own -- what the engine keeps in
-   memory when it is not in the flash (fonts, palettes); the videos are read from the card */
+   cutscenes): their .NUT files only (fonts and sprites, which the engine then draws from the
+   flash instead of decoding them into memory), after the folder's own. Everything else there
+   is read from the card. Not "every small file": Full Throttle has 140 of them, and the
+   firmware's flash cache keeps track of a limited number of files per game -- past it, it
+   erased files still in use (seen on the console: garbage resources, videos not found). */
 #define MAX_SUBDIRS 4
 #define MAX_SUBDIR_FILE (256u << 10)
 static char g_subdirs[MAX_SUBDIRS][16], g_cur_subdir[16];
@@ -552,7 +556,8 @@ static void cache_sub(const char *name, bool is_dir, uint32_t size, void *arg)
 {
 	(void)arg;
 	char rel[sizeof g_map[0].name];
-	if (is_dir || size > MAX_SUBDIR_FILE) return;
+	size_t n = strlen(name);
+	if (is_dir || size > MAX_SUBDIR_FILE || n < 5 || strcasecmp(name + n - 4, ".nut") || name[0] == '.') return;
 	if ((size_t)snprintf(rel, sizeof rel, "%s/%s", g_cur_subdir, name) >= sizeof rel) return;
 	cache_rel(rel, size);
 }
