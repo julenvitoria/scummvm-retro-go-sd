@@ -148,6 +148,8 @@ $(AB)/pack.o: src/pack.c src/pack.h src/platform.h
 	@mkdir -p $(dir $@)
 	$(CROSS)gcc -c $(ARM_C) $< -o $@
 
+# at the first failed allocation, the heap's map goes to scummvm.log; "make core HEAP_MAP_LOG=" leaves it out
+HEAP_MAP_LOG ?= 1
 $(AB)/heap.o: src/heap.c
 	@mkdir -p $(dir $@)
 	$(CROSS)gcc -c $(MCU) -O2 -Wall -fno-builtin $(if $(HEAP_MAP_LOG),-DHEAP_MAP_LOG) -Isrc $< -o $@   # -fno-builtin: else malloc+memset becomes a call to calloc

@@ -53,8 +53,9 @@ rooms, scripts and charsets. Loaded into the heap, one costume is more than the 
 - the game's subfolders are no longer listed into memory (`GW_FS_PROBE`, 40 KB for FT)
 - the heap asks the resource cache to drop something before giving up an allocation, and v7
   lets blocks of 16 KB or more use what its screen buffers leave of their heap
-- `make core HEAP_MAP_LOG=1`: at the first failed allocation, scummvm.log gets every block of
-  2 KB or more with its caller, and the free holes (a heap map from the console itself)
+- at the first failed allocation, scummvm.log gets every block of 2 KB or more with its
+  caller, and the free holes (a heap map from the console itself); `make core
+  HEAP_MAP_LOG=` builds without it
 
 ## Diagnostics
 
