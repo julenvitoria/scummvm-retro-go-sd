@@ -31,6 +31,7 @@
 #include "common/config-manager.h"
 #include "platform.h"
 #include "osk.h"
+#include "pack.h"
 
 /* ================================================================ files */
 
@@ -73,6 +74,124 @@ public:
 };
 GWMappedStream *GWMappedStream::_open;
 
+/* A file on the card being read, without holding one of the firmware's file handles for as long
+   as the stream lives: the firmware has six for everything, and Full Throttle keeps more
+   streams than that alive at once (its data file twice -- resources and streamed sounds --
+   the speech file, the video, a font, the log...). On the console the seventh fopen() failed:
+   videos "not found", and a video read through the wrong stream. Here at most GW_CARD_OPEN
+   are really open; the others are reopened (and seeked) when they are next read. */
+#define GW_CARD_OPEN 3
+class GWCardFile {
+	Common::String _path;
+	static struct Slot { GWCardFile *owner; void *f; uint32 pos; uint32 stamp; } _slots[GW_CARD_OPEN];
+	static uint32 _clock;
+	Slot *slot() {
+		Slot *lru = &_slots[0];
+		for (auto &s : _slots) {
+			if (s.owner == this) { s.stamp = ++_clock; return &s; }
+			if (!s.owner) lru = &s;
+			else if (lru->owner && s.stamp < lru->stamp) lru = &s;
+		}
+		if (lru->owner) plat_fclose(lru->f);
+		lru->owner = nullptr;
+		lru->f = plat_fopen(_path.c_str(), "rb");
+		if (!lru->f) return nullptr;
+		lru->owner = this;
+		lru->pos = 0;
+		lru->stamp = ++_clock;
+		return lru;
+	}
+public:
+	GWCardFile(const Common::String &path) : _path(path) {}
+	~GWCardFile() {
+		for (auto &s : _slots)
+			if (s.owner == this) { plat_fclose(s.f); s.owner = nullptr; s.f = nullptr; }
+	}
+	uint32 readAt(uint32 pos, void *buf, uint32 n) {
+		Slot *s = slot();
+		if (!s) return 0;
+		if (s->pos != pos && !plat_fseek(s->f, (int32_t)pos, SEEK_SET)) { s->pos = 0xffffffff; return 0; }
+		uint32 got = plat_fread(buf, n, s->f);
+		s->pos = pos + got;
+		return got;
+	}
+};
+GWCardFile::Slot GWCardFile::_slots[GW_CARD_OPEN];
+uint32 GWCardFile::_clock;
+
+/* A plain file on the card, read only */
+class GWCardStream : public Common::SeekableReadStream {
+	GWCardFile _file;
+	uint32 _size, _pos = 0;
+	bool _eos = false;
+public:
+	GWCardStream(const Common::String &path, uint32 size) : _file(path), _size(size) {}
+	bool eos() const override { return _eos; }
+	void clearErr() override { _eos = false; }
+	int64 pos() const override { return _pos; }
+	int64 size() const override { return _size; }
+	bool seek(int64 offs, int whence = SEEK_SET) override {
+		int64 p = whence == SEEK_SET ? offs : whence == SEEK_CUR ? _pos + offs : _size + offs;
+		if (p < 0 || p > _size) return false;
+		_pos = (uint32)p; _eos = false;
+		return true;
+	}
+	uint32 read(void *buf, uint32 n) override {
+		if (n > _size - _pos) { n = _size - _pos; _eos = true; }
+		uint32 got = n ? _file.readAt(_pos, buf, n) : 0;
+		_pos += got;
+		if (got < n) _eos = true;
+		return got;
+	}
+};
+
+/* A data file read from the card that has a resource pack in flash (src/pack.c: FT.LA1):
+   reads that fall inside a packed block come from the flash, the rest from the card. */
+class GWPackedStream : public Common::SeekableReadStream {
+public:
+	GWCardFile _file;
+	uint32 _size, _pos = 0;
+	const pack_head_t *_head;
+	bool _eos = false;
+	GWPackedStream *_next;
+	static GWPackedStream *_open;
+
+	GWPackedStream(const Common::String &path, uint32 size, const pack_head_t *head) : _file(path), _size(size), _head(head) {
+		_next = _open; _open = this;
+	}
+	~GWPackedStream() override {
+		for (GWPackedStream **p = &_open; *p; p = &(*p)->_next)
+			if (*p == this) { *p = _next; break; }
+	}
+	bool eos() const override { return _eos; }
+	void clearErr() override { _eos = false; }
+	int64 pos() const override { return _pos; }
+	int64 size() const override { return _size; }
+	bool seek(int64 offs, int whence = SEEK_SET) override {
+		int64 p = whence == SEEK_SET ? offs : whence == SEEK_CUR ? _pos + offs : _size + offs;
+		if (p < 0 || p > _size) return false;
+		_pos = (uint32)p; _eos = false;
+		return true;
+	}
+	const byte *inFlash(uint32 n) const {
+		const pack_entry_t *e = svm_pack_find(_head, _pos, n);
+		return e ? (const byte *)_head + e->pack + (_pos - e->src) : nullptr;
+	}
+	uint32 read(void *buf, uint32 n) override {
+		if (n > _size - _pos) { n = _size - _pos; _eos = true; }
+		if (const byte *p = inFlash(n)) {
+			memcpy(buf, p, n);
+			_pos += n;
+			return n;
+		}
+		uint32 got = n ? _file.readAt(_pos, buf, n) : 0;
+		_pos += got;
+		if (got < n) _eos = true;
+		return got;
+	}
+};
+GWPackedStream *GWPackedStream::_open;
+
 /* patches/scummvm-slim.patch: the next n bytes of 'stream' where they lie, as the engine
    would read them with its XOR byte 'enc' -- or NULL (not in flash, or stored differently).
    The stream moves past them. */
@@ -83,6 +202,12 @@ const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte 
 			if (m->_key != enc || n > m->_size - m->_pos) return nullptr;
 			const byte *p = m->_data + m->_pos;
 			m->_pos += n;
+			return p;
+		}
+	for (GWPackedStream *m = GWPackedStream::_open; m; m = m->_next)
+		if (m == stream) {
+			const byte *p = enc || n > m->_size - m->_pos ? nullptr : m->inFlash(n);
+			if (p) m->_pos += n;
 			return p;
 		}
 	return nullptr;
@@ -165,8 +290,10 @@ public:
 		uint8_t key = 0;
 		const uint8_t *map = plat_map_file(_path.c_str(), &size, &key);
 		if (map) return new GWMappedStream(map, size, key);
-		void *f = plat_fopen(_path.c_str(), "rb");
-		return f ? new GWFileStream(f, st().size) : nullptr;
+		if (!st().exists || st().is_dir) return nullptr;
+		if (const void *pack = plat_map_pack(_path.c_str()))
+			return new GWPackedStream(_path, st().size, (const pack_head_t *)pack);
+		return new GWCardStream(_path, st().size);
 	}
 	Common::SeekableWriteStream *createWriteStream(bool atomic) override {
 		void *f = plat_fopen(_path.c_str(), "wb");
@@ -248,6 +375,7 @@ public:
 	uint32 _key = 0;
 	bool _cursorVisible = false;
 	int _mouseX = 0, _mouseY = 0;
+	bool _mouseSet = false, _mouseTell = false;   // the pointer starts in the middle of the screen
 	int _shakeX = 0, _shakeY = 0;
 
 	GWGraphics() { memset(_pal, 0, sizeof _pal); }
@@ -258,6 +386,11 @@ public:
 		if (_screen.w != (int)w || _screen.h != (int)h) {
 			_screen.free();
 			_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+		}
+		if (!_mouseSet) {
+			_mouseSet = _mouseTell = true;       // pollEvent() tells the game where it is
+			_mouseX = w / 2;
+			_mouseY = h / 2;
 		}
 	}
 	void setPalette(const byte *c, uint start, uint num) override {
@@ -464,6 +597,10 @@ public:
 	bool pollEvent(Common::Event &event) override {
 		((DefaultTimerManager *)getTimerManager())->checkTimers();
 		pumpAudio();
+		if (gfx()->_mouseTell) {
+			gfx()->_mouseTell = false;
+			push(Common::EVENT_MOUSEMOVE);
+		}
 		if (_queue.empty()) readButtons();
 		if (_queue.empty()) return false;
 		event = _queue.pop();
@@ -495,4 +632,33 @@ extern "C" int gw_scummvm_main(int argc, const char *const argv[]) {
 	int res = scummvm_main(argc, argv);
 	g_system->destroy();
 	return res;
+}
+
+/* patches/scummvm-slim.patch (SmushPlayer::play): a game file the engine did not find -- what
+   the card says about it, to scummvm.log: the folder's size, the name as it is listed there,
+   and what stat() answers for the path the engine asked with. */
+namespace {
+struct MissingScan { const char *name; int files; uint32 kb; char found[64]; uint32 foundSize; };
+void missingCb(const char *name, bool isDir, uint32_t size, void *arg) {
+	MissingScan *m = (MissingScan *)arg;
+	if (isDir) return;
+	m->files++;
+	m->kb += size / 1024;
+	if (!scumm_stricmp(name, m->name)) { Common::strlcpy(m->found, name, sizeof m->found); m->foundSize = size; }
+}
+}
+void gwLogMissingFile(const char *name) {
+	Common::String base = ConfMan.getPath("path").toString('/');
+	static const char *const subs[] = { "", "/VIDEO", "/DATA" };
+	for (const char *sub : subs) {
+		Common::String dir = base + sub;
+		MissingScan m = { name, 0, 0, "", 0 };
+		bool listed = plat_list_dir(dir.c_str(), missingCb, &m);
+		Common::String path = dir + "/" + name;
+		plat_stat_t st = plat_stat(path.c_str());
+		Common::String line = Common::String::format("ScummVM: %s: %s%d files, %lu KB; listed as '%s' (%lu bytes); stat(%s): %s, %lu bytes\n",
+			dir.c_str(), listed ? "" : "CANNOT LIST, ", m.files, (unsigned long)m.kb, m.found, (unsigned long)m.foundSize,
+			name, st.exists ? "exists" : "no", (unsigned long)st.size);
+		plat_log(line.c_str());
+	}
 }

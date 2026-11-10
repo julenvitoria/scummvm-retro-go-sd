@@ -26,6 +26,7 @@
 #include "ff.h"
 #include "gw_core_bridge.h"
 #include "platform.h"
+#include "pack.h"
 #include "osk.h"
 #include "gw_core_i18n.h"
 
@@ -161,8 +162,11 @@ void plat_set_palette(const uint8_t *rgb, int start, int count)
 	lcd_set_clut(g_hw, 256);
 }
 
+static void log_save_if_new(void);
+
 void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 {
+	log_save_if_new();
 	wdog_refresh();
 	lcd_sleep_while_swap_pending();
 	g_last = pixels; g_last_pitch = pitch; g_last_w = w; g_last_h = h;
@@ -372,6 +376,8 @@ static void logf_(const char *fmt, ...)
 	plat_log(buf);
 }
 
+static uint32_t g_log_saved, g_log_saved_at;
+
 static void log_save(void)
 {
 	FILE *f = fopen(SAVE_DIR "/scummvm.log", "w");
@@ -379,6 +385,17 @@ static void log_save(void)
 	uint32_t n = g_log_len < LOG_SIZE ? g_log_len : LOG_SIZE, start = g_log_len - n;
 	for (uint32_t i = 0; i < n; i++) fputc(g_log[(start + i) % LOG_SIZE], f);
 	fclose(f);
+	g_log_saved = g_log_len;
+}
+
+/* while the game runs (plat_present): new lines reach the card within a few seconds, so the
+   log is there too when the console is switched off instead of leaving the game */
+static void log_save_if_new(void)
+{
+	uint32_t now = HAL_GetTick();
+	if (g_log_len == g_log_saved || now - g_log_saved_at < 3000) return;
+	g_log_saved_at = now;
+	log_save();
 }
 
 plat_stat_t plat_stat(const char *path)
@@ -438,19 +455,75 @@ static void decrypt_chunk(uint8_t *buf, uint32_t len, uint32_t offset, uint8_t *
 	for (i *= 4; i < len; i++) buf[i] ^= 0x69;
 }
 
-static void cache_one(const char *name, bool is_dir, uint32_t size, void *arg)
+/* SCUMM v7 data files too big for the flash: their resource packs (src/pack.c), which are */
+#define MAX_PACKS 2
+static struct { char name[28]; const pack_head_t *head; } g_pack[MAX_PACKS];
+static int g_packs;
+
+static void pack_progress(int pct) { odroid_overlay_draw_progress_bar("Preparing the game (first time only)", (uint8_t)pct); }
+
+static void cache_pack(const char *name, uint32_t size)
 {
-	(void)arg;
+	char src[320], dst[330];
+	snprintf(src, sizeof src, "%s/%s", g_game, name);
+	if (g_packs >= MAX_PACKS || strlen(name) >= sizeof g_pack[0].name || !svm_pack_candidate(src, size)) return;
+	snprintf(dst, sizeof dst, "%s.gwpack", src);
+	pack_head_t h;
+	plat_stat_t st = plat_stat(dst);
+	int valid = 0;
+	if (st.exists && !st.is_dir) {
+		void *f = plat_fopen(dst, "rb");
+		if (f) {
+			valid = plat_fread(&h, sizeof h, f) == sizeof h && svm_pack_valid(&h, st.size, src, size);
+			plat_fclose(f);
+		}
+	}
+	if (!valid) {
+		logf_("ScummVM: making %s.gwpack (the resources but the sounds, for the flash)\n", name);
+		pack_progress(0);
+		if (!svm_pack_build(src, size, dst, pack_progress)) {
+			logf_("ScummVM: could not make %s.gwpack: its resources are read from the SD card\n", name);
+			return;
+		}
+	}
+	uint32_t got = 0;
+	const uint8_t *p = odroid_overlay_cache_file_in_flash_relocate(dst, &got, false, decrypt_chunk);
+	if (!p) { logf_("ScummVM: no room in external flash for %s.gwpack\n", name); return; }
+	strcpy(g_pack[g_packs].name, name);
+	g_pack[g_packs].head = (const pack_head_t *)p;
+	g_packs++;
+	logf_("ScummVM: %s: %lu resources (%lu KB) in external flash\n", name, (unsigned long)((const pack_head_t *)p)->count,
+	      (unsigned long)(got / 1024));
+}
+
+const void *plat_map_pack(const char *path)
+{
+	size_t gl = strlen(g_game);
+	if (strncasecmp(path, g_game, gl) || path[gl] != '/') return NULL;
+	for (int i = 0; i < g_packs; i++)
+		if (!strcasecmp(g_pack[i].name, path + gl + 1)) return g_pack[i].head;
+	return NULL;
+}
+
+/* name: relative to the game folder ("FT.LA1", "DATA/ICONS.NUT") */
+static void cache_rel(const char *name, uint32_t size)
+{
 	size_t n = strlen(name);
-	if (is_dir || g_mapped >= MAX_MAPPED || size == 0 || n >= sizeof g_map[0].name) return;
+	if (g_mapped >= MAX_MAPPED || size == 0 || n >= sizeof g_map[0].name) return;
 	if (n > 8 && !strcasecmp(name + n - 8, ".scummvm")) return;
+	if (n > 7 && !strcasecmp(name + n - 7, ".gwpack")) return;
+	if (name[0] == '.') return;              /* macOS's ._files and .DS_Store */
 	/* not game data: manuals, icons, the DOS program (no need to fill the flash with them) */
 	static const char *const skip[] = { ".pdf", ".ico", ".exe", ".com", ".txt", ".doc", ".bat", ".jpg", ".png", ".nfo" };
 	for (unsigned i = 0; i < sizeof skip / sizeof skip[0]; i++)
 		if (n > 4 && !strcasecmp(name + n - 4, skip[i])) return;
 	g_files++;
 	/* bigger than this stays on the SD card (a talkie's speech file is ~200 MB, the flash 64) */
-	if (size > MAX_CACHED_FILE) { logf_("ScummVM: %s (%lu KB) is read from the SD card\n", name, (unsigned long)(size / 1024)); return; }
+	if (size > MAX_CACHED_FILE) {
+		logf_("ScummVM: %s (%lu KB) is read from the SD card\n", name, (unsigned long)(size / 1024));
+		cache_pack(name, size);
+		return;
+	}
 	char path[320];
 	snprintf(path, sizeof path, "%s/%s", g_game, name);
 	/* An encrypted SCUMM data file goes in under "folder//name": the same file to FatFs, but a
@@ -471,6 +544,49 @@ static void cache_one(const char *name, bool is_dir, uint32_t size, void *arg)
 	g_map[g_mapped].data = p;
 	g_map[g_mapped].size = got;
 	g_mapped++;
+}
+
+/* Subfolders (SCUMM v7: DATA/ with the fonts and the bike scenes' tables, VIDEO/ with the
+   cutscenes): their .NUT files only (fonts and sprites, which the engine then draws from the
+   flash instead of decoding them into memory), after the folder's own. Everything else there
+   is read from the card. Not "every small file": Full Throttle has 140 of them, and the
+   firmware's flash cache keeps track of a limited number of files per game -- past it, it
+   erased files still in use (seen on the console: garbage resources, videos not found). */
+#define MAX_SUBDIRS 4
+#define MAX_SUBDIR_FILE (256u << 10)
+static char g_subdirs[MAX_SUBDIRS][16], g_cur_subdir[16];
+static int g_nsubdirs;
+
+static void cache_one(const char *name, bool is_dir, uint32_t size, void *arg)
+{
+	(void)arg;
+	if (is_dir) {
+		if (g_nsubdirs < MAX_SUBDIRS && strlen(name) < sizeof g_subdirs[0] && name[0] != '.')
+			strcpy(g_subdirs[g_nsubdirs++], name);
+		return;
+	}
+	cache_rel(name, size);
+}
+
+static void cache_sub(const char *name, bool is_dir, uint32_t size, void *arg)
+{
+	(void)arg;
+	char rel[sizeof g_map[0].name];
+	size_t n = strlen(name);
+	if (is_dir || size > MAX_SUBDIR_FILE || n < 5 || strcasecmp(name + n - 4, ".nut") || name[0] == '.') return;
+	if ((size_t)snprintf(rel, sizeof rel, "%s/%s", g_cur_subdir, name) >= sizeof rel) return;
+	cache_rel(rel, size);
+}
+
+static void cache_game(void)
+{
+	plat_list_dir(g_game, cache_one, NULL);
+	for (int i = 0; i < g_nsubdirs; i++) {
+		char path[320];
+		strcpy(g_cur_subdir, g_subdirs[i]);
+		snprintf(path, sizeof path, "%s/%s", g_game, g_subdirs[i]);
+		plat_list_dir(path, cache_sub, NULL);
+	}
 }
 
 /* Which copies are decrypted: decided from what is in flash, since a file cached by an older
@@ -736,7 +852,7 @@ int svm_main(void)
 	find_game(ACTIVE_FILE ? ACTIVE_FILE->path : "");
 	rg_storage_mkdir(SAVE_DIR);
 	logf_("ScummVM: game folder %s\n", g_game);
-	plat_list_dir(g_game, cache_one, NULL);
+	cache_game();
 	find_keys();
 	logf_("ScummVM: %d files, %d in external flash\n", g_files, g_mapped);
 	if (!g_files) {

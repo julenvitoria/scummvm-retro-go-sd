@@ -190,3 +190,12 @@ int _link(const char *a, const char *b) { (void)a; (void)b; return -1; }
 void _init(void) {}
 void _fini(void) {}
 void *__dso_handle = 0;                 /* static destructors are never run: leaving reboots */
+
+/* No environment. One variable is answered: libstdc++'s emergency exception pool (eh_alloc.cc)
+   is malloc'ed by a static constructor and sized from GLIBCXX_TUNABLES; the core is built with
+   -fno-exceptions, so it is told to take nothing from the heap. */
+char *getenv(const char *name)
+{
+	static char eh_pool[] = "glibcxx.eh_pool.obj_count=0";
+	return name && !strcmp(name, "GLIBCXX_TUNABLES") ? eh_pool : NULL;
+}
