@@ -98,6 +98,14 @@ game's files change, the pack is made again; it can be deleted at any time.
 
 The Dig does not fit: its characters' graphics alone are 57 MB.
 
+### Beneath a Steel Sky (`sky` branch, experimental)
+
+Copy `sky.dsk`, `sky.dnr` and `sky.cpt` into the game's folder (`sky.cpt` comes with ScummVM,
+not with the game). The first time, the core unpacks everything but the speech into
+`sky.dsk.gwpack` next to them (38 MB, so leave that much free on the card) and puts it in
+the flash; a progress bar shows it, and it takes a few minutes. The speech is read from the
+SD card. TIME opens the game's own control panel (save, load, volume, text speed).
+
 ### Saved games
 
 - **Retro-Go menu (PAUSE/SET):** *Save & Continue*, *Save & Quit* and *Reload*, with the
@@ -267,6 +275,14 @@ se leen de la SD según se reproducen. Si los
 ficheros del juego cambian, el paquete se vuelve a hacer; se puede borrar cuando se quiera.
 
 The Dig no cabe: solo los gráficos de sus personajes ocupan 57 MB.
+
+### Beneath a Steel Sky (rama `sky`, experimental)
+
+Copia `sky.dsk`, `sky.dnr` y `sky.cpt` en la carpeta del juego (`sky.cpt` viene con ScummVM,
+no con el juego). La primera vez, el core descomprime todo menos las voces en
+`sky.dsk.gwpack`, a su lado (38 MB, deja ese espacio libre en la SD), y lo pone en la flash;
+lo muestra una barra de progreso y tarda unos minutos. Las voces se leen de la SD. TIME abre
+el panel de control del propio juego (guardar, cargar, volumen, velocidad del texto).
 
 ### Partidas guardadas
 
