@@ -304,7 +304,7 @@ const void *plat_map_pack(const char *path)
 	for (int i = 0; i < 2; i++) if (packs[i].head && !strcmp(packs[i].path, path)) return packs[i].head;
 	plat_stat_t st = plat_stat(path);
 	if (getenv("GW_MAP_ALL") || st.size <= (24u << 20)) return NULL;
-	if (!svm_pack_candidate(path, st.size)) { fprintf(stderr, "pack: %s is not a v7 data file\n", path); return NULL; }
+	if (!svm_pack_candidate(path, st.size)) return NULL;
 	char dst[600];
 	snprintf(dst, sizeof dst, "%s.gwpack", path);
 	pack_head_t h;

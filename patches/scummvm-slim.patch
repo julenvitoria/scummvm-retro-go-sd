@@ -917,6 +917,56 @@ index 048ab26b..b6ee12cc 100644
  	};
  
  private:
+diff --git a/engines/scumm/imuse_digi/dimuse_waveout.cpp b/engines/scumm/imuse_digi/dimuse_waveout.cpp
+index 91a2e124..59989e03 100644
+--- a/engines/scumm/imuse_digi/dimuse_waveout.cpp
++++ b/engines/scumm/imuse_digi/dimuse_waveout.cpp
+@@ -23,6 +23,16 @@
+ 
+ namespace Scumm {
+ 
++#ifdef GW_V7_SLIM
++// Game & Watch: Full Throttle's output goes out 3 feeds after it is mixed, not 7 (~70 ms
++// instead of ~160): 10 KB instead of 18
++#define GW_WAVEOUT_RING (_isEarlyDiMUSE ? 3 : 7)
++#else
++#define GW_WAVEOUT_RING 7
++#endif
++#define GW_WAVEOUT_BUFS (GW_WAVEOUT_RING + 2)
++
++
+ int IMuseDigital::waveOutInit(waveOutParamsStruct *waveOutSettingsStruct) {
+ 	_waveOutBytesPerSample = 2;
+ 	_waveOutNumChannels = _mixer->getOutputStereo() ? 2 : 1;
+@@ -37,8 +47,8 @@ int IMuseDigital::waveOutInit(waveOutParamsStruct *waveOutSettingsStruct) {
+ 
+ 	if (!_lowLatencyMode || _isEarlyDiMUSE) {
+ 		// Nine buffers (waveOutPreferredFeedSize * 4 bytes each), two will be used for the mixer
+-		_waveOutOutputBuffer = (uint8 *)malloc(_waveOutNumChannels * _waveOutBytesPerSample * _waveOutPreferredFeedSize * 9);
+-		_waveOutMixBuffer = _waveOutOutputBuffer + (_waveOutNumChannels * _waveOutBytesPerSample * _waveOutPreferredFeedSize * 7); // 8-th buffer
++		_waveOutOutputBuffer = (uint8 *)malloc(_waveOutNumChannels * _waveOutBytesPerSample * _waveOutPreferredFeedSize * GW_WAVEOUT_BUFS);
++		_waveOutMixBuffer = _waveOutOutputBuffer + (_waveOutNumChannels * _waveOutBytesPerSample * _waveOutPreferredFeedSize * GW_WAVEOUT_RING); // 8-th buffer
+ 	}
+ 
+ 	// Replicate another set of buffers for the low latency mode, we will use the previous ones for cutscenes if the mode is active
+@@ -55,7 +65,7 @@ int IMuseDigital::waveOutInit(waveOutParamsStruct *waveOutSettingsStruct) {
+ 
+ 	// Init the buffers filling them with zero volume samples
+ 	if (!_lowLatencyMode || _isEarlyDiMUSE) {
+-		memset(_waveOutOutputBuffer, _waveOutZeroLevel, _waveOutNumChannels * _waveOutBytesPerSample * _waveOutPreferredFeedSize * 9);
++		memset(_waveOutOutputBuffer, _waveOutZeroLevel, _waveOutNumChannels * _waveOutBytesPerSample * _waveOutPreferredFeedSize * GW_WAVEOUT_BUFS);
+ 	}
+ 
+ 	if (_lowLatencyMode) {
+@@ -116,7 +126,7 @@ void IMuseDigital::waveOutWrite(uint8 **audioData, int &feedSize, int &sampleRat
+ 
+ 		sampleRate = _waveOutSampleRate;
+ 		feedSize = _waveOutPreferredFeedSize;
+-		_waveOutWriteIndex = (_waveOutWriteIndex + 1) % 7;
++		_waveOutWriteIndex = (_waveOutWriteIndex + 1) % GW_WAVEOUT_RING;
+ 
+ 		byte *ptr = (byte *)malloc(_outputFeedSize * _waveOutBytesPerSample * _waveOutNumChannels);
+ 		memcpy(ptr, curBufferBlock, _outputFeedSize * _waveOutBytesPerSample * _waveOutNumChannels);
 diff --git a/engines/scumm/input.cpp b/engines/scumm/input.cpp
 index 3525910f..fdda7ea4 100644
 --- a/engines/scumm/input.cpp
@@ -1716,16 +1766,17 @@ index 32b0516f..eaf410a9 100644
  	{ "fe60d6b5ff51b0553ac59963123b5777", "comi", "", "", 76791, Common::UNK_LANG, Common::kPlatformWindows },
  	{ "febf4a983ea5faea1c9dd6c710ebb09c", "puttcircus", "", "", 36655, Common::DE_DEU, Common::kPlatformWindows },
 diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
-index 88e087d7..90c1fa09 100644
+index 88e087d7..6b4b82d2 100644
 --- a/engines/scumm/scumm.cpp
 +++ b/engines/scumm/scumm.cpp
-@@ -134,6 +134,15 @@ struct dbgChannelDesc {
+@@ -134,6 +134,16 @@ struct dbgChannelDesc {
  
  const char *const insaneKeymapId = "scumm-insane";
  
 +#ifdef GW_SCUMM_SLIM
 +// Game & Watch: src/heap.c asks this before it gives up an allocation
 +extern "C" int (*heap_low_memory_hook)(uint32 n);
++extern "C" int heap_screen_spill;			// src/heap.c
 +static int gwLowMemory(uint32 n) {
 +	ScummEngine *vm = static_cast<ScummEngine *>(g_engine);
 +	return vm && vm->_res && vm->_res->gwFreeOne();
@@ -1735,7 +1786,7 @@ index 88e087d7..90c1fa09 100644
  ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
  	: Engine(syst),
  	  _game(dr.game),
-@@ -166,6 +175,9 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+@@ -166,6 +176,9 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
  		_gdi = new Gdi(this);
  	}
  	_res = new ResourceManager(this);
@@ -1745,7 +1796,7 @@ index 88e087d7..90c1fa09 100644
  
  	// Convert MD5 checksum back into a digest
  	for (int i = 0; i < 16; ++i) {
-@@ -486,6 +498,12 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
+@@ -486,6 +499,12 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
  
  
  ScummEngine::~ScummEngine() {
@@ -1758,7 +1809,7 @@ index 88e087d7..90c1fa09 100644
  	delete _musicEngine;
  
  	// Delete the sound object earlier than the actors
-@@ -567,6 +585,9 @@ ScummEngine::~ScummEngine() {
+@@ -567,6 +586,9 @@ ScummEngine::~ScummEngine() {
  #endif
  #endif
  
@@ -1768,7 +1819,7 @@ index 88e087d7..90c1fa09 100644
  	delete _res;
  	delete _gdi;
  }
-@@ -1012,6 +1033,18 @@ ScummEngine_v8::~ScummEngine_v8() {
+@@ -1012,6 +1034,18 @@ ScummEngine_v8::~ScummEngine_v8() {
  #pragma mark -
  
  Common::Error ScummEngine::init() {
@@ -1787,7 +1838,7 @@ index 88e087d7..90c1fa09 100644
  
  	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
  
-@@ -1460,7 +1493,7 @@ Common::Error ScummEngine::init() {
+@@ -1460,7 +1494,7 @@ Common::Error ScummEngine::init() {
  		if (!_macScreen && _renderMode == Common::kRenderMacintoshBW)
  			_renderMode = Common::kRenderDefault;
  
@@ -1796,7 +1847,7 @@ index 88e087d7..90c1fa09 100644
  
  		if (_macGui) {
  			if (!_macGui->initialize()) {
-@@ -1726,6 +1759,13 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
+@@ -1726,6 +1760,13 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
  	setupCharsetRenderer(macFontFile);
  
  	// Create and clear the text surface
@@ -1810,7 +1861,7 @@ index 88e087d7..90c1fa09 100644
  	_textSurface.create(_screenWidth * _textSurfaceMultiplier, _screenHeight * _textSurfaceMultiplier, Graphics::PixelFormat::createFormatCLUT8());
  	clearTextSurface();
  
-@@ -1818,7 +1858,14 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
+@@ -1818,7 +1859,14 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
  #endif
  
  	free(_compositeBuf);
@@ -1825,7 +1876,7 @@ index 88e087d7..90c1fa09 100644
  
  	// MI2 NI DOS Demo, load demo.rec playback file if present
  	if ((_game.id == GID_MONKEY2) && (_game.features & GF_DEMO) && (_game.platform == Common::kPlatformDOS) && !ConfMan.getBool("disable_mi2_ni_demo"))
-@@ -1827,6 +1874,7 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
+@@ -1827,6 +1875,7 @@ void ScummEngine::setupScumm(const Common::Path &macResourceFile) {
  
  #ifdef ENABLE_SCUMM_7_8
  void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
@@ -1833,7 +1884,7 @@ index 88e087d7..90c1fa09 100644
  	if (_game.id == GID_REBEL1) {
  		_res->allocResTypeData(rtBuffer, 0, 10, kDynamicResTypeMode);
  		initScreens(0, 200);
-@@ -1902,6 +1950,7 @@ void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
+@@ -1902,6 +1951,7 @@ void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
  		initBanners();
  		return;
  	}
@@ -1841,9 +1892,14 @@ index 88e087d7..90c1fa09 100644
  
  	// The object line toggle is always synchronized from the main game to
  	// our internal Game Options; at startup we do the opposite, since an user
-@@ -1965,7 +2014,13 @@ void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
+@@ -1964,8 +2014,18 @@ void ScummEngine_v7::setupScumm(const Common::Path &macResourceFile) {
+ 		_imuseDigital->disableEngine();
  	}
  
++#ifdef GW_V7_SLIM
++	// Game & Watch: v7's screen buffers are made once, the rest of their heap is free to use
++	heap_screen_spill = 1;
++#endif
  	// Create FT INSANE object
 +#ifdef GW_V7_SLIM
 +	// Game & Watch: made when the first bike scene starts (o6_kernelSetFunctions): ~50 KB of
@@ -1855,7 +1911,7 @@ index 88e087d7..90c1fa09 100644
  		_insane = new Insane(this);
  	else
  		_insane = nullptr;
-@@ -2764,7 +2819,7 @@ int ScummEngine::getTalkSpeed() {
+@@ -2764,7 +2824,7 @@ int ScummEngine::getTalkSpeed() {
  #pragma mark -
  
  Common::Error ScummEngine::go() {
@@ -1948,10 +2004,10 @@ index 0e5aa900..596d23d1 100644
  	byte *_guiStringTransBuff = nullptr;
  };
 diff --git a/engines/scumm/smush/codec37.cpp b/engines/scumm/smush/codec37.cpp
-index cb332679..091c2ca5 100644
+index cb332679..404bb8fa 100644
 --- a/engines/scumm/smush/codec37.cpp
 +++ b/engines/scumm/smush/codec37.cpp
-@@ -33,12 +33,28 @@ SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(int width, int height, bool reb
+@@ -33,12 +33,34 @@ SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(int width, int height, bool reb
  	_width = width;
  	_height = height;
  	_frameSize = _width * _height;
@@ -1963,10 +2019,16 @@ index cb332679..091c2ca5 100644
 +	_gwMargin = (31 * ((_width + 3) & ~3) + 31 + 16 + 15) & ~15;
 +	_deltaSize = _frameSize + 2 * _gwMargin;
 +	_deltaBuf = nullptr;
++	_gwBlock[0] = _gwBlock[1] = nullptr;
 +	for (int i = 0; i < 2; i++) {
 +		_gwBlock[i] = (byte *)calloc(_deltaSize, sizeof(byte));
-+		if (_gwBlock[i] == nullptr)
-+			error("SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(): ERROR: Unable to allocate decoder buffer.");
++		if (_gwBlock[i] == nullptr) {
++			// no memory: the video goes on without its frames of this codec (gwOk())
++			warning("SmushDeltaBlocksDecoder: no memory for a frame");
++			free(_gwBlock[0]);
++			_gwBlock[0] = _gwBlock[1] = nullptr;
++			break;
++		}
 +		_deltaBufs[i] = _gwBlock[i] + _gwMargin;
 +	}
 +#else
@@ -1980,7 +2042,7 @@ index cb332679..091c2ca5 100644
  	_offsetTable = new int16[255];
  	if (_offsetTable == nullptr)
  		error("SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(): ERROR: Unable to allocate decoder offset table.");
-@@ -55,6 +71,11 @@ SmushDeltaBlocksDecoder::~SmushDeltaBlocksDecoder() {
+@@ -55,6 +77,11 @@ SmushDeltaBlocksDecoder::~SmushDeltaBlocksDecoder() {
  		_tableLastPitch = -1;
  		_tableLastIndex = -1;
  	}
@@ -1992,7 +2054,7 @@ index cb332679..091c2ca5 100644
  	if (_deltaBuf) {
  		free(_deltaBuf);
  		_deltaSize = 0;
-@@ -541,6 +562,17 @@ void SmushDeltaBlocksDecoder::proc4WithoutFDFE(byte *dst, const byte *src, int32
+@@ -541,7 +568,22 @@ void SmushDeltaBlocksDecoder::proc4WithoutFDFE(byte *dst, const byte *src, int32
  	} while (--bh);
  }
  
@@ -2008,9 +2070,14 @@ index cb332679..091c2ca5 100644
 +#endif
 +
  void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
++#ifdef GW_V7_SLIM
++	if (!_gwBlock[0])
++		return;
++#endif
  	int32 bw = (_width + 3) / 4, bh = (_height + 3) / 4;
  	int32 pitch = bw * 4;
-@@ -553,6 +585,11 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+ 
+@@ -553,6 +595,11 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
  
  	switch (src[0]) {
  	case 0:
@@ -2022,7 +2089,7 @@ index cb332679..091c2ca5 100644
  		if ((_deltaBufs[_curTable] - _deltaBuf) > 0) {
  			memset(_deltaBuf, 0, _deltaBufs[_curTable] - _deltaBuf);
  		}
-@@ -560,6 +597,7 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+@@ -560,6 +607,7 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
  		if (tmp > 0) {
  			memset(_deltaBufs[_curTable] + decodedSize, 0, tmp);
  		}
@@ -2030,7 +2097,7 @@ index cb332679..091c2ca5 100644
  		memcpy(_deltaBufs[_curTable], src + 16, decodedSize);
  		break;
  	case 1:
-@@ -570,6 +608,12 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+@@ -570,6 +618,12 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
  										bw, bh, pitch, _offsetTable);
  		break;
  	case 2:
@@ -2043,7 +2110,7 @@ index cb332679..091c2ca5 100644
  		bompDecodeLine(_deltaBufs[_curTable], src + 16, decodedSize);
  		if ((_deltaBufs[_curTable] - _deltaBuf) > 0) {
  			memset(_deltaBuf, 0, _deltaBufs[_curTable] - _deltaBuf);
-@@ -578,6 +622,7 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+@@ -578,6 +632,7 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
  		if (tmp > 0) {
  			memset(_deltaBufs[_curTable] + decodedSize, 0, tmp);
  		}
@@ -2052,10 +2119,10 @@ index cb332679..091c2ca5 100644
  	case 3:
  		if ((seqNb & 1) || !(maskFlags & 1)) {
 diff --git a/engines/scumm/smush/codec37.h b/engines/scumm/smush/codec37.h
-index 3cdc7fca..b97f086b 100644
+index 3cdc7fca..c96a4102 100644
 --- a/engines/scumm/smush/codec37.h
 +++ b/engines/scumm/smush/codec37.h
-@@ -32,6 +32,11 @@ private:
+@@ -32,6 +32,14 @@ private:
  	int32 _deltaSize;
  	byte *_deltaBufs[2];
  	byte *_deltaBuf;
@@ -2063,15 +2130,93 @@ index 3cdc7fca..b97f086b 100644
 +	byte *_gwBlock[2];	// each frame in its own block, with its margins
 +	int32 _gwMargin;
 +	void gwClearAround(int32 decodedSize);
++public:
++	bool gwOk() const { return _gwBlock[0] != nullptr; }
++private:
 +#endif
  	int16 *_offsetTable;
  	int _curTable;
  	uint16 _prevSeqNb;
 diff --git a/engines/scumm/smush/smush_player.cpp b/engines/scumm/smush/smush_player.cpp
-index 1c646316..bac9ef28 100644
+index 1c646316..5eee7639 100644
 --- a/engines/scumm/smush/smush_player.cpp
 +++ b/engines/scumm/smush/smush_player.cpp
-@@ -1609,7 +1609,11 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
+@@ -327,6 +327,14 @@ SmushPlayer::~SmushPlayer() {
+ void SmushPlayer::init(int32 speed) {
+ 	VirtScreen *vs = &_vm->_virtscr[kMainVirtScreen];
+ 
++#ifdef GW_V7_SLIM
++	// Game & Watch: while a video plays, the room's back buffer is not drawn from (the video
++	// goes to the front one, and release() asks for the whole room to be drawn again after):
++	// the audio tracks' buffers are taken from it before the heap
++	_gwArena = vs->hasTwoBuffers ? vs->backBuf : nullptr;
++	_gwArenaLeft = _gwArena ? _vm->getResourceSize(rtBuffer, 5) : 0;
++#endif
++
+ 	_frame = 0;
+ 	_speed = speed;
+ 	_endOfFile = false;
+@@ -413,6 +421,12 @@ void SmushPlayer::release() {
+ 
+ 	delete _deltaBlocksCodec;
+ 	_deltaBlocksCodec = 0;
++#ifdef GW_V7_SLIM
++	free(_gwChunkBuf);
++	_gwChunkBuf = nullptr;
++	_gwChunkSize = 0;
++	gwFreeTracks();
++#endif
+ 	delete _deltaGlyphsCodec;
+ 	_deltaGlyphsCodec = 0;
+ }
+@@ -930,6 +944,12 @@ void SmushPlayer::decodeFrameObject(int codec, const uint8 *src, int left, int t
+ 		case SMUSH_CODEC_DELTA_BLOCKS:
+ 			if (!_deltaBlocksCodec)
+ 				_deltaBlocksCodec = new SmushDeltaBlocksDecoder(origWidth, origHeight);
++#ifdef GW_V7_SLIM
++			if (_deltaBlocksCodec && !_deltaBlocksCodec->gwOk()) {	// tried again at the next frame
++				delete _deltaBlocksCodec;
++				_deltaBlocksCodec = nullptr;
++			}
++#endif
+ 			if (_deltaBlocksCodec)
+ 				_deltaBlocksCodec->decode(_dst, src);
+ 			break;
+@@ -1016,15 +1036,33 @@ void SmushPlayer::handleFrameObject(int32 subSize, Common::SeekableReadStream &b
+ 	handleGameFrameObjectPre(codec, left, top, width, height, subSize - 14);
+ 
+ 	int32 chunk_size = subSize - 14;
++#ifdef GW_V7_SLIM
++	// Game & Watch: one buffer for the whole video, grown to its biggest frame object, instead
++	// of a ~25 KB malloc and free for every one in a heap the codec's frames fragment
++	if (chunk_size > _gwChunkSize) {
++		free(_gwChunkBuf);
++		_gwChunkBuf = (byte *)malloc(chunk_size);
++		_gwChunkSize = _gwChunkBuf ? chunk_size : 0;
++	}
++	byte *chunk_buffer = _gwChunkBuf;
++	if (!chunk_buffer) {
++		warning("SmushPlayer: no memory for a frame object of %d bytes", chunk_size);
++		b.skip(chunk_size);
++		return;
++	}
++#else
+ 	byte *chunk_buffer = (byte *)malloc(chunk_size);
+ 	assert(chunk_buffer);
++#endif
+ 	b.read(chunk_buffer, chunk_size);
+ 
+ 	handleGameFrameObjectPost(codec, chunk_buffer, chunk_size, left, top, width, height);
+ 
+ 	decodeFrameObject(codec, chunk_buffer, left, top, width, height, chunk_size);
+ 
++#ifndef GW_V7_SLIM
+ 	free(chunk_buffer);
++#endif
+ }
+ 
+ void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
+@@ -1609,7 +1647,11 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
  }
  
  void SmushPlayer::initAudio(int samplerate, int32 maxChunkSize) {
@@ -2083,7 +2228,51 @@ index 1c646316..bac9ef28 100644
  
  	if (_imuseDigital)
  		_imuseDigital->setSmushPlayer(this);
-@@ -1688,6 +1692,12 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
+@@ -1658,13 +1700,43 @@ void SmushPlayer::terminateAudio() {
+ 		_smushAudioCallbackEnabled = false;
+ 	}
+ 
++#ifdef GW_V7_SLIM
++	gwFreeTracks();
++#else
+ 	for (int i = 0; i < _smushNumTracks; i++) {
+ 		free(_smushTracks[i].blockPtr);
+ 		free(_smushTracks[i].fadeBuf);
+ 	}
++#endif
+ 	_smushNumTracks = 0;
+ }
+ 
++#ifdef GW_V7_SLIM
++// Game & Watch: the audio tracks' buffers go when the video ends (made again by the next one
++// that puts sound in them: fillAudioTrackInfo); those in the back buffer are only forgotten
++void SmushPlayer::gwFreeTracks() {
++	for (int i = 0; i < _smushNumTracks; i++) {
++		_smushTracks[i].state = TRK_STATE_INACTIVE;
++		_smushTracks[i].groupId = GRP_MASTER;
++		if (!_gwInArena[i]) {
++			free(_smushTracks[i].blockPtr);
++			free(_smushTracks[i].fadeBuf);
++		}
++		_gwInArena[i] = false;
++		_smushTracks[i].blockPtr = nullptr;
++		_smushTracks[i].fadeBuf = nullptr;
++		_smushTracks[i].dataBuf = nullptr;
++		_smushTracks[i].subChunkPtr = nullptr;
++		_smushDispatch[i].state = TRK_STATE_INACTIVE;
++		_smushDispatch[i].fadeRemaining = 0;
++		_smushDispatch[i].dataBuf = nullptr;
++		_smushDispatch[i].headerPtr = nullptr;
++	}
++	_gwArena = nullptr;
++	_gwArenaLeft = 0;
++}
++#endif
++
+ int SmushPlayer::isChanActive(int flagId) {
+ 	return _smushTrackFlags[flagId];
+ }
+@@ -1688,6 +1760,12 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
  	_smushTracks[id].subChunkPtr = nullptr;
  	_smushTracks[id].dataSize = 0;
  
@@ -2096,7 +2285,7 @@ index 1c646316..bac9ef28 100644
  	_smushTracks[id].fadeBuf = (uint8 *)malloc(SMUSH_FADE_SIZE);
  	if (!_smushTracks[id].fadeBuf)
  		return -1;
-@@ -1697,6 +1707,7 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
+@@ -1697,6 +1775,7 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
  		return -1;
  
  	memset(_smushTracks[id].blockPtr, 127, _smushTracks[id].blockSize);
@@ -2104,11 +2293,19 @@ index 1c646316..bac9ef28 100644
  	// Track the effective number of tracks, so that if only one fails,
  	// the others can carry on as they should
  	_smushNumTracks++;
-@@ -1853,6 +1864,21 @@ void SmushPlayer::fillAudioTrackInfo(uint8 *srcBuf, uint16 *flagsAccumulator, ui
+@@ -1853,6 +1932,29 @@ void SmushPlayer::fillAudioTrackInfo(uint8 *srcBuf, uint16 *flagsAccumulator, ui
  		}
  	}
  
 +#ifdef GW_V7_SLIM
++	if (maxAccId != -1 && !_smushTracks[maxAccId].blockPtr &&
++	    (uint32)(SMUSH_FADE_SIZE + _smushTracks[maxAccId].blockSize) <= _gwArenaLeft) {
++		_smushTracks[maxAccId].fadeBuf = _gwArena;
++		_smushTracks[maxAccId].blockPtr = _gwArena + SMUSH_FADE_SIZE;
++		_gwArena += SMUSH_FADE_SIZE + _smushTracks[maxAccId].blockSize;
++		_gwArenaLeft -= SMUSH_FADE_SIZE + _smushTracks[maxAccId].blockSize;
++		_gwInArena[maxAccId] = true;
++	}
 +	if (maxAccId != -1 && !_smushTracks[maxAccId].blockPtr) {
 +		_smushTracks[maxAccId].fadeBuf = (uint8 *)malloc(SMUSH_FADE_SIZE);
 +		_smushTracks[maxAccId].blockPtr = (uint8 *)malloc(_smushTracks[maxAccId].blockSize);
@@ -2127,10 +2324,10 @@ index 1c646316..bac9ef28 100644
  		for (int i = 0; i < _smushNumTracks; i++) {
  			if (_smushTracks[i].parsedChunks < 255) {
 diff --git a/engines/scumm/smush/smush_player.h b/engines/scumm/smush/smush_player.h
-index 15975a2a..ee780106 100644
+index 15975a2a..22c38972 100644
 --- a/engines/scumm/smush/smush_player.h
 +++ b/engines/scumm/smush/smush_player.h
-@@ -143,6 +143,12 @@ private:
+@@ -143,6 +143,18 @@ private:
  	ScummEngine_v7 *_vm;
  	IMuseDigital *_imuseDigital;
  	Insane *_insane;
@@ -2139,6 +2336,12 @@ index 15975a2a..ee780106 100644
 +	void gwSetInsane(Insane *insane) { _insane = insane; }
 +	void gwResetAudioTracks() { resetAudioTracks(); }
 +private:
++	byte *_gwChunkBuf = nullptr;	// handleFrameObject()
++	int32 _gwChunkSize = 0;
++	byte *_gwArena = nullptr;		// the room's back buffer, while a video plays (init())
++	uint32 _gwArenaLeft = 0;
++	bool _gwInArena[4] = {};
++	void gwFreeTracks();
 +#endif
  	int32 _nbframes;
  	int16 _deltaPal[0x300];

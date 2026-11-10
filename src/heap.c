@@ -40,6 +40,7 @@ enum { HEAP_BIG, HEAP_SMALL, HEAP_SCREEN, HEAPS };
    their hole again -- in the shared one, resources loaded meanwhile split it (seen on the PC
    with the console's heap size: a 64 KB screen failing with 240 KB free). */
 int heap_screen_hint;
+int heap_screen_spill;
 #define MAX_POOLS 6
 
 static tlsf_t g_tlsf[HEAPS];
@@ -119,7 +120,9 @@ static void *alloc(size_t align, size_t n, void *caller)
 	if (heap_host_bypass) return heap_host_alloc(n);
 #endif
 	int first = n >= BIG_REQUEST ? HEAP_BIG : HEAP_SMALL;
-	int order[3] = { first, !first, -1 };
+	/* last, what the screen buffers leave of their heap, for a block small enough not to stand
+	   in their way -- with SCUMM v7 only (heap_screen_spill), whose screens are made once */
+	int order[3] = { first, !first, heap_screen_spill && n <= 32 * 1024 ? HEAP_SCREEN : -1 };
 	if (heap_screen_hint) { order[0] = HEAP_SCREEN; order[1] = first; order[2] = !first; }
 	void *p = NULL;
 	static int in_hook;
