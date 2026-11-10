@@ -2952,6 +2952,130 @@ index 5d924d7c..73ca2abe 100644
  		free(_cptSizes[i]);
  		free(_cptTypes[i]);
  		free(_compacts[i]);
+diff --git a/engines/sky/disk.cpp b/engines/sky/disk.cpp
+index 8e9be3e2..297d1604 100644
+--- a/engines/sky/disk.cpp
++++ b/engines/sky/disk.cpp
+@@ -31,6 +31,10 @@
+ #include "sky/sky.h"
+ #include "sky/struc.h"
+ 
++#ifdef GW_SKY_SLIM
++const byte *gwSkyFile(uint16 nr, uint32 *size);		// src/gw_system.cpp
++#endif
++
+ namespace Sky {
+ 
+ static const char *const dataFilename = "sky.dsk";
+@@ -200,6 +204,18 @@ uint8 *Disk::loadFile(uint16 fileNr) {
+ 		_lastLoadedFileSize = entry->_size;
+ 		return uncompressedData;
+ 	}
++#ifdef GW_SKY_SLIM
++	// Game & Watch: every file but the speech lies unpacked in the external flash (the game's
++	// pack, src/pack.c) and is used there: READ-ONLY, and free() leaves it alone
++	{
++		uint32 gwSize = 0;
++		const byte *gw = gwSkyFile(fileNr, &gwSize);
++		if (gw) {
++			_lastLoadedFileSize = gwSize;
++			return const_cast<uint8 *>(gw);
++		}
++	}
++#endif
+ 	uint8 cflag;
+ 
+ 	debug(3, "load file %d,%d (%d)", (fileNr >> 11), (fileNr & 2047), fileNr);
+@@ -295,6 +311,30 @@ uint8 *Disk::loadFile(uint16 fileNr) {
+ 	}
+ }
+ 
++bool Disk::gwInFlash(uint16 fileNr, const uint8 *p) {
++#ifdef GW_SKY_SLIM
++	uint32 size = 0;
++	return p && p == gwSkyFile(fileNr, &size);
++#else
++	return false;
++#endif
++}
++
++uint8 *Disk::loadFileRam(uint16 fileNr) {
++	uint8 *p = loadFile(fileNr);
++#ifdef GW_SKY_SLIM
++	uint32 size = 0;
++	if (p && p == gwSkyFile(fileNr, &size)) {
++		uint8 *q = (uint8 *)malloc(size + 4);
++		if (!q)
++			error("Out of memory loading file %d (%d bytes)", fileNr, (int)size);
++		memcpy(q, p, size);
++		return q;
++	}
++#endif
++	return p;
++}
++
+ uint16 *Disk::loadScriptFile(uint16 fileNr) {
+ 	uint16 *buf = (uint16 *)loadFile(fileNr);
+ #ifdef SCUMM_BIG_ENDIAN
+diff --git a/engines/sky/disk.h b/engines/sky/disk.h
+index d1165411..2053a277 100644
+--- a/engines/sky/disk.h
++++ b/engines/sky/disk.h
+@@ -62,6 +62,10 @@ public:
+ 	~Disk();
+ 
+ 	uint8 *loadFile(uint16 fileNr);
++	// Game & Watch: loadFile() may hand out a file where it lies in the flash, read-only;
++	// this one is always a copy in memory, for the callers that write into what they load
++	uint8 *loadFileRam(uint16 fileNr);
++	bool gwInFlash(uint16 fileNr, const uint8 *p);	// did loadFile() hand out the flash's copy?
+ 	uint16 *loadScriptFile(uint16 fileNr);
+ 	bool fileExists(uint16 fileNr);
+ 
+diff --git a/engines/sky/grid.cpp b/engines/sky/grid.cpp
+index a76340a1..167d6a7c 100644
+--- a/engines/sky/grid.cpp
++++ b/engines/sky/grid.cpp
+@@ -147,7 +147,7 @@ void Grid::loadGrids() {
+ 	for (uint8 cnt = 0; cnt < TOT_NO_GRIDS; cnt++) {
+ 		if (_gameGrids[cnt])
+ 			free(_gameGrids[cnt]);
+-		_gameGrids[cnt] = _skyDisk->loadFile(GRID_FILE_START + cnt);
++		_gameGrids[cnt] = _skyDisk->loadFileRam(GRID_FILE_START + cnt);
+ 	}
+ 	if (!SkyEngine::isDemo()) { // single disk demos never get that far
+ 		// Reloading the grids can sometimes cause problems eg when reichs door is
+diff --git a/engines/sky/intro.cpp b/engines/sky/intro.cpp
+index f134065b..4a5b7a63 100644
+--- a/engines/sky/intro.cpp
++++ b/engines/sky/intro.cpp
+@@ -747,6 +747,13 @@ bool Intro::nextPart(uint16 *&data) {
+ 		if (!escDelay(200))
+ 			return false;
+ 		vData = _skyDisk->loadFile(*data++);
++		if (_skyDisk->gwInFlash(data[-1], vData)) {
++			// Game & Watch: played from the flash, past its header (read-only: not silenced)
++			stream = Audio::makeRawStream(vData + sizeof(DataFileHeader), _skyDisk->_lastLoadedFileSize - sizeof(DataFileHeader),
++			                              11025, Audio::FLAG_UNSIGNED, DisposeAfterUse::NO);
++			_mixer->playStream(Audio::Mixer::kSpeechSoundType, &_voice, stream, SOUND_VOICE);
++			return true;
++		}
+ 		// HACK: Fill the header with silence. We should
+ 		// probably use _skySound instead of calling playStream()
+ 		// directly, but this will have to do for now.
+diff --git a/engines/sky/screen.cpp b/engines/sky/screen.cpp
+index 2d334840..c7877a2d 100644
+--- a/engines/sky/screen.cpp
++++ b/engines/sky/screen.cpp
+@@ -407,7 +407,7 @@ void Screen::showScreen(uint16 fileNum, bool fullscreen) {
+ 
+ 	// This is only used for static images in the floppy and cd intro
+ 	free(_currentScreen);
+-	_currentScreen = _skyDisk->loadFile(fileNum);
++	_currentScreen = _skyDisk->loadFileRam(fileNum);
+ 	if (!fullscreen && _currentScreen) {
+ 		// make sure the last 8 lines are forced to black.
+ 		memset(_currentScreen + GAME_SCREEN_HEIGHT * GAME_SCREEN_WIDTH, 0, (FULL_SCREEN_HEIGHT - GAME_SCREEN_HEIGHT) * GAME_SCREEN_WIDTH);
 diff --git a/engines/sky/sky.cpp b/engines/sky/sky.cpp
 index 81baee63..3ec84ff2 100644
 --- a/engines/sky/sky.cpp

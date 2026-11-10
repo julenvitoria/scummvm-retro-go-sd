@@ -213,6 +213,28 @@ const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte 
 	return nullptr;
 }
 
+/* patches/scummvm-slim.patch (Sky::Disk::loadFile): file 'nr' of Beneath a Steel Sky's sky.dsk
+   as the engine would load it, where it lies in the game's pack in the flash (src/pack.c), or
+   NULL: not in the pack (speech), or no pack */
+const byte *gwSkyFile(uint16 nr, uint32 *size)
+{
+	static const pack_head_t *head;
+	static bool looked;
+	if (!looked) {
+		looked = true;
+		for (const char *name : { "sky.dsk", "SKY.DSK" }) {
+			Common::String path = Common::String(plat_game_path()) + "/" + name;
+			head = (const pack_head_t *)plat_map_pack(path.c_str());
+			if (head) break;
+		}
+		if (head && head->reserved != PACK_SKY) head = nullptr;
+	}
+	const pack_entry_t *e = head ? svm_pack_file(head, nr) : nullptr;
+	if (!e) return nullptr;
+	*size = e->size;
+	return (const byte *)head + e->pack;
+}
+
 class GWFileStream : public Common::SeekableReadStream, public Common::SeekableWriteStream {
 	void *_f;
 	int64 _size;
@@ -292,7 +314,8 @@ public:
 		if (map) return new GWMappedStream(map, size, key);
 		if (!st().exists || st().is_dir) return nullptr;
 		if (const void *pack = plat_map_pack(_path.c_str()))
-			return new GWPackedStream(_path, st().size, (const pack_head_t *)pack);
+			if (((const pack_head_t *)pack)->reserved != PACK_SKY)     // (that one is asked for by file: gwSkyFile)
+				return new GWPackedStream(_path, st().size, (const pack_head_t *)pack);
 		return new GWCardStream(_path, st().size);
 	}
 	Common::SeekableWriteStream *createWriteStream(bool atomic) override {
