@@ -3073,6 +3073,19 @@ index f134065b..4a5b7a63 100644
  		// HACK: Fill the header with silence. We should
  		// probably use _skySound instead of calling playStream()
  		// directly, but this will have to do for now.
+diff --git a/engines/sky/mouse.cpp b/engines/sky/mouse.cpp
+index 7cea2552..2baa6769 100644
+--- a/engines/sky/mouse.cpp
++++ b/engines/sky/mouse.cpp
+@@ -102,7 +102,7 @@ Mouse::Mouse(OSystem *system, Disk *skyDisk, SkyCompact *skyCompact, Screen *sky
+ 	_mouseX = GAME_SCREEN_WIDTH / 2;
+ 	_mouseY = GAME_SCREEN_HEIGHT / 2;
+ 
+-	_miceData = _skyDisk->loadFile(MICE_FILE);
++	_miceData = _skyDisk->loadFileRam(MICE_FILE);	// (fnOpenHand copies the held object's picture into it)
+ 
+ 	//load in the object mouse file
+ 	_objectMouseData = _skyDisk->loadFile(MICE_FILE + 1);
 diff --git a/engines/sky/music/musicbase.cpp b/engines/sky/music/musicbase.cpp
 index 9ab99783..4490d0ef 100644
 --- a/engines/sky/music/musicbase.cpp
