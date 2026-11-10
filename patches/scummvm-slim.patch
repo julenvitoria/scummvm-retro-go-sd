@@ -191,6 +191,66 @@ index 70081d8f..d24a71a4 100644
  
  	// cache management
  	void cacheDirectoryRecursive(FSNode node, int depth, const Path& prefix) const;
+diff --git a/engines/lure/disk.cpp b/engines/lure/disk.cpp
+index 571cc439..d306b712 100644
+--- a/engines/lure/disk.cpp
++++ b/engines/lure/disk.cpp
+@@ -30,6 +30,11 @@
+ #include "lure/luredefs.h"
+ #include "lure/res.h"
+ 
++#ifdef GW_LURE_SLIM
++// src/gw_system.cpp: the next n bytes of a stream where they lie in the external flash, or NULL
++const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte enc);
++#endif
++
+ namespace Lure {
+ 
+ static Disk *int_disk = nullptr;
+@@ -188,12 +193,30 @@ MemoryBlock *Disk::getEntry(uint16 id) {
+ 	if (_entries[index].sizeExtension) size += 0x10000;
+ 	uint32 offset = (uint32) _entries[index].offset * 0x20 + _dataOffset;
+ 
++#ifdef GW_LURE_SLIM
++	// Game & Watch: the game's files are in the external flash; a resource is used there
++	// (most are unpacked or parsed and dropped at once, the rest only read). The callers that
++	// write into what they get ask getEntryRam()
++	if (!_gwRam) {
++		_fileHandle->seek(offset, SEEK_SET);
++		const byte *p = gwDirectResource(_fileHandle->gwStream(), size, 0);
++		if (p)
++			return new MemoryBlock(p, size);
++	}
++#endif
+ 	MemoryBlock *result = Memory::allocate(size);
+ 	_fileHandle->seek(offset, SEEK_SET);
+ 	_fileHandle->read(result->data(), size);
+ 	return result;
+ }
+ 
++MemoryBlock *Disk::getEntryRam(uint16 id) {
++	_gwRam = true;
++	MemoryBlock *result = getEntry(id);
++	_gwRam = false;
++	return result;
++}
++
+ bool Disk::exists(uint16 id) {
+ 	// Get the index of the resource, if necessary opening the correct file
+ 	uint8 index = indexOf(id, true);
+diff --git a/engines/lure/disk.h b/engines/lure/disk.h
+index b5ebf04d..8c545111 100644
+--- a/engines/lure/disk.h
++++ b/engines/lure/disk.h
+@@ -55,6 +55,8 @@ public:
+ 	void openFile(uint8 fileNum);
+ 	uint32 getEntrySize(uint16 id);
+ 	MemoryBlock *getEntry(uint16 id);
++	MemoryBlock *getEntryRam(uint16 id);	// always a copy in memory (see getEntry)
++	bool _gwRam = false;
+ 	bool exists(uint16 id);
+ 
+ 	uint8 numEntries();
 diff --git a/engines/lure/lure.cpp b/engines/lure/lure.cpp
 index 374f596c..3970e4b4 100644
 --- a/engines/lure/lure.cpp
@@ -216,6 +276,46 @@ index 374f596c..3970e4b4 100644
  	int_engine = this;
  	_initialized = false;
  	_saveLoadAllowed = false;
+diff --git a/engines/lure/memory.cpp b/engines/lure/memory.cpp
+index 09d969e2..21eb17e3 100644
+--- a/engines/lure/memory.cpp
++++ b/engines/lure/memory.cpp
+@@ -58,7 +58,19 @@ MemoryBlock::MemoryBlock(MemoryBlock *src) {
+ 	memcpy(_data, src->data(), _size);
+ }
+ 
++#ifdef GW_LURE_SLIM
++MemoryBlock::MemoryBlock(const byte *flash, uint32 size1) {
++	_data = const_cast<byte *>(flash);
++	_size = size1;
++	_gwFlash = true;
++}
++#endif
++
+ MemoryBlock::~MemoryBlock() {
++#ifdef GW_LURE_SLIM
++	if (_gwFlash)
++		return;
++#endif
+ 	free(_data);
+ }
+ 
+diff --git a/engines/lure/memory.h b/engines/lure/memory.h
+index a0b44d96..cb6b93d8 100644
+--- a/engines/lure/memory.h
++++ b/engines/lure/memory.h
+@@ -36,6 +36,11 @@ public:
+ 	MemoryBlock(uint32 size);
+ 	MemoryBlock(MemoryBlock *src);
+ 	~MemoryBlock();
++#ifdef GW_LURE_SLIM
++	// Game & Watch: a resource used where it lies in the external flash: READ-ONLY, not freed
++	MemoryBlock(const byte *flash, uint32 size);
++	bool _gwFlash = false;
++#endif
+ 
+ 	byte *data() { return _data; }
+ 	uint32 size() { return _size; }
 diff --git a/engines/lure/res.cpp b/engines/lure/res.cpp
 index 03d12318..bd9c1460 100644
 --- a/engines/lure/res.cpp
@@ -327,6 +427,185 @@ index b6fcb863..f572fbf6 100644
  
  class HotspotAnimData {
  public:
+diff --git a/engines/lure/room.cpp b/engines/lure/room.cpp
+index d51af5d0..78c6580b 100644
+--- a/engines/lure/room.cpp
++++ b/engines/lure/room.cpp
+@@ -28,6 +28,7 @@
+ #include "lure/events.h"
+ #include "lure/strings.h"
+ #include "lure/scripts.h"
++#include "lure/decode.h"
+ #include "lure/sound.h"
+ 
+ namespace Lure {
+@@ -35,7 +36,12 @@ namespace Lure {
+ static Room *int_room;
+ 
+ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
++#ifdef GW_LURE_SLIM
++		// (a foreground layer never has a screen of its own: see the end of this function)
++		Surface(backgroundLayer ? FULL_SCREEN_WIDTH : 2, backgroundLayer ? FULL_SCREEN_HEIGHT : 2) {
++#else
+ 		Surface(FULL_SCREEN_WIDTH, FULL_SCREEN_HEIGHT) {
++#endif
+ 	Disk &disk = Disk::getReference();
+ 	byte *screenData = data().data();
+ 	int cellY;
+@@ -46,10 +52,22 @@ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
+ 
+ 	// Load up the screen data
+ 	MemoryBlock *rawData = disk.getEntry(screenId);
+-	loadScreen(rawData);
+-
+ 	uint16 v = READ_BE_UINT16(rawData->data());
+ 	bool is5Bit = (v & 0xfffe) == 0x140;
++#ifdef GW_LURE_SLIM
++	MemoryBlock *gwTmp = nullptr;
++	if (backgroundLayer) {
++		loadScreen(rawData);
++	} else {
++		// unpacked as loadScreen() does: the picture, from the line below the menu bar on
++		PictureDecoder decoder;
++		gwTmp = is5Bit ? decoder.egaDecode(rawData, FULL_SCREEN_HEIGHT * FULL_SCREEN_WIDTH + 1)
++		               : decoder.vgaDecode(rawData, FULL_SCREEN_HEIGHT * FULL_SCREEN_WIDTH + 1);
++		screenData = gwTmp->data() - MENUBAR_Y_SIZE * FULL_SCREEN_WIDTH;
++	}
++#else
++	loadScreen(rawData);
++#endif
+ 	delete rawData;
+ 
+ 	_paletteId = (screenId & 0xffe0) - 1;
+@@ -90,7 +108,38 @@ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
+ 				hasPixels ? cellIndex++ : 0xff;
+ 		}
+ 	}
++#ifdef GW_LURE_SLIM
++	_gwCells = nullptr;
++	if (!backgroundLayer) {
++		_gwCells = (byte *)malloc(MAX(cellIndex, 1) * RECT_SIZE * RECT_SIZE);
++		if (!_gwCells)
++			error("Out of memory for a room layer");
++		for (cellY = 0; cellY < NUM_VERT_RECTS; ++cellY) {
++			for (int cellX = 0; cellX < NUM_HORIZ_RECTS; ++cellX) {
++				byte idx = _cells[cellY + NUM_EDGE_RECTS][cellX + NUM_EDGE_RECTS];
++				if (idx == 0xff)
++					continue;
++				const byte *src = screenData + (cellY * RECT_SIZE + MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH + (cellX * RECT_SIZE);
++				byte *dst = _gwCells + idx * RECT_SIZE * RECT_SIZE;
++				for (int yP = 0; yP < RECT_SIZE; ++yP, src += FULL_SCREEN_WIDTH, dst += RECT_SIZE)
++					memcpy(dst, src, RECT_SIZE);
++			}
++		}
++	}
++	delete gwTmp;
++#endif
++}
++
++#ifdef GW_LURE_SLIM
++byte *RoomLayer::cellPixels(int cellX, int cellY, int &stride) {
++	if (_gwCells) {
++		stride = RECT_SIZE;
++		return _gwCells + _cells[cellY + NUM_EDGE_RECTS][cellX + NUM_EDGE_RECTS] * RECT_SIZE * RECT_SIZE;
++	}
++	stride = FULL_SCREEN_WIDTH;
++	return data().data() + (cellY * RECT_SIZE + MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH + (cellX * RECT_SIZE);
+ }
++#endif
+ 
+ /*--------------------------------------------------------------------------*/
+ 
+@@ -342,7 +391,13 @@ void Room::addCell(int16 xp, int16 yp, int layerNum) {
+ 	RoomLayer *layer = _layers[layerNum];
+ 
+ 	int index = ((yp * RECT_SIZE + MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH) + (xp * RECT_SIZE);
++#ifdef GW_LURE_SLIM
++	int srcStride = FULL_SCREEN_WIDTH;
++	byte *srcPos = layer->cellPixels(xp, yp, srcStride);
++#else
++	const int srcStride = FULL_SCREEN_WIDTH;
+ 	byte *srcPos = layer->data().data() + index;
++#endif
+ 	byte *destPos = s.data().data() + index;
+ 
+ 	for (int yCtr = 0; yCtr < RECT_SIZE; ++yCtr) {
+@@ -352,7 +407,7 @@ void Room::addCell(int16 xp, int16 yp, int layerNum) {
+ 		}
+ 
+ 		// Move to start of next cell line
+-		srcPos += FULL_SCREEN_WIDTH - RECT_SIZE;
++		srcPos += srcStride - RECT_SIZE;
+ 		destPos += FULL_SCREEN_WIDTH - RECT_SIZE;
+ 	}
+ }
+@@ -370,15 +425,23 @@ void Room::blockMerge() {
+ 						_layers[layerNum2]->isOccupied(xp + NUM_EDGE_RECTS, yp + NUM_EDGE_RECTS)) {
+ 						// Copy the rect from the later layer onto the earlier layer
+ 						int offset = (yp * RECT_SIZE + MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH + (xp * RECT_SIZE);
++#ifdef GW_LURE_SLIM
++						int srcStride = FULL_SCREEN_WIDTH, destStride = FULL_SCREEN_WIDTH;
++						byte *src = _layers[layerNum2]->cellPixels(xp, yp, srcStride);
++						byte *dest = _layers[layerNum1]->cellPixels(xp, yp, destStride);
++						(void)offset;
++#else
++						const int srcStride = FULL_SCREEN_WIDTH, destStride = FULL_SCREEN_WIDTH;
+ 						byte *src = _layers[layerNum2]->data().data() + offset;
+ 						byte *dest = _layers[layerNum1]->data().data() + offset;
++#endif
+ 
+ 						for (int y = 0; y < RECT_SIZE; ++y) {
+ 							for (int x = 0; x < RECT_SIZE; ++x, ++src, ++dest) {
+ 								if (*src != 0) *dest = *src;
+ 							}
+-							src += FULL_SCREEN_WIDTH - RECT_SIZE;
+-							dest += FULL_SCREEN_WIDTH - RECT_SIZE;
++							src += srcStride - RECT_SIZE;
++							dest += destStride - RECT_SIZE;
+ 						}
+ 					}
+ 				}
+diff --git a/engines/lure/room.h b/engines/lure/room.h
+index a0af1e16..2d5725ab 100644
+--- a/engines/lure/room.h
++++ b/engines/lure/room.h
+@@ -57,6 +57,14 @@ public:
+ 		_cells[cellY][cellX] = value;
+ 	}
+ 	uint16 paletteId() { return _paletteId; }
++#ifdef GW_LURE_SLIM
++	// Game & Watch: a foreground layer is mostly empty. Only its occupied cells are kept (32x32
++	// pixels each, in the order of their index in _cells), not a whole screen: 64 KB a layer.
++	// The pixels of the cell at (cellX, cellY) of the visible grid, and their line's length
++	byte *_gwCells;
++	~RoomLayer() { free(_gwCells); }
++	byte *cellPixels(int cellX, int cellY, int &stride);
++#endif
+ };
+ 
+ enum CursorState {CS_NONE, CS_ACTION, CS_SEQUENCE, CS_TALKING, CS_BUMPED};
+diff --git a/engines/lure/surface.cpp b/engines/lure/surface.cpp
+index 8b664cbd..998c3d4b 100644
+--- a/engines/lure/surface.cpp
++++ b/engines/lure/surface.cpp
+@@ -48,7 +48,7 @@ static const byte char95[8] = {0x40, 0x20, 0x00, 0x60, 0x90, 0x90, 0x60, 0x00};
+ 
+ void Surface::initialize() {
+ 	Disk &disk = Disk::getReference();
+-	int_font = disk.getEntry(FONT_RESOURCE_ID);
++	int_font = disk.getEntryRam(FONT_RESOURCE_ID);	// (patched below for Italian)
+ 	int_dialog_frame = disk.getEntry(DIALOG_RESOURCE_ID);
+ 
+ 	if (LureEngine::getReference().getLanguage() == Common::IT_ITA) {
+@@ -1461,7 +1461,7 @@ AudioInitIcon::AudioInitIcon() : _visible(false) {
+ 		_iconSurface = nullptr;
+ 	} else {
+ 		// Load icon
+-		_iconSurface = new Surface(Disk::getReference().getEntry(AUDIO_INIT_ICON_RESOURCE_ID), 14, 14);
++		_iconSurface = new Surface(Disk::getReference().getEntryRam(AUDIO_INIT_ICON_RESOURCE_ID), 14, 14);
+ 
+ 		Screen &screen = Screen::getReference();
+ 
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea52..380eb1fa 100644
 --- a/engines/scumm/dialogs.cpp
