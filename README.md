@@ -80,11 +80,22 @@ these lines nothing changes: ScummVM picks what it finds in the folder.
 Every game's short name is in ScummVM's
 [compatibility list](https://www.scummvm.org/compatibility/), column "ScummVM ID", without
 the engine in front (`scumm:ft` → `game=ft`). The list covers every engine, not only
-LucasArts', but this core runs the SCUMM games above for now (not yet Full Throttle, The Dig
-or The Curse of Monkey Island).
+LucasArts', but this core runs the SCUMM games above for now (Full Throttle is being tried on
+the `scumm7` branch, see below; not The Dig nor The Curse of Monkey Island).
 
 They do not fix an incomplete copy, nor the versions this core leaves out on purpose:
 Macintosh (its buffers are cut to save memory) and FM-Towns.
+
+### Full Throttle (`scumm7` branch, experimental)
+
+Copy the whole game as it is (`FT.LA0`, `FT.LA1`, `MONSTER.SOU` and the `DATA` and `VIDEO`
+folders) into its folder. `FT.LA1` (152 MB) does not fit in the flash: the first time, the
+core copies what it holds besides the sounds into `FT.LA1.gwpack` next to it (28 MB, so leave
+that much free on the card) and puts that in the flash; a progress bar shows it, and it takes
+a few minutes. The sounds, voices and videos are read from the SD card as they play. If the
+game's files change, the pack is made again; it can be deleted at any time.
+
+The Dig does not fit: its characters' graphics alone are 57 MB.
 
 ### Saved games
 
@@ -238,10 +249,22 @@ El nombre corto de cada juego está en la
 [lista de compatibilidad](https://www.scummvm.org/compatibility/) de ScummVM, columna
 "ScummVM ID", sin el motor delante (`scumm:ft` → `game=ft`). La lista incluye todos los
 motores, no solo los de LucasArts, pero por ahora este core ejecuta los juegos SCUMM de la
-tabla (todavía no Full Throttle, The Dig ni The Curse of Monkey Island).
+tabla (Full Throttle se está probando en la rama `scumm7`, ver abajo; The Dig y The Curse of
+Monkey Island no).
 
 No arreglan una copia incompleta ni las versiones que este core deja fuera a propósito:
 Macintosh (sus buffers están recortados para ahorrar memoria) y FM-Towns.
+
+### Full Throttle (rama `scumm7`, experimental)
+
+Copia el juego entero tal cual (`FT.LA0`, `FT.LA1`, `MONSTER.SOU` y las carpetas `DATA` y
+`VIDEO`) en su carpeta. `FT.LA1` (152 MB) no cabe en la flash: la primera vez, el core copia
+lo que contiene salvo los sonidos en `FT.LA1.gwpack`, a su lado (28 MB, deja ese espacio
+libre en la SD), y eso lo pone en la flash; lo muestra una barra de progreso y tarda unos
+minutos. Los sonidos, las voces y los vídeos se leen de la SD según se reproducen. Si los
+ficheros del juego cambian, el paquete se vuelve a hacer; se puede borrar cuando se quiera.
+
+The Dig no cabe: solo los gráficos de sus personajes ocupan 57 MB.
 
 ### Partidas guardadas
 
