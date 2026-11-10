@@ -15,7 +15,7 @@ CODECS   := src/codecs/gwc.c src/codecs/gwc_vorbis.c src/codecs/gwc_mp3.c src/co
 DEFS     := -DHAVE_CONFIG_H -DENABLE_SCUMM=STATIC_PLUGIN -DRELEASE_BUILD \
             -DDISABLE_HELP -DDISABLE_FANCY_THEMES -DDISABLE_SAVELOADCHOOSER_GRID \
             -DDISABLE_LAUNCHERDISPLAY_GRID -DDISABLE_TOWNS_DUAL_LAYER_MODE \
-            -DDISABLE_PC98_RHYTHM_CHANNEL -DDISABLE_NES_APU -DDISABLE_MAME_OPL -DREDUCE_MEMORY_USAGE -DGW_SCUMM_SLIM
+            -DDISABLE_PC98_RHYTHM_CHANNEL -DDISABLE_MAME_OPL -DREDUCE_MEMORY_USAGE -DGW_SCUMM_SLIM
 INCS     := -Iconfig -I$(SVM) -I$(SVM)/engines -Isrc
 CXXSTD   := -std=c++11 -fno-exceptions -fcheck-new -fno-operator-names
 WARN     := -Wno-multichar -Wno-reorder -Wno-unknown-pragmas -Wno-unused-parameter
