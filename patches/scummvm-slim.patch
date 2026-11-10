@@ -216,6 +216,117 @@ index 374f596c..3970e4b4 100644
  	int_engine = this;
  	_initialized = false;
  	_saveLoadAllowed = false;
+diff --git a/engines/lure/res.cpp b/engines/lure/res.cpp
+index 03d12318..bd9c1460 100644
+--- a/engines/lure/res.cpp
++++ b/engines/lure/res.cpp
+@@ -243,11 +243,15 @@ void Resources::reloadData() {
+ 			if (offsetVal != 0) {
+ 				MovementResource *moveRec = (MovementResource *)
+ 					(mb->data() + offsetVal);
++#ifdef GW_LURE_SLIM
++				dirEntries[dirCtr].list->load(moveRec);
++#else
+ 				while (READ_LE_UINT16(&moveRec->frameNumber) != 0xffff) {
+ 					MovementData *newMove = new MovementData(moveRec);
+ 					dirEntries[dirCtr].list->push_back(MovementDataList::value_type(newMove));
+ 					++moveRec;
+ 				}
++#endif
+ 			}
+ 		}
+ 
+diff --git a/engines/lure/res_struct.cpp b/engines/lure/res_struct.cpp
+index 87475e02..c0101c75 100644
+--- a/engines/lure/res_struct.cpp
++++ b/engines/lure/res_struct.cpp
+@@ -571,6 +571,37 @@ MovementData::MovementData(MovementResource *rec) {
+ 
+ // List of movement frames
+ 
++#ifdef GW_LURE_SLIM
++void MovementDataList::load(MovementResource *rec) {
++	uint16 n = 0;
++	while (READ_LE_UINT16(&rec[n].frameNumber) != 0xffff)
++		n++;
++	free(_items);
++	_items = n ? (MovementData *)malloc(n * sizeof(MovementData)) : nullptr;
++	_count = _items ? n : 0;
++	for (uint16 i = 0; i < _count; i++)
++		_items[i] = MovementData(&rec[i]);
++}
++
++bool MovementDataList::getFrame(uint16 currentFrame, int16 &xChange,
++							   int16 &yChange, uint16 &nextFrame) {
++	if (empty()) return false;
++	bool foundFlag = false;
++
++	for (uint16 i = 0; i < _count; i++) {
++		MovementData const &rec = _items[i];
++		if (foundFlag || (i == 0)) {
++			xChange = rec.xChange;
++			yChange = rec.yChange;
++			nextFrame = rec.frameNumber;
++			if (foundFlag) return true;
++		}
++		if (rec.frameNumber == currentFrame) foundFlag = true;
++	}
++
++	return true;
++}
++#else
+ bool MovementDataList::getFrame(uint16 currentFrame, int16 &xChange,
+ 							   int16 &yChange, uint16 &nextFrame) {
+ 	if (empty()) return false;
+@@ -591,6 +622,8 @@ bool MovementDataList::getFrame(uint16 currentFrame, int16 &xChange,
+ 	return true;
+ }
+ 
++#endif
++
+ // Hotspot animation data
+ 
+ HotspotAnimData::HotspotAnimData(HotspotAnimResource *rec) {
+diff --git a/engines/lure/res_struct.h b/engines/lure/res_struct.h
+index b6fcb863..f572fbf6 100644
+--- a/engines/lure/res_struct.h
++++ b/engines/lure/res_struct.h
+@@ -591,6 +591,7 @@ typedef Common::List<Common::SharedPtr<HotspotOverrideData> > HotspotOverrideLis
+ 
+ class MovementData {
+ public:
++	MovementData() : frameNumber(0), xChange(0), yChange(0) {}
+ 	MovementData(MovementResource *);
+ 
+ 	uint16 frameNumber;
+@@ -598,11 +599,27 @@ public:
+ 	int16 yChange;
+ };
+ 
++#ifdef GW_LURE_SLIM
++// Game & Watch: the 7400 movement frames of the game's animations as one array per list, not
++// as many list nodes, shared pointers and 6-byte objects (three heap blocks each)
++class MovementDataList {
++	MovementData *_items;
++	uint16 _count;
++public:
++	MovementDataList() : _items(nullptr), _count(0) {}
++	~MovementDataList() { free(_items); }
++	void load(MovementResource *rec);
++	bool empty() const { return _count == 0; }
++	bool getFrame(uint16 currentFrame, int16 &xChange, int16 &yChange,
++		uint16 &nextFrame);
++};
++#else
+ class MovementDataList: public Common::List<Common::SharedPtr<MovementData> > {
+ public:
+ 	bool getFrame(uint16 currentFrame, int16 &xChange, int16 &yChange,
+ 		uint16 &nextFrame);
+ };
++#endif
+ 
+ class HotspotAnimData {
+ public:
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea52..380eb1fa 100644
 --- a/engines/scumm/dialogs.cpp
