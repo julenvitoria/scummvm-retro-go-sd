@@ -2177,7 +2177,7 @@ index 3cdc7fca..81c096ff 100644
  	int _curTable;
  	uint16 _prevSeqNb;
 diff --git a/engines/scumm/smush/smush_player.cpp b/engines/scumm/smush/smush_player.cpp
-index 1c646316..f27d4d9f 100644
+index 1c646316..0af686e5 100644
 --- a/engines/scumm/smush/smush_player.cpp
 +++ b/engines/scumm/smush/smush_player.cpp
 @@ -54,6 +54,10 @@
@@ -2329,7 +2329,39 @@ index 1c646316..f27d4d9f 100644
  }
  
  void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
-@@ -1415,8 +1500,21 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
+@@ -1069,6 +1154,10 @@ void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
+ 			break;
+ 		case MKTAG('P','S','A','D'):
+ 			if (!_compressedFileMode && !isFastForwardingCurrentFrame()) {
++#ifdef GW_V7_SLIM
++				if (&b == _base && gwQueuePSAD(b, subSize))
++					break;
++#endif
+ 				audioChunk = (uint8 *)malloc(subSize + 8);
+ 				b.seek(-8, SEEK_CUR);
+ 				b.read(audioChunk, subSize + 8);
+@@ -1121,6 +1210,10 @@ void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
+ 		}
+ 	}
+ 
++#ifdef GW_V7_SLIM
++	gwPumpAudio();
++#endif
++
+ 	if (_insanity) {
+ 		_vm->_insane->procPostRendering(_dst, 0, 0, 0, _frame, _nbframes-1);
+ 	}
+@@ -1234,6 +1327,9 @@ void SmushPlayer::parseNextFrame() {
+ 			if (!_vm->openFile(*tmp, Common::Path(_seekFile)))
+ 				error("SmushPlayer: Unable to open file %s", _seekFile.c_str());
+ 			_base = tmp;
++#ifdef GW_V7_SLIM
++			memset(_gwPendCount, 0, sizeof(_gwPendCount));	// they were places in the other file
++#endif
+ 			_base->readUint32BE();
+ 			_baseSize = _base->readUint32BE();
+ 
+@@ -1415,8 +1511,21 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
  	_vm->openFile(*file, filename);
  	if (!file->isOpen()) {
  		warning("SmushPlayer::play() File not found %s", filename);
@@ -2351,19 +2383,28 @@ index 1c646316..f27d4d9f 100644
  	file->close();
  	delete file;
  
-@@ -1609,7 +1707,11 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
+@@ -1608,8 +1717,20 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
+ 	CursorMan.showMouse(oldMouseState);
  }
  
++#ifdef GW_V7_SLIM
++// how far ahead of its playing a track's buffer may be filled is its size less this. The tracks
++// filled by gwPumpAudio() are never overrun, and need the room for what is to play
++#define GW_MARGIN(i) 4000
++#else
++#define GW_MARGIN(i) 15000
++#endif
++
  void SmushPlayer::initAudio(int samplerate, int32 maxChunkSize) {
 +#ifdef GW_V7_SLIM
-+	int32 maxSizes[SMUSH_MAX_TRACKS] = {16000, 16000, 16000, 64000};   // Game & Watch: ring buffers
++	int32 maxSizes[SMUSH_MAX_TRACKS] = {20480, 20480, 20480, 20480};   // Game & Watch: see gwPumpAudio()
 +#else
  	int32 maxSizes[SMUSH_MAX_TRACKS] = {100000, 100000, 100000, 400000};
 +#endif
  
  	if (_imuseDigital)
  		_imuseDigital->setSmushPlayer(this);
-@@ -1658,13 +1760,56 @@ void SmushPlayer::terminateAudio() {
+@@ -1658,13 +1779,152 @@ void SmushPlayer::terminateAudio() {
  		_smushAudioCallbackEnabled = false;
  	}
  
@@ -2402,7 +2443,9 @@ index 1c646316..f27d4d9f 100644
 +			free(_smushTracks[i].fadeBuf);
 +		}
 +		_gwInArena[i] = false;
-+		_gwFailed[i] = false;
++		free(_gwPend[i]);
++		_gwPend[i] = nullptr;
++		_gwPendCap[i] = _gwPendHead[i] = _gwPendCount[i] = 0;
 +		_smushTracks[i].blockPtr = nullptr;
 +		_smushTracks[i].fadeBuf = nullptr;
 +		_smushTracks[i].dataBuf = nullptr;
@@ -2417,10 +2460,104 @@ index 1c646316..f27d4d9f 100644
 +}
 +#endif
 +
++#ifdef GW_V7_SLIM
++// can 'size' more bytes go into the track's buffer without running over what is still to play?
++bool SmushPlayer::gwRoomFor(int t, uint32 size) {
++	const SmushAudioTrack &trk = _smushTracks[t];
++	int32 played = (trk.state == TRK_STATE_FADING) ? 0 : _smushDispatch[t].audioRemaining;
++	return (int32)trk.availableSize - played + (int32)size <= (int32)trk.dataSize - GW_MARGIN(t);
++}
++
++// A PSAD chunk (a piece of a sound) at the stream's position. If its track's buffer has no
++// room for it yet, or earlier pieces are waiting, its place is queued and nothing is read:
++// gwPumpAudio() reads it when its turn comes. What fits right now is left to the usual path
++// (music, which comes as fast as it plays, always), as is a sound's first piece.
++bool SmushPlayer::gwQueuePSAD(Common::SeekableReadStream &b, int32 subSize) {
++	uint8 h[12];
++	const int32 pos = b.pos();
++
++	if (!_smushAudioInitialized || subSize <= 12)
++		return false;
++	if (b.read(h, 12) != 12) {
++		b.seek(pos, SEEK_SET);
++		return false;
++	}
++	// the two encodings of feedAudio()
++	uint16 trkId, index;
++	int32 maxFrames, hdr, vol, pan;
++	if (h[0] == 0 && h[1] == 0 && h[4] == 0 && h[5] == 0 && h[8] == 0 && h[9] == 0) {
++		trkId = READ_BE_INT16(h + 2);
++		index = READ_BE_INT16(h + 6);
++		maxFrames = READ_BE_INT16(h + 10);
++		hdr = 12;
++		vol = 127;
++		pan = 0;
++	} else {
++		trkId = READ_LE_INT16(h);
++		index = READ_LE_INT16(h + 2);
++		maxFrames = READ_LE_INT16(h + 4);
++		hdr = 10;
++		vol = (((127 * h[8]) >> 7) * h[8]) >> 7;
++		pan = h[9];
++	}
++	const uint32 size = subSize - hdr;
++	int t = -1;
++	for (int i = 0; index && i < _smushNumTracks; i++) {
++		if (_smushTracks[i].state != TRK_STATE_INACTIVE && trkId == _smushTrackIds[i] &&
++		    index == (_smushTrackIdxs[i] + 1) && maxFrames == _smushMaxFrames[i]) {
++			t = i;
++			break;
++		}
++	}
++	if (t == -1 || _gwPendCount[t] >= _gwPendCap[t] || (!_gwPendCount[t] && gwRoomFor(t, size))) {
++		b.seek(pos, SEEK_SET);
++		return false;
++	}
++	GwPend &e = _gwPend[t][(_gwPendHead[t] + _gwPendCount[t]) % _gwPendCap[t]];
++	e.off = pos + hdr;
++	e.size = size;
++	_gwPendCount[t]++;
++	_smushTrackIdxs[t]++;
++	if (vol >= 0 && vol < 128)
++		_smushTracks[t].volume = vol;
++	if (pan > -128 && pan < 128)
++		_smushTracks[t].pan = pan;
++	return true;
++}
++
++void SmushPlayer::gwPumpAudio() {
++	int32 back = -1;
++
++	for (int t = 0; t < GW_DEFERRED && t < _smushNumTracks; t++) {
++		SmushAudioTrack &trk = _smushTracks[t];
++		if (_gwPendCount[t] && (trk.state == TRK_STATE_INACTIVE || !trk.blockPtr || !_base))
++			_gwPendCount[t] = 0;
++		while (_gwPendCount[t]) {
++			const GwPend &e = _gwPend[t][_gwPendHead[t]];
++			if (!gwRoomFor(t, e.size))
++				break;
++			if (back < 0)
++				back = _base->pos();
++			uint32 mod = trk.availableSize % trk.dataSize;
++			uint32 first = MIN<uint32>(e.size, trk.dataSize - mod);
++			_base->seek(e.off, SEEK_SET);
++			_base->read(&trk.subChunkPtr[mod], first);
++			if (first < e.size)
++				_base->read(trk.subChunkPtr, e.size - first);
++			trk.availableSize += e.size;
++			_gwPendHead[t] = (_gwPendHead[t] + 1) % _gwPendCap[t];
++			_gwPendCount[t]--;
++		}
++	}
++	if (back >= 0)
++		_base->seek(back, SEEK_SET);
++}
++#endif
++
  int SmushPlayer::isChanActive(int flagId) {
  	return _smushTrackFlags[flagId];
  }
-@@ -1688,6 +1833,12 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
+@@ -1688,6 +1948,12 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
  	_smushTracks[id].subChunkPtr = nullptr;
  	_smushTracks[id].dataSize = 0;
  
@@ -2433,7 +2570,7 @@ index 1c646316..f27d4d9f 100644
  	_smushTracks[id].fadeBuf = (uint8 *)malloc(SMUSH_FADE_SIZE);
  	if (!_smushTracks[id].fadeBuf)
  		return -1;
-@@ -1697,6 +1848,7 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
+@@ -1697,6 +1963,7 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
  		return -1;
  
  	memset(_smushTracks[id].blockPtr, 127, _smushTracks[id].blockSize);
@@ -2441,14 +2578,14 @@ index 1c646316..f27d4d9f 100644
  	// Track the effective number of tracks, so that if only one fails,
  	// the others can carry on as they should
  	_smushNumTracks++;
-@@ -1747,40 +1899,47 @@ void SmushPlayer::handleSAUDChunk(uint8 *srcBuf, uint32 size, int groupId, int v
+@@ -1747,40 +2014,47 @@ void SmushPlayer::handleSAUDChunk(uint8 *srcBuf, uint32 size, int groupId, int v
  	uint16 flagsAccumulator[SMUSH_MAX_TRACKS];
  
  	if (!index) {
 +#ifdef GW_V7_SLIM
 +		// Game & Watch: the tracks' buffers are smaller here, but a sound still picks its track as
 +		// if they had their real sizes (or speech lands on the music's track and silences it)
-+#define GW_NOMINAL(i) (_smushTracks[i].blockSize > 32000 ? 400000 : 100000)
++#define GW_NOMINAL(i) ((i) == SMUSH_MAX_TRACKS - 1 ? 400000 : 100000)
 +#else
 +#define GW_NOMINAL(i) (_smushTracks[i].blockSize)
 +#endif
@@ -2500,16 +2637,22 @@ index 1c646316..f27d4d9f 100644
  				if (_smushTracks[i].state == TRK_STATE_INACTIVE ||
  					_smushTracks[i].state == TRK_STATE_ENDING   ||
  					_smushTracks[i].flags <= flags) {
-@@ -1853,6 +2012,34 @@ void SmushPlayer::fillAudioTrackInfo(uint8 *srcBuf, uint16 *flagsAccumulator, ui
+@@ -1853,6 +2127,39 @@ void SmushPlayer::fillAudioTrackInfo(uint8 *srcBuf, uint16 *flagsAccumulator, ui
  		}
  	}
  
 +#ifdef GW_V7_SLIM
-+	if (maxAccId != -1 && _gwFailed[maxAccId])
-+		return;		// no memory for it in this video: not asked for again at every frame
-+	// the back buffer goes to the background music's track (64 KB, the one hardest to place);
-+	// the others (16 KB) find a hole in the heap
-+	if (maxAccId != -1 && !_smushTracks[maxAccId].blockPtr && _smushTracks[maxAccId].blockSize > 32000 &&
++	// the buffers come out of the room's back buffer when a video leaves it free, or the heap
++	if (maxAccId != -1) {
++		// a sound comes at most twice as fast as it plays: half its pieces wait at the worst
++		free(_gwPend[maxAccId]);
++		_gwPendCap[maxAccId] = (uint16)CLIP<int>(maxFrames / 2 + 16, 16, 4000);
++		_gwPend[maxAccId] = (GwPend *)malloc(_gwPendCap[maxAccId] * sizeof(GwPend));
++		if (!_gwPend[maxAccId])
++			_gwPendCap[maxAccId] = 0;
++		_gwPendHead[maxAccId] = _gwPendCount[maxAccId] = 0;
++	}
++	if (maxAccId != -1 && !_smushTracks[maxAccId].blockPtr &&
 +	    (uint32)(SMUSH_FADE_SIZE + _smushTracks[maxAccId].blockSize) <= _gwArenaLeft) {
 +		_smushTracks[maxAccId].fadeBuf = _gwArena;
 +		_smushTracks[maxAccId].blockPtr = _gwArena + SMUSH_FADE_SIZE;
@@ -2525,7 +2668,6 @@ index 1c646316..f27d4d9f 100644
 +			free(_smushTracks[maxAccId].blockPtr);
 +			_smushTracks[maxAccId].fadeBuf = nullptr;
 +			_smushTracks[maxAccId].blockPtr = nullptr;
-+			_gwFailed[maxAccId] = true;
 +			warning("SmushPlayer: no memory for an audio track");
 +			return;
 +		}
@@ -2535,11 +2677,57 @@ index 1c646316..f27d4d9f 100644
  	if (maxAccId != -1) {
  		for (int i = 0; i < _smushNumTracks; i++) {
  			if (_smushTracks[i].parsedChunks < 255) {
+@@ -1967,10 +2274,10 @@ void SmushPlayer::processDispatches(int16 feedSize) {
+ 
+ 				_smushDispatch[i].volumeStep = 0;
+ 			} else if (_smushTracks[i].state == TRK_STATE_PLAYING) {
+-				if (_smushDispatch[i].audioRemaining < _smushTracks[i].availableSize - _smushTracks[i].dataSize + 15000) {
++				if (_smushDispatch[i].audioRemaining < _smushTracks[i].availableSize - _smushTracks[i].dataSize + GW_MARGIN(i)) {
+ 					if (_smushTracks[i].availableSize < _smushTracks[i].sdatSize) {
+ 						_smushDispatch[i].volumeStep = 0;
+-						mixInFrameCount = _smushTracks[i].availableSize - _smushDispatch[i].audioRemaining - 15000;
++						mixInFrameCount = _smushTracks[i].availableSize - _smushDispatch[i].audioRemaining - GW_MARGIN(i);
+ 
+ 						if (mixInFrameCount > _smushDispatch[i].currentOffset)
+ 							mixInFrameCount = _smushDispatch[i].currentOffset;
+@@ -2163,8 +2470,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
+ 			_smushDispatch[idx].currentOffset = READ_BE_UINT32(buf + 6);
+ 			_smushDispatch[idx].sampleRate = _smushAudioSampleRate;
+ 			_smushDispatch[idx].headerPtr += _smushDispatch[idx].headerPtr[1] + 2;
+-			if (_smushDispatch[idx].audioRemaining < _smushTracks[idx].availableSize + (_smushTracks[idx].availableSize >= _smushTracks[idx].sdatSize ? 0 : 15000) - _smushTracks[idx].dataSize) {
+-				chunk = _smushTracks[idx].availableSize - _smushTracks[idx].dataSize - _smushDispatch[idx].audioRemaining + 15000;
++			if (_smushDispatch[idx].audioRemaining < _smushTracks[idx].availableSize + (_smushTracks[idx].availableSize >= _smushTracks[idx].sdatSize ? 0 : GW_MARGIN(idx)) - _smushTracks[idx].dataSize) {
++				chunk = _smushTracks[idx].availableSize - _smushTracks[idx].dataSize - _smushDispatch[idx].audioRemaining + GW_MARGIN(idx);
+ 				if (chunk > _smushDispatch[idx].currentOffset) {
+ 					_smushTracks[idx].state = TRK_STATE_INACTIVE;
+ 					_smushTracks[idx].groupId = GRP_MASTER;
+@@ -2276,8 +2583,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
+ 			_smushDispatch[idx].sampleRate = _smushAudioSampleRate;
+ 
+ 			_smushDispatch[idx].headerPtr += _smushDispatch[idx].headerPtr[1] + 2;
+-			if (_smushDispatch[idx].audioRemaining < _smushTracks[idx].availableSize + (_smushTracks[idx].availableSize >= _smushTracks[idx].sdatSize ? 0 : 15000) - _smushTracks[idx].dataSize) {
+-				chunk = _smushTracks[idx].availableSize - _smushTracks[idx].dataSize - _smushDispatch[idx].audioRemaining + 15000;
++			if (_smushDispatch[idx].audioRemaining < _smushTracks[idx].availableSize + (_smushTracks[idx].availableSize >= _smushTracks[idx].sdatSize ? 0 : GW_MARGIN(idx)) - _smushTracks[idx].dataSize) {
++				chunk = _smushTracks[idx].availableSize - _smushTracks[idx].dataSize - _smushDispatch[idx].audioRemaining + GW_MARGIN(idx);
+ 				if (chunk > _smushDispatch[idx].currentOffset) {
+ 					_smushTracks[idx].state = TRK_STATE_INACTIVE;
+ 					_smushTracks[idx].groupId = GRP_MASTER;
+@@ -2314,8 +2621,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
+ 				_smushDispatch[idx].headerPtr = &code[READ_BE_UINT16(&code[18])];
+ 			}
+ 
+-			if (_smushDispatch[idx].audioRemaining >= _smushTracks[idx].availableSize + (_smushTracks[idx].availableSize >= _smushTracks[idx].sdatSize ? 0 : 15000) - _smushTracks[idx].dataSize) {
+-				chunk = _smushTracks[idx].availableSize - _smushTracks[idx].dataSize - _smushDispatch[idx].audioRemaining + 15000;
++			if (_smushDispatch[idx].audioRemaining >= _smushTracks[idx].availableSize + (_smushTracks[idx].availableSize >= _smushTracks[idx].sdatSize ? 0 : GW_MARGIN(idx)) - _smushTracks[idx].dataSize) {
++				chunk = _smushTracks[idx].availableSize - _smushTracks[idx].dataSize - _smushDispatch[idx].audioRemaining + GW_MARGIN(idx);
+ 				if (chunk > _smushDispatch[idx].currentOffset) {
+ 					_smushTracks[idx].state = TRK_STATE_INACTIVE;
+ 					_smushTracks[idx].groupId = GRP_MASTER;
 diff --git a/engines/scumm/smush/smush_player.h b/engines/scumm/smush/smush_player.h
-index 15975a2a..1c61fa60 100644
+index 15975a2a..b8ab0f3f 100644
 --- a/engines/scumm/smush/smush_player.h
 +++ b/engines/scumm/smush/smush_player.h
-@@ -143,6 +143,22 @@ private:
+@@ -143,6 +143,30 @@ private:
  	ScummEngine_v7 *_vm;
  	IMuseDigital *_imuseDigital;
  	Insane *_insane;
@@ -2556,8 +2744,16 @@ index 15975a2a..1c61fa60 100644
 +	byte *_gwArena = nullptr;		// the room's back buffer, while a video plays (init())
 +	uint32 _gwArenaLeft = 0;
 +	bool _gwInArena[4] = {};
-+	bool _gwFailed[4] = {};
 +	void gwFreeTracks();
++	// Sounds are not buffered as the video delivers them (twice as fast as they
++	// play): where each piece lies in the file is queued and it is read when its turn comes
++	enum { GW_DEFERRED = SMUSH_MAX_TRACKS };
++	struct GwPend { uint32 off; uint32 size; };
++	GwPend *_gwPend[GW_DEFERRED] = {};	// one queue per sound, for half its pieces (fillAudioTrackInfo)
++	uint16 _gwPendCap[GW_DEFERRED] = {}, _gwPendHead[GW_DEFERRED] = {}, _gwPendCount[GW_DEFERRED] = {};
++	bool gwQueuePSAD(Common::SeekableReadStream &b, int32 subSize);
++	void gwPumpAudio();
++	bool gwRoomFor(int t, uint32 size);
 +#endif
  	int32 _nbframes;
  	int16 _deltaPal[0x300];
