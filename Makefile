@@ -9,13 +9,16 @@
 
 SVM      := scummvm
 SVM_SRC  := $(shell cat config/sources.txt)
-OWN_CXX  := src/gw_system.cpp src/gw_audio_decoders.cpp
+OWN_CXX  := src/gw_system.cpp src/gw_audio_decoders.cpp src/gw_new.cpp
 CODECS   := src/codecs/gwc.c src/codecs/gwc_vorbis.c src/codecs/gwc_mp3.c src/codecs/gwc_flac.c
 
-DEFS     := -DHAVE_CONFIG_H -DENABLE_SCUMM=STATIC_PLUGIN -DRELEASE_BUILD \
+# SCUMM v7 (Full Throttle, The Dig) cut to the console's memory; "make host-gwheap HB=build/hostref
+# V7_SLIM=" builds the PC test program without the cuts, to compare
+V7_SLIM  ?= -DGW_V7_SLIM
+DEFS     := -DHAVE_CONFIG_H -DENABLE_SCUMM=STATIC_PLUGIN -DENABLE_SCUMM_7_8 -DRELEASE_BUILD \
             -DDISABLE_HELP -DDISABLE_FANCY_THEMES -DDISABLE_SAVELOADCHOOSER_GRID \
             -DDISABLE_LAUNCHERDISPLAY_GRID -DDISABLE_TOWNS_DUAL_LAYER_MODE \
-            -DDISABLE_PC98_RHYTHM_CHANNEL -DDISABLE_MAME_OPL -DREDUCE_MEMORY_USAGE -DGW_SCUMM_SLIM
+            -DDISABLE_PC98_RHYTHM_CHANNEL -DDISABLE_MAME_OPL -DREDUCE_MEMORY_USAGE -DGW_SCUMM_SLIM -DGW_FS_PROBE $(V7_SLIM)
 INCS     := -Iconfig -I$(SVM) -I$(SVM)/engines -Isrc
 CXXSTD   := -std=c++11 -fno-exceptions -fcheck-new -fno-operator-names
 WARN     := -Wno-multichar -Wno-reorder -Wno-unknown-pragmas -Wno-unused-parameter
@@ -35,7 +38,7 @@ $(PATCHED): $(wildcard patches/*.patch)
 
 # ---------------------------------------------------------------- host
 HB       := build/host
-HOST_OBJ := $(SVM_SRC:%=$(HB)/svm/%.o) $(OWN_CXX:%=$(HB)/%.o) $(CODECS:%=$(HB)/%.o) $(HB)/src/platform_host.c.o $(HB)/src/osk.c.o
+HOST_OBJ := $(SVM_SRC:%=$(HB)/svm/%.o) $(OWN_CXX:%=$(HB)/%.o) $(CODECS:%=$(HB)/%.o) $(HB)/gen/dimuse_mixtable.o $(HB)/gen/dimuse_imctable.o $(HB)/src/platform_host.c.o $(HB)/src/osk.c.o $(HB)/src/pack.c.o
 
 .PHONY: host-gwheap
 host: $(HB)/scummvm_host
@@ -100,8 +103,8 @@ LIBC_NAMES := memchr memcmp strchr strcmp strlen strncmp strncpy strrchr strstr 
             strtoul strncat setjmp longjmp __assert_func exit cosf sqrtf log10 getenv
 REDEF    := $(AB)/redefine_syms.txt
 
-ARM_SVM  := $(SVM_SRC:%=$(AB)/svm/%.o) $(OWN_CXX:%=$(AB)/%.o) $(CODECS:%=$(AB)/%.o)
-ARM_OWN  := $(AB)/boot.o $(AB)/platform_core.o $(AB)/osk.o $(AB)/gw_core_i18n.o $(AB)/heap.o $(AB)/tlsf.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o
+ARM_SVM  := $(SVM_SRC:%=$(AB)/svm/%.o) $(OWN_CXX:%=$(AB)/%.o) $(CODECS:%=$(AB)/%.o) $(AB)/gen/dimuse_mixtable.o $(AB)/gen/dimuse_imctable.o
+ARM_OWN  := $(AB)/boot.o $(AB)/platform_core.o $(AB)/osk.o $(AB)/pack.o $(AB)/gw_core_i18n.o $(AB)/heap.o $(AB)/tlsf.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o
 
 core: $(OUT)
 
@@ -128,7 +131,7 @@ $(AB)/src/codecs/%.c.o: src/codecs/%.c src/codecs/gwc_priv.h src/gw_codecs.h
 	@echo "  CC   $<"
 	@$(CROSS)gcc -c $(MCU) -O2 -ffunction-sections -fdata-sections -w $< -o $@
 
-$(AB)/boot.o $(AB)/platform_core.o: $(AB)/%.o: src/%.c src/platform.h src/svm_xip.h $(REDEF)
+$(AB)/boot.o $(AB)/platform_core.o: $(AB)/%.o: src/%.c src/platform.h src/pack.h src/svm_xip.h $(REDEF)
 	@mkdir -p $(dir $@)
 	$(CROSS)gcc -c $(ARM_C) $< -o $@
 	$(CROSS)objcopy --redefine-syms=$(REDEF) $@
@@ -141,9 +144,13 @@ $(AB)/osk.o: src/osk.c src/osk.h src/font_cp437.h
 	@mkdir -p $(dir $@)
 	$(CROSS)gcc -c $(ARM_C) $< -o $@
 
+$(AB)/pack.o: src/pack.c src/pack.h src/platform.h
+	@mkdir -p $(dir $@)
+	$(CROSS)gcc -c $(ARM_C) $< -o $@
+
 $(AB)/heap.o: src/heap.c
 	@mkdir -p $(dir $@)
-	$(CROSS)gcc -c $(MCU) -O2 -Wall -fno-builtin -Isrc $< -o $@   # -fno-builtin: else malloc+memset becomes a call to calloc
+	$(CROSS)gcc -c $(MCU) -O2 -Wall -fno-builtin $(if $(HEAP_MAP_LOG),-DHEAP_MAP_LOG) -Isrc $< -o $@   # -fno-builtin: else malloc+memset becomes a call to calloc
 
 $(AB)/tlsf.o: src/third_party/tlsf/tlsf.c
 	@mkdir -p $(dir $@)
@@ -179,3 +186,18 @@ $(OUT): $(AB)/scummvm.elf tools/xip_pack.py assets/header.png assets/pad.png
 
 clean:
 	rm -rf build out
+
+# Digital iMUSE's mixer and IMC tables as const data (SCUMM v7): generated on the build machine
+.SECONDARY: build/gen/dimuse_mixtable.c build/gen/dimuse_imctable.c
+build/gen/dimuse_%.c: tools/gen/dimuse_%.c
+	@mkdir -p $(dir $@)
+	cc -O2 $< -o build/gen/dimuse_$*_gen && build/gen/dimuse_$*_gen > $@
+
+$(HB)/gen/%.o: build/gen/%.c
+	@mkdir -p $(dir $@)
+	gcc -c -O1 $< -o $@
+
+$(AB)/gen/%.o: build/gen/%.c
+	@mkdir -p $(dir $@)
+	$(CROSS)gcc -c $(MCU) -O2 $< -o $@
+
