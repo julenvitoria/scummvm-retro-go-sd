@@ -295,7 +295,7 @@ index ba1ee651..d1849dbc 100644
   * This file contains all file reading classes requiring a ScummEngine object.
   */
 diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
-index bf85f13c..ad423861 100644
+index bf85f13c..c857f8d3 100644
 --- a/engines/scumm/gfx.cpp
 +++ b/engines/scumm/gfx.cpp
 @@ -343,6 +343,11 @@ void ScummEngine::initScreens(int b, int h) {
@@ -347,10 +347,18 @@ index bf85f13c..ad423861 100644
  		vs->backBuf = _res->createResource(rtBuffer, slot + 5, size);
  	}
  
-@@ -665,6 +693,16 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
+@@ -665,6 +693,24 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
  	if (width <= 0 || height <= 0)
  		return;
  
++#ifdef GW_SCUMM_SLIM
++	// (the NES whole-screen repaint below, before it is split in bands: a loaded game left the
++	// top rows, which no screen owns, in colour 0 -- grey)
++	if ((_game.platform == Common::kPlatformNES) && width == 256 && height == 240) {
++		_system->fillScreen(0x1d);
++		return;
++	}
++#endif
 +#ifdef GW_SCUMM_SLIM
 +	// Game & Watch: the composite buffer holds GW_COMPOSITE_ROWS rows (scumm.cpp), so a taller
 +	// strip goes in bands

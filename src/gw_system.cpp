@@ -375,6 +375,7 @@ public:
 	uint32 _key = 0;
 	bool _cursorVisible = false;
 	int _mouseX = 0, _mouseY = 0;
+	bool _mouseSet = false, _mouseTell = false;   // the pointer starts in the middle of the screen
 	int _shakeX = 0, _shakeY = 0;
 
 	GWGraphics() { memset(_pal, 0, sizeof _pal); }
@@ -385,6 +386,11 @@ public:
 		if (_screen.w != (int)w || _screen.h != (int)h) {
 			_screen.free();
 			_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+		}
+		if (!_mouseSet) {
+			_mouseSet = _mouseTell = true;       // pollEvent() tells the game where it is
+			_mouseX = w / 2;
+			_mouseY = h / 2;
 		}
 	}
 	void setPalette(const byte *c, uint start, uint num) override {
@@ -591,6 +597,10 @@ public:
 	bool pollEvent(Common::Event &event) override {
 		((DefaultTimerManager *)getTimerManager())->checkTimers();
 		pumpAudio();
+		if (gfx()->_mouseTell) {
+			gfx()->_mouseTell = false;
+			push(Common::EVENT_MOUSEMOVE);
+		}
 		if (_queue.empty()) readButtons();
 		if (_queue.empty()) return false;
 		event = _queue.pop();
