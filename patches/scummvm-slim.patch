@@ -3113,21 +3113,24 @@ index 2d334840..c7877a2d 100644
  		// make sure the last 8 lines are forced to black.
  		memset(_currentScreen + GAME_SCREEN_HEIGHT * GAME_SCREEN_WIDTH, 0, (FULL_SCREEN_HEIGHT - GAME_SCREEN_HEIGHT) * GAME_SCREEN_WIDTH);
 diff --git a/engines/sky/sky.cpp b/engines/sky/sky.cpp
-index 81baee63..4e25302b 100644
+index 81baee63..a3753eb0 100644
 --- a/engines/sky/sky.cpp
 +++ b/engines/sky/sky.cpp
-@@ -67,6 +67,10 @@
+@@ -67,6 +67,13 @@
   With apologies to the CD32 SteelSky file.
  */
  
 +#ifdef GW_SKY_SLIM
 +extern "C" int heap_screen_spill;		// src/heap.c
++#ifndef GW_SKY_VOLUME
++#define GW_SKY_VOLUME 144
++#endif
 +#endif
 +
  namespace Sky {
  
  void *SkyEngine::_itemList[300];
-@@ -203,6 +207,10 @@ void SkyEngine::handleKey() {
+@@ -203,6 +210,10 @@ void SkyEngine::handleKey() {
  	_keyPressed.reset();
  }
  
@@ -3138,7 +3141,7 @@ index 81baee63..4e25302b 100644
  Common::Error SkyEngine::go() {
  	_action = kSkyActionNone;
  
-@@ -244,6 +252,11 @@ Common::Error SkyEngine::go() {
+@@ -244,6 +255,11 @@ Common::Error SkyEngine::go() {
  
  	uint32 delayCount = _system->getMillis();
  	while (!shouldQuit()) {
@@ -3150,17 +3153,22 @@ index 81baee63..4e25302b 100644
  		_skySound->checkFxQueue();
  		if (SkyEngine::isIbass()) {
  			if (_curScreen != Logic::_scriptVariables[SCREEN]) {
-@@ -360,6 +373,9 @@ bool SkyEngine::loadChineseTraditional() {
+@@ -360,6 +376,14 @@ bool SkyEngine::loadChineseTraditional() {
  }
  
  Common::Error SkyEngine::init() {
 +#ifdef GW_SKY_SLIM
 +	heap_screen_spill = 1;	// Game & Watch: no SCUMM screens here, their heap is everyone's
++	// The core runs ScummVM at full volume (the console has its own); this game's voices,
++	// effects and music played together clip at that level (the intro: 2.3% of the samples), and
++	// still do at ScummVM's own 192. At 144 the intro peaks at 90% of full scale.
++	for (const char *k : { "music_volume", "sfx_volume", "speech_volume" })
++		ConfMan.setInt(k, GW_SKY_VOLUME, Common::ConfigManager::kTransientDomain);
 +#endif
  	if (SkyEngine::isIbass()) {
  		Graphics::PixelFormat format(4, 8, 8, 8, 8, 24, 16, 8, 0);
  		initGraphics(320, 200, &format);
-@@ -667,3 +683,18 @@ Common::String SkyEngine::giveButton(const Common::String &button) {
+@@ -667,3 +691,18 @@ Common::String SkyEngine::giveButton(const Common::String &button) {
  }
  
  } // End of namespace Sky
