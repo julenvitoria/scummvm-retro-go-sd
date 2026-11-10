@@ -88,6 +88,12 @@ Island) and Beneath a Steel Sky.
 They do not fix an incomplete copy, nor the versions this core leaves out on purpose:
 Macintosh (its buffers are cut to save memory) and FM-Towns.
 
+### Lure of the Temptress (`lure` branch, experimental)
+
+Copy `DISK1.VGA` to `DISK4.VGA` into the game's folder, with ScummVM's `lure.dat` (it comes
+with ScummVM, not with the game). Everything goes to the flash; nothing is built on the
+first launch.
+
 ### Full Throttle
 
 Copy the whole game as it is (`FT.LA0`, `FT.LA1`, `MONSTER.SOU` and the `DATA` and `VIDEO`
@@ -266,6 +272,12 @@ tabla: SCUMM (The Dig y The Curse of Monkey Island no) y Beneath a Steel Sky.
 
 No arreglan una copia incompleta ni las versiones que este core deja fuera a propósito:
 Macintosh (sus buffers están recortados para ahorrar memoria) y FM-Towns.
+
+### Lure of the Temptress (rama `lure`, experimental)
+
+Copia `DISK1.VGA` a `DISK4.VGA` en la carpeta del juego, junto con `lure.dat` de ScummVM
+(viene con ScummVM, no con el juego). Todo va a la flash; no se crea nada en el primer
+arranque.
 
 ### Full Throttle
 

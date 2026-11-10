@@ -345,7 +345,7 @@ index 41c92f33..bb205bc1 100644
  	AnimationSequence(uint16 screenId, Palette &palette,  bool fadeIn, int frameDelay = 7,
  		const AnimSoundSequence *soundList = NULL, uint8 loops = 1);
 diff --git a/engines/lure/decode.cpp b/engines/lure/decode.cpp
-index cfbc1d5c..0207f7c2 100644
+index cfbc1d5c..1206f97a 100644
 --- a/engines/lure/decode.cpp
 +++ b/engines/lure/decode.cpp
 @@ -37,6 +37,14 @@ namespace Lure {
@@ -467,7 +467,7 @@ index cfbc1d5c..0207f7c2 100644
 +	return dest;
 +}
 +
-+// ...or into pieces of GW_ANIM_CHUNK bytes (animseq.cpp): 190 KB in one block is more than the
++// ...or into pieces of GW_ANIM_CHUNK bytes (animseq.cpp): 190 KB in one block, or in 16 KB ones, is more than the
 +// console's heap has free in one place. Returns the size; chunks is an array of that many
 +// pieces, rounded up
 +uint32 PictureDecoder::vgaDecodeChunks(MemoryBlock *src, MemoryBlock **&chunks) {
@@ -497,7 +497,7 @@ index cfbc1d5c..0207f7c2 100644
  /*--------------------------------------------------------------------------*/
  /* AnimationDecoder class                                                   */
 diff --git a/engines/lure/decode.h b/engines/lure/decode.h
-index 69d7e7e7..4054a591 100644
+index 69d7e7e7..a8f93d49 100644
 --- a/engines/lure/decode.h
 +++ b/engines/lure/decode.h
 @@ -48,6 +48,12 @@ public:
@@ -505,7 +505,7 @@ index 69d7e7e7..4054a591 100644
  	MemoryBlock *egaDecode(MemoryBlock *src, uint32 maxOutputSize);
  	MemoryBlock *vgaDecode(MemoryBlock *src, uint32 maxOutputSize);
 +#ifdef GW_LURE_SLIM
-+	enum { GW_ANIM_CHUNK = 16384 };
++	enum { GW_ANIM_CHUNK = 2048 };	// small enough for the holes the small heaps are left with
 +	MemoryBlock **gwChunks = nullptr;
 +	void gwVgaLoop(MemoryBlock *src, MemoryBlock *dest);
 +	uint32 vgaDecodeChunks(MemoryBlock *src, MemoryBlock **&chunks);
