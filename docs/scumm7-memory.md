@@ -24,9 +24,10 @@ rooms, scripts and charsets. Loaded into the heap, one costume is more than the 
 - Sounds: those over 8 KB are never loaded. Music streams read them from the card
   (`ImuseDigiSndMgr::openSound`), and effects are read through six 4 KB windows
   (`IMuseDigiFilesHandler::soundData()`); scripts' "load sound" skips them.
-- Of the subfolders (DATA, VIDEO) only the .NUT fonts go to the flash. Caching every small
-  file there (140 with a complete copy) ended on the console in garbage resources and videos
-  not found; the suspicion is the number of files the firmware's flash cache tracks per game.
+- Of the subfolders (DATA, VIDEO) only the .NUT fonts go to the flash; the videos are read
+  from the card.
+- The firmware allows 6 open files. Read streams on card files share at most 3 real handles
+  (`GWCardFile` in `src/gw_system.cpp`), reopened on demand.
 
 ## Cuts (all under `GW_V7_SLIM`)
 
@@ -38,7 +39,10 @@ rooms, scripts and charsets. Loaded into the heap, one costume is more than the 
   holes that big), and its first block is lent to the room's back buffer while no video
   plays: a video draws on the front buffer and the room is redrawn whole after it
 - SMUSH: audio tracks' buffers made when a video uses them and freed after (the 64 KB music
-  track lands in what the screen heap has left); one 48 KB frame-object buffer, kept
+  track lands in what the screen heap has left); one 48 KB frame-object buffer, kept. The
+  tracks are 16 KB and 64 KB rings instead of 100 KB and 400 KB, but a sound picks its track
+  by the original sizes: by the real ones, speech took the music's track and the song of the
+  intro's end and the credits was never heard
 - NUT fonts (and Insane's sprites) decoded a row at a time from the flash, not up front
 - Insane (bike scenes) made at the first one: ~50 KB of tables and fonts
 - v7 never composes the text surface: 64 KB, and the composite buffer, gone
@@ -48,6 +52,12 @@ rooms, scripts and charsets. Loaded into the heap, one costume is more than the 
   lets blocks of 16 KB or more use what its screen buffers leave of their heap
 - `make core HEAP_MAP_LOG=1`: at the first failed allocation, scummvm.log gets every block of
   2 KB or more with its caller, and the free holes (a heap map from the console itself)
+
+## Diagnostics
+
+scummvm.log is saved while the game runs (every few seconds when it has new lines), not only
+on exit. Each video is logged with its size and first bytes; one that is not found gets the
+listing of its folder.
 
 ## What is left (PC, at the peak of a video)
 
