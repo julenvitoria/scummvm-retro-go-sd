@@ -337,7 +337,9 @@ static char g_rgPath[256];
 
 class GWSaveFileManager : public DefaultSaveFileManager {
 	static bool redirected(const Common::String &name) {
-		return g_rgPath[0] && name.hasSuffix(Common::String::format(".s%02d", RG_SLOT));
+		// (SCUMM's <target>.s99, Beneath a Steel Sky's SKY-VM.099)
+		return g_rgPath[0] && (name.hasSuffix(Common::String::format(".s%02d", RG_SLOT)) ||
+		                       name.equalsIgnoreCase(Common::String::format("SKY-VM.%03d", RG_SLOT)));
 	}
 public:
 	GWSaveFileManager() : DefaultSaveFileManager(Common::Path(plat_save_path())) {}
@@ -356,12 +358,19 @@ public:
 
 extern "C" int gw_scumm_save(int slot);       /* patches/scummvm-slim.patch (saveload.cpp) */
 extern "C" int gw_scumm_load(int slot);
+extern "C" int gw_sky_save(int slot);         /* patches/scummvm-slim.patch (sky.cpp) */
+extern "C" int gw_sky_load(int slot);
+
+/* which engine is running: the hooks above cast g_engine to their own */
+extern "C" int gw_engine_is(const char *id) {
+	return g_engine && ConfMan.get("engineid").equalsIgnoreCase(id);
+}
 static bool g_loadAtStart;
 
 /* the firmware's save callback: written now, into path */
 extern "C" int gw_rg_save(const char *path) {
 	Common::strlcpy(g_rgPath, path, sizeof g_rgPath);
-	int ok = gw_scumm_save(RG_SLOT);
+	int ok = gw_engine_is("sky") ? gw_sky_save(RG_SLOT) : gw_scumm_save(RG_SLOT);
 	if (!ok) plat_log("ScummVM: cannot save right now\n");
 	return ok;
 }
@@ -371,7 +380,7 @@ extern "C" int gw_rg_save(const char *path) {
 extern "C" int gw_rg_load(const char *path) {
 	Common::strlcpy(g_rgPath, path, sizeof g_rgPath);
 	if (!g_engine) { g_loadAtStart = true; return 1; }
-	int ok = gw_scumm_load(RG_SLOT);
+	int ok = gw_engine_is("sky") ? gw_sky_load(RG_SLOT) : gw_scumm_load(RG_SLOT);
 	if (!ok) plat_log("ScummVM: cannot load right now\n");
 	return ok;
 }
