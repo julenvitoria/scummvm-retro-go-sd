@@ -151,9 +151,8 @@ static void *alloc(size_t align, size_t n, void *caller)
 #endif
 	int first = n >= BIG_REQUEST ? HEAP_BIG : HEAP_SMALL;
 	/* last, what the screen buffers leave of their heap -- with SCUMM v7 only
-	   (heap_screen_spill), whose screens are made once, and for big blocks only: small ones
-	   split the one hole there that takes a video's 64 KB music track */
-	int order[3] = { first, !first, heap_screen_spill && n >= 16000 ? HEAP_SCREEN : -1 };
+	   (heap_screen_spill), whose screens are made once */
+	int order[3] = { first, !first, heap_screen_spill ? HEAP_SCREEN : -1 };
 	if (heap_screen_hint) { order[0] = HEAP_SCREEN; order[1] = first; order[2] = !first; }
 	void *p = NULL;
 	static int in_hook;
