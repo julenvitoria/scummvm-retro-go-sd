@@ -58,6 +58,7 @@ uint32_t plat_millis(void)
 uint32_t heap_free_bytes(void) __attribute__((weak));
 uint32_t heap_free_bytes(void) { return 64u << 20; }
 int heap_screen_hint __attribute__((weak));   /* src/heap.c defines it in host-gwheap */
+int heap_screen_spill __attribute__((weak));
 int heap_can_alloc(uint32_t n) __attribute__((weak));
 int heap_can_alloc(uint32_t n) { (void)n; return 1; }
 

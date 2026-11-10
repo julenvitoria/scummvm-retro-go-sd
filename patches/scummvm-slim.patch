@@ -106,6 +106,18 @@ index ef3997f1..e9553647 100644
  		}
  	}
  #ifdef USE_SDL_NET
+diff --git a/common/file.h b/common/file.h
+index 9f5d3fac..55bdc982 100644
+--- a/common/file.h
++++ b/common/file.h
+@@ -53,6 +53,7 @@ protected:
+ 	String _name;
+ 
+ public:
++	SeekableReadStream *gwStream() { return _handle; }	// Game & Watch: for gwDirectResource()
+ 	File();
+ 	virtual ~File();
+ 
 diff --git a/common/fs.cpp b/common/fs.cpp
 index 7dd97993..0bcaa7bf 100644
 --- a/common/fs.cpp
@@ -2783,6 +2795,188 @@ index 9088be07..cdd555a5 100644
  
  	if (_useCJKMode) {
  		// The Dig expressly checks for x == 160 && y == 189 && charset == 3. Usually, if the game wants to print CJK text at the bottom
+diff --git a/engines/sky/compact.cpp b/engines/sky/compact.cpp
+index 5d924d7c..73ca2abe 100644
+--- a/engines/sky/compact.cpp
++++ b/engines/sky/compact.cpp
+@@ -28,6 +28,11 @@
+ #include "sky/compact.h"
+ #include "gui/message.h"
+ 
++#ifdef GW_SKY_SLIM
++// src/gw_system.cpp: the next n bytes of a stream where they lie in the external flash, or NULL
++const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte enc);
++#endif
++
+ namespace Sky {
+ 
+ #define	SKY_CPT_SIZE	419427
+@@ -150,14 +155,106 @@ SkyCompact::SkyCompact() {
+ 	_cptTypes	  = (uint16 **)malloc(_numDataLists * sizeof(uint16 *));
+ 	_compacts	  = (Compact***)malloc(_numDataLists * sizeof(Compact**));
+ 
++#ifdef GW_SKY_SLIM
++	char **gwNoNames = nullptr;
++	uint16 gwMaxLen = 0;
++#endif
+ 	for (int i = 0; i < _numDataLists; i++) {
+ 		_dataListLen[i] = _cptFile->readUint16LE();
++#ifdef GW_SKY_SLIM
++		// Game & Watch: no names (the debugger's: 42 KB and a pointer each); every list shares
++		// one row of NULLs, as long as the longest
++		if (_dataListLen[i] > gwMaxLen) {
++			gwMaxLen = _dataListLen[i];
++			gwNoNames = (char **)realloc(gwNoNames, gwMaxLen * sizeof(char *));
++			memset(gwNoNames, 0, gwMaxLen * sizeof(char *));
++		}
++		_cptNames[i] = nullptr;
++#else
+ 		_cptNames[i] = (char**)malloc(_dataListLen[i] * sizeof(char *));
++#endif
+ 		_cptSizes[i] = (uint16 *)malloc(_dataListLen[i] * sizeof(uint16));
+ 		_cptTypes[i] = (uint16 *)malloc(_dataListLen[i] * sizeof(uint16));
+ 		_compacts[i] = (Compact**)malloc(_dataListLen[i] * sizeof(Compact *));
+ 	}
+ 
++#ifdef GW_SKY_SLIM
++	for (int i = 0; i < _numDataLists; i++)
++		_cptNames[i] = gwNoNames;
++
++	// Game & Watch: of the 297 KB of compacts, 53 KB are the game's state (what a saved game
++	// holds). The rest -- scripts, animation sequences, tables -- is never written: with
++	// sky.cpt in the external flash those are used where they lie, and only the compacts
++	// proper, the route buffers and the get-to tables are copied to memory. The file is read
++	// in pieces as it is unpacked, not through a second buffer the size of it all.
++	_cptFile->readUint32LE();                                  // the size of them all
++	const uint32 srcSize = _cptFile->readUint32LE() * sizeof(uint16);
++	const int32 gwSrcAt = _cptFile->pos();
++	uint16 gwBuf[512];
++	uint32 gwHave = 0, gwAt = 0, gwPos = gwSrcAt;
++	auto gwNext = [&]() -> uint16 {
++		if (gwAt == gwHave) {
++			_cptFile->seek(gwPos, SEEK_SET);
++			gwHave = _cptFile->read(gwBuf, sizeof(gwBuf)) / 2;
++			gwAt = 0;
++		}
++		gwPos += 2;
++		return READ_LE_UINT16(&gwBuf[gwAt++]);
++	};
++	_cptFile->seek(gwSrcAt, SEEK_SET);
++	// (v0.0288's compacts are patched below: all of them in memory then)
++	const bool gwInFlash = SkyEngine::_systemVars->gameVersion != 288 &&
++	                       gwDirectResource(_cptFile->gwStream(), 2, 0) != nullptr;
++	// (the talk table: checkAndFixOfficerBluntError() below may patch it)
++	auto gwToMemory = [](uint16 t, uint32 id) -> bool {
++		return t == COMPACT || t == ROUTEBUF || t == GETTOTAB || id == CPT_TALK_TABLE_LIST;
++	};
++	// first the sizes: how much goes to memory
++	uint32 rawSize = 0;
++	for (uint32 lcnt = 0; lcnt < _numDataLists; lcnt++) {
++		for (uint32 ecnt = 0; ecnt < _dataListLen[lcnt]; ecnt++) {
++			uint16 sz = gwNext();
++			_cptSizes[lcnt][ecnt] = sz;
++			_cptTypes[lcnt][ecnt] = sz ? gwNext() : 0;
++			_compacts[lcnt][ecnt] = NULL;
++			if (sz) {
++				uint16 t = _cptTypes[lcnt][ecnt];
++				if (!gwInFlash || gwToMemory(t, (lcnt << 12) | ecnt))
++					rawSize += sz * sizeof(uint16);
++				gwPos += sz * sizeof(uint16);
++				gwAt = gwHave = 0;
++			}
++		}
++	}
++	uint16 *rawPos = _rawBuf = (uint16 *)malloc(rawSize);
++	gwPos = gwSrcAt;
++	gwAt = gwHave = 0;
++	for (uint32 lcnt = 0; lcnt < _numDataLists; lcnt++) {
++		for (uint32 ecnt = 0; ecnt < _dataListLen[lcnt]; ecnt++) {
++			uint16 sz = gwNext();
++			if (!sz)
++				continue;
++			uint16 t = gwNext();
++			if (gwInFlash && !gwToMemory(t, (lcnt << 12) | ecnt)) {
++				_cptFile->seek(gwPos, SEEK_SET);
++				const byte *p = gwDirectResource(_cptFile->gwStream(), sz * sizeof(uint16), 0);
++				if (!p)
++					error("sky.cpt: compact %x not in flash", (int)((lcnt << 12) | ecnt));
++				_compacts[lcnt][ecnt] = (Compact *)const_cast<byte *>(p);
++				gwPos += sz * sizeof(uint16);
++				gwAt = gwHave = 0;
++			} else {
++				_compacts[lcnt][ecnt] = (Compact *)rawPos;
++				for (uint16 elemCnt = 0; elemCnt < sz; elemCnt++)
++					*rawPos++ = gwNext();
++			}
++		}
++	}
++	_cptFile->seek(gwSrcAt + srcSize, SEEK_SET);
++	uint32 asciiSize = _cptFile->readUint32LE();
++	_asciiBuf = nullptr;
++	_cptFile->seek(asciiSize, SEEK_CUR);
++#else
+ 	uint32 rawSize = _cptFile->readUint32LE() * sizeof(uint16);
+ 	uint16 *rawPos = _rawBuf = (uint16 *)malloc(rawSize);
+ 
+@@ -191,6 +288,7 @@ SkyCompact::SkyCompact() {
+ 	}
+ 	free(srcBuf);
+ 
++#endif
+ 	uint16 numDlincs = _cptFile->readUint16LE();
+ 	uint16 *dlincBuf = (uint16 *)malloc(numDlincs * 2 * sizeof(uint16));
+ 	uint16 *dlincPos = dlincBuf;
+@@ -203,9 +301,11 @@ SkyCompact::SkyCompact() {
+ 		assert(((dlincId >> 12) < _numDataLists) && ((dlincId & 0xFFF) < _dataListLen[dlincId >> 12]) && (_compacts[dlincId >> 12][dlincId & 0xFFF] == NULL));
+ 		_compacts[dlincId >> 12][dlincId & 0xFFF] = _compacts[destId >> 12][destId & 0xFFF];
+ 
++#ifndef GW_SKY_SLIM
+ 		assert(_cptNames[dlincId >> 12][dlincId & 0xFFF] == NULL);
+ 		_cptNames[dlincId >> 12][dlincId & 0xFFF] = asciiPos;
+ 		asciiPos += strlen(asciiPos) + 1;
++#endif
+ 	}
+ 	free(dlincBuf);
+ 
+@@ -243,8 +343,13 @@ SkyCompact::~SkyCompact() {
+ 	free(_rawBuf);
+ 	free(_asciiBuf);
+ 	free(_saveIds);
++#ifdef GW_SKY_SLIM
++	free(_cptNames[0]);		// the one row they share
++#endif
+ 	for (int i = 0; i < _numDataLists; i++) {
++#ifndef GW_SKY_SLIM
+ 		free(_cptNames[i]);
++#endif
+ 		free(_cptSizes[i]);
+ 		free(_cptTypes[i]);
+ 		free(_compacts[i]);
+diff --git a/engines/sky/sky.cpp b/engines/sky/sky.cpp
+index 81baee63..3ec84ff2 100644
+--- a/engines/sky/sky.cpp
++++ b/engines/sky/sky.cpp
+@@ -67,6 +67,10 @@
+  With apologies to the CD32 SteelSky file.
+ */
+ 
++#ifdef GW_SKY_SLIM
++extern "C" int heap_screen_spill;		// src/heap.c
++#endif
++
+ namespace Sky {
+ 
+ void *SkyEngine::_itemList[300];
+@@ -360,6 +364,9 @@ bool SkyEngine::loadChineseTraditional() {
+ }
+ 
+ Common::Error SkyEngine::init() {
++#ifdef GW_SKY_SLIM
++	heap_screen_spill = 1;	// Game & Watch: no SCUMM screens here, their heap is everyone's
++#endif
+ 	if (SkyEngine::isIbass()) {
+ 		Graphics::PixelFormat format(4, 8, 8, 8, 8, 24, 16, 8, 0);
+ 		initGraphics(320, 200, &format);
 diff --git a/gui/dialog.cpp b/gui/dialog.cpp
 index b6cbe9db..081a1c78 100644
 --- a/gui/dialog.cpp
