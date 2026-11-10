@@ -109,7 +109,7 @@ static inline void heap_lazy_init(void) {}
 #endif
 
 #ifdef HEAP_MAP_LOG
-/* make HEAP_MAP_LOG=1: the blocks of 2 KB or more and who asked for them, and the free holes,
+/* (the default; "make core HEAP_MAP_LOG=" leaves it out) the blocks of 2 KB or more and who asked for them, and the free holes,
    written to scummvm.log at the first failure (a heap map on the console itself) */
 #define MAP_N 192
 static struct { void *p; uint32_t n; void *caller; } g_map[MAP_N];
