@@ -2177,7 +2177,7 @@ index 3cdc7fca..81c096ff 100644
  	int _curTable;
  	uint16 _prevSeqNb;
 diff --git a/engines/scumm/smush/smush_player.cpp b/engines/scumm/smush/smush_player.cpp
-index 1c646316..14a85971 100644
+index 1c646316..f27d4d9f 100644
 --- a/engines/scumm/smush/smush_player.cpp
 +++ b/engines/scumm/smush/smush_player.cpp
 @@ -54,6 +54,10 @@
@@ -2441,7 +2441,66 @@ index 1c646316..14a85971 100644
  	// Track the effective number of tracks, so that if only one fails,
  	// the others can carry on as they should
  	_smushNumTracks++;
-@@ -1853,6 +2005,34 @@ void SmushPlayer::fillAudioTrackInfo(uint8 *srcBuf, uint16 *flagsAccumulator, ui
+@@ -1747,40 +1899,47 @@ void SmushPlayer::handleSAUDChunk(uint8 *srcBuf, uint32 size, int groupId, int v
+ 	uint16 flagsAccumulator[SMUSH_MAX_TRACKS];
+ 
+ 	if (!index) {
++#ifdef GW_V7_SLIM
++		// Game & Watch: the tracks' buffers are smaller here, but a sound still picks its track as
++		// if they had their real sizes (or speech lands on the music's track and silences it)
++#define GW_NOMINAL(i) (_smushTracks[i].blockSize > 32000 ? 400000 : 100000)
++#else
++#define GW_NOMINAL(i) (_smushTracks[i].blockSize)
++#endif
+ 		saudSize = READ_BE_UINT32(&srcBuf[4]);
+ 
+ 		// Find the maximum block sizes between the current ones
+ 		maxBlockSize = 0;
+ 		for (int i = 0; i < _smushNumTracks; i++) {
+-			if (_smushTracks[i].blockSize > maxBlockSize) {
+-				maxBlockSize = _smushTracks[i].blockSize;
++			if (GW_NOMINAL(i) > maxBlockSize) {
++				maxBlockSize = GW_NOMINAL(i);
+ 			}
+ 		}
+ 
+ 		diff2 = 10000000;
+ 		if ((flags & TRK_TYPE_MASK) != IS_BKG_MUSIC) {
+ 			for (int i = 0; i < _smushNumTracks; i++) {
+-				if (_smushTracks[i].blockSize - saudSize >= 0) {
+-					diff1 = _smushTracks[i].blockSize - saudSize;
++				if (GW_NOMINAL(i) - saudSize >= 0) {
++					diff1 = GW_NOMINAL(i) - saudSize;
+ 				} else {
+-					diff1 = saudSize - _smushTracks[i].blockSize;
++					diff1 = saudSize - GW_NOMINAL(i);
+ 				}
+ 
+-				if (diff1 < diff2 && saudSize < 3 * _smushTracks[i].blockSize / 2) {
+-					if (_smushTracks[i].blockSize - saudSize >= 0) {
+-						diff2 = _smushTracks[i].blockSize - saudSize;
++				if (diff1 < diff2 && saudSize < 3 * GW_NOMINAL(i) / 2) {
++					if (GW_NOMINAL(i) - saudSize >= 0) {
++						diff2 = GW_NOMINAL(i) - saudSize;
+ 					} else {
+-						diff2 = saudSize - _smushTracks[i].blockSize;
++						diff2 = saudSize - GW_NOMINAL(i);
+ 					}
+ 
+-					maxBlockSize = _smushTracks[i].blockSize;
++					maxBlockSize = GW_NOMINAL(i);
+ 				}
+ 			}
+ 		}
+ 
+ 		for (int i = 0; i < _smushNumTracks; i++) {
+ 			flagsAccumulator[i] = 0;
+-			if (_smushTracks[i].blockSize == maxBlockSize) {
++			if (GW_NOMINAL(i) == maxBlockSize) {
+ 				if (_smushTracks[i].state == TRK_STATE_INACTIVE ||
+ 					_smushTracks[i].state == TRK_STATE_ENDING   ||
+ 					_smushTracks[i].flags <= flags) {
+@@ -1853,6 +2012,34 @@ void SmushPlayer::fillAudioTrackInfo(uint8 *srcBuf, uint16 *flagsAccumulator, ui
  		}
  	}
  
