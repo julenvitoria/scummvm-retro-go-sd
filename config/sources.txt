@@ -354,6 +354,7 @@ engines/gob/decfile.cpp
 engines/gob/demos/batplayer.cpp
 engines/gob/demos/demoplayer.cpp
 engines/gob/demos/scnplayer.cpp
+engines/gob/detection/detection.cpp
 engines/gob/draw.cpp
 engines/gob/draw_bargon.cpp
 engines/gob/draw_fascin.cpp
