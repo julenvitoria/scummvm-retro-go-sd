@@ -77,11 +77,13 @@ these lines nothing changes: ScummVM picks what it finds in the folder.
 | Day of the Tentacle | `tentacle` |
 | Sam & Max Hit the Road | `samnmax` |
 | Full Throttle | `ft` |
+| Beneath a Steel Sky | `sky` |
 
 Every game's short name is in ScummVM's
 [compatibility list](https://www.scummvm.org/compatibility/), column "ScummVM ID", without
 the engine in front (`scumm:ft` → `game=ft`). The list covers every engine, not only
-LucasArts', but this core runs the SCUMM games above for now (not The Dig nor The Curse of Monkey Island).
+LucasArts', but this core runs the games above for now: SCUMM (not The Dig nor The Curse of Monkey
+Island) and Beneath a Steel Sky.
 
 They do not fix an incomplete copy, nor the versions this core leaves out on purpose:
 Macintosh (its buffers are cut to save memory) and FM-Towns.
@@ -98,7 +100,7 @@ game's files change, the pack is made again; it can be deleted at any time.
 
 The Dig does not fit: its characters' graphics alone are 57 MB.
 
-### Beneath a Steel Sky (`sky` branch, experimental)
+### Beneath a Steel Sky
 
 Copy `sky.dsk`, `sky.dnr` and `sky.cpt` into the game's folder (`sky.cpt` comes with ScummVM,
 not with the game). The first time, the core unpacks everything but the speech into
@@ -254,12 +256,13 @@ líneas no cambia nada: ScummVM elige lo que encuentra en la carpeta.
 | Day of the Tentacle | `tentacle` |
 | Sam & Max Hit the Road | `samnmax` |
 | Full Throttle | `ft` |
+| Beneath a Steel Sky | `sky` |
 
 El nombre corto de cada juego está en la
 [lista de compatibilidad](https://www.scummvm.org/compatibility/) de ScummVM, columna
 "ScummVM ID", sin el motor delante (`scumm:ft` → `game=ft`). La lista incluye todos los
-motores, no solo los de LucasArts, pero por ahora este core ejecuta los juegos SCUMM de la
-tabla (The Dig y The Curse of Monkey Island no).
+motores, no solo los de LucasArts, pero por ahora este core ejecuta los juegos de la
+tabla: SCUMM (The Dig y The Curse of Monkey Island no) y Beneath a Steel Sky.
 
 No arreglan una copia incompleta ni las versiones que este core deja fuera a propósito:
 Macintosh (sus buffers están recortados para ahorrar memoria) y FM-Towns.
@@ -276,7 +279,7 @@ ficheros del juego cambian, el paquete se vuelve a hacer; se puede borrar cuando
 
 The Dig no cabe: solo los gráficos de sus personajes ocupan 57 MB.
 
-### Beneath a Steel Sky (rama `sky`, experimental)
+### Beneath a Steel Sky
 
 Copia `sky.dsk`, `sky.dnr` y `sky.cpt` en la carpeta del juego (`sky.cpt` viene con ScummVM,
 no con el juego). La primera vez, el core descomprime todo menos las voces en
