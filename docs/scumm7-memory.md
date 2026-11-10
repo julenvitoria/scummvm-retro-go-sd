@@ -38,11 +38,14 @@ rooms, scripts and charsets. Loaded into the heap, one costume is more than the 
   the decoder is made at start and kept (made when a video started, it no longer found two
   holes that big), and its first block is lent to the room's back buffer while no video
   plays: a video draws on the front buffer and the room is redrawn whole after it
-- SMUSH: audio tracks' buffers made when a video uses them and freed after (the 64 KB music
-  track lands in what the screen heap has left); one 48 KB frame-object buffer, kept. The
-  tracks are 16 KB and 64 KB rings instead of 100 KB and 400 KB, but a sound picks its track
-  by the original sizes: by the real ones, speech took the music's track and the song of the
-  intro's end and the credits was never heard
+- SMUSH: one 48 KB frame-object buffer, kept. Audio tracks: a video delivers a sound up to
+  twice as fast as it plays, and the player holds what is ahead in rings of 100 KB (three)
+  and 400 KB; smaller rings make it skip forward (speech in pieces), and a sound picks its
+  track by those sizes. Here the four rings are 20 KB, made when a video uses them, and a
+  sound still picks its track by the original sizes. A piece that does not fit yet is not
+  copied: its place in the video file is queued (`_gwPend`) and `gwPumpAudio()` reads it
+  from the card at the end of a frame once there is room. Music that comes as fast as it
+  plays never waits and is never read twice
 - NUT fonts (and Insane's sprites) decoded a row at a time from the flash, not up front
 - Insane (bike scenes) made at the first one: ~50 KB of tables and fonts
 - v7 never composes the text surface: 64 KB, and the composite buffer, gone
@@ -61,7 +64,7 @@ listing of its folder.
 
 ## What is left (PC, at the peak of a video)
 
-codec 37 164 KB, screens 137 KB, SMUSH audio ~65 KB (the background music track), resource
+codec 37 164 KB, screens 137 KB, SMUSH audio up to 94 KB (four tracks), resource
 index 77 KB, the engine object 66 KB, the backend's screen 62 KB, iMUSE ~70 KB, actors 32 KB.
 
 ## The Dig
