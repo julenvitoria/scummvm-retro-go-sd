@@ -11,7 +11,7 @@ typedef struct {
 	uint32_t src_size, src_sum;   /* the data file it was made from */
 	uint32_t count, data_off;     /* entries; where the blocks start */
 	uint32_t total;               /* the pack's size */
-	uint32_t reserved;
+	uint32_t reserved;            /* PACK_SCUMM7 (0 in the packs made before there were kinds) or PACK_SKY */
 } pack_head_t;
 
 typedef struct {
@@ -20,10 +20,14 @@ typedef struct {
 	uint32_t pack;                /* where it is in the pack */
 } pack_entry_t;
 
-int svm_pack_candidate(const char *path, uint32_t size);   /* a v7 data file ("LECF")? */
+#define PACK_SCUMM7 1                 /* a SCUMM v7 data file's blocks but its sounds */
+#define PACK_SKY    2                 /* Beneath a Steel Sky's sky.dsk: its files but the speech, unpacked */
+int svm_pack_candidate(const char *path, uint32_t size);   /* 0, or the kind of pack this file gets */
 int svm_pack_valid(const pack_head_t *h, uint32_t pack_size, const char *src, uint32_t src_size);
 int svm_pack_build(const char *src, uint32_t src_size, const char *dst, void (*progress)(int pct));
 /* the entry holding bytes [pos, pos + n) of the data file, or NULL */
+/* PACK_SKY: file number nr */
+const pack_entry_t *svm_pack_file(const pack_head_t *h, uint32_t nr);
 const pack_entry_t *svm_pack_find(const pack_head_t *h, uint32_t pos, uint32_t n);
 
 #ifdef __cplusplus

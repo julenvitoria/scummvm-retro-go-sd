@@ -106,6 +106,18 @@ index ef3997f1..e9553647 100644
  		}
  	}
  #ifdef USE_SDL_NET
+diff --git a/common/file.h b/common/file.h
+index 9f5d3fac..55bdc982 100644
+--- a/common/file.h
++++ b/common/file.h
+@@ -53,6 +53,7 @@ protected:
+ 	String _name;
+ 
+ public:
++	SeekableReadStream *gwStream() { return _handle; }	// Game & Watch: for gwDirectResource()
+ 	File();
+ 	virtual ~File();
+ 
 diff --git a/common/fs.cpp b/common/fs.cpp
 index 7dd97993..0bcaa7bf 100644
 --- a/common/fs.cpp
@@ -1545,7 +1557,7 @@ index 3e684bd7..70c999f8 100644
  
  } // End of namespace Scumm
 diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
-index d1d7a764..009ec887 100644
+index d1d7a764..a17349cd 100644
 --- a/engines/scumm/saveload.cpp
 +++ b/engines/scumm/saveload.cpp
 @@ -81,7 +81,7 @@ struct SaveInfoSection {
@@ -1584,7 +1596,7 @@ index d1d7a764..009ec887 100644
  	if (_game.id == GID_REBEL1) {
  		const InsaneRebel1 *rebel = (InsaneRebel1 *)((ScummEngine_v7 *)this)->getInsane();
  		return rebel && rebel->hasPlayableLevels();
-@@ -280,6 +280,142 @@ void ScummEngine::requestSave(int slot, const Common::String &name) {
+@@ -280,6 +280,152 @@ void ScummEngine::requestSave(int slot, const Common::String &name) {
  	_saveLoadDescription = name;
  }
  
@@ -1695,18 +1707,26 @@ index d1d7a764..009ec887 100644
 +
 +} // End of namespace Scumm
 +
++extern "C" int gw_engine_is(const char *id);		// src/gw_system.cpp: g_engine is not always a ScummEngine
++
 +extern "C" int gw_scumm_voice_mode(void) {
++	if (!gw_engine_is("scumm"))
++		return -1;
 +	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
 +	return e ? e->gwVoiceMode() : -1;
 +}
 +
 +extern "C" void gw_scumm_set_voice_mode(int mode) {
++	if (!gw_engine_is("scumm"))
++		return;
 +	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
 +	if (e)
 +		e->gwSetVoiceMode(mode);
 +}
 +
 +extern "C" int gw_scumm_save(int slot) {
++	if (!gw_engine_is("scumm"))
++		return 0;
 +	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
 +	if (!e || !e->canSaveGameStateCurrently())
 +		return 0;
@@ -1714,6 +1734,8 @@ index d1d7a764..009ec887 100644
 +}
 +
 +extern "C" int gw_scumm_load(int slot) {
++	if (!gw_engine_is("scumm"))
++		return 0;
 +	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
 +	if (!e || !e->canLoadGameStateCurrently())
 +		return 0;
@@ -1727,7 +1749,7 @@ index d1d7a764..009ec887 100644
  void ScummEngine::requestLoad(int slot) {
  	_saveLoadSlot = slot;
  	_saveTemporaryState = (slot == 100);
-@@ -630,7 +766,8 @@ bool ScummEngine::saveState(Common::SeekableWriteStream *out, bool writeHeader)
+@@ -630,7 +776,8 @@ bool ScummEngine::saveState(Common::SeekableWriteStream *out, bool writeHeader)
  		Common::strlcpy(hdr.name, _saveLoadDescription.c_str(), sizeof(hdr.name));
  		saveSaveGameHeader(out, hdr);
  	}
@@ -2783,6 +2805,402 @@ index 9088be07..cdd555a5 100644
  
  	if (_useCJKMode) {
  		// The Dig expressly checks for x == 160 && y == 189 && charset == 3. Usually, if the game wants to print CJK text at the bottom
+diff --git a/engines/sky/compact.cpp b/engines/sky/compact.cpp
+index 5d924d7c..73ca2abe 100644
+--- a/engines/sky/compact.cpp
++++ b/engines/sky/compact.cpp
+@@ -28,6 +28,11 @@
+ #include "sky/compact.h"
+ #include "gui/message.h"
+ 
++#ifdef GW_SKY_SLIM
++// src/gw_system.cpp: the next n bytes of a stream where they lie in the external flash, or NULL
++const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte enc);
++#endif
++
+ namespace Sky {
+ 
+ #define	SKY_CPT_SIZE	419427
+@@ -150,14 +155,106 @@ SkyCompact::SkyCompact() {
+ 	_cptTypes	  = (uint16 **)malloc(_numDataLists * sizeof(uint16 *));
+ 	_compacts	  = (Compact***)malloc(_numDataLists * sizeof(Compact**));
+ 
++#ifdef GW_SKY_SLIM
++	char **gwNoNames = nullptr;
++	uint16 gwMaxLen = 0;
++#endif
+ 	for (int i = 0; i < _numDataLists; i++) {
+ 		_dataListLen[i] = _cptFile->readUint16LE();
++#ifdef GW_SKY_SLIM
++		// Game & Watch: no names (the debugger's: 42 KB and a pointer each); every list shares
++		// one row of NULLs, as long as the longest
++		if (_dataListLen[i] > gwMaxLen) {
++			gwMaxLen = _dataListLen[i];
++			gwNoNames = (char **)realloc(gwNoNames, gwMaxLen * sizeof(char *));
++			memset(gwNoNames, 0, gwMaxLen * sizeof(char *));
++		}
++		_cptNames[i] = nullptr;
++#else
+ 		_cptNames[i] = (char**)malloc(_dataListLen[i] * sizeof(char *));
++#endif
+ 		_cptSizes[i] = (uint16 *)malloc(_dataListLen[i] * sizeof(uint16));
+ 		_cptTypes[i] = (uint16 *)malloc(_dataListLen[i] * sizeof(uint16));
+ 		_compacts[i] = (Compact**)malloc(_dataListLen[i] * sizeof(Compact *));
+ 	}
+ 
++#ifdef GW_SKY_SLIM
++	for (int i = 0; i < _numDataLists; i++)
++		_cptNames[i] = gwNoNames;
++
++	// Game & Watch: of the 297 KB of compacts, 53 KB are the game's state (what a saved game
++	// holds). The rest -- scripts, animation sequences, tables -- is never written: with
++	// sky.cpt in the external flash those are used where they lie, and only the compacts
++	// proper, the route buffers and the get-to tables are copied to memory. The file is read
++	// in pieces as it is unpacked, not through a second buffer the size of it all.
++	_cptFile->readUint32LE();                                  // the size of them all
++	const uint32 srcSize = _cptFile->readUint32LE() * sizeof(uint16);
++	const int32 gwSrcAt = _cptFile->pos();
++	uint16 gwBuf[512];
++	uint32 gwHave = 0, gwAt = 0, gwPos = gwSrcAt;
++	auto gwNext = [&]() -> uint16 {
++		if (gwAt == gwHave) {
++			_cptFile->seek(gwPos, SEEK_SET);
++			gwHave = _cptFile->read(gwBuf, sizeof(gwBuf)) / 2;
++			gwAt = 0;
++		}
++		gwPos += 2;
++		return READ_LE_UINT16(&gwBuf[gwAt++]);
++	};
++	_cptFile->seek(gwSrcAt, SEEK_SET);
++	// (v0.0288's compacts are patched below: all of them in memory then)
++	const bool gwInFlash = SkyEngine::_systemVars->gameVersion != 288 &&
++	                       gwDirectResource(_cptFile->gwStream(), 2, 0) != nullptr;
++	// (the talk table: checkAndFixOfficerBluntError() below may patch it)
++	auto gwToMemory = [](uint16 t, uint32 id) -> bool {
++		return t == COMPACT || t == ROUTEBUF || t == GETTOTAB || id == CPT_TALK_TABLE_LIST;
++	};
++	// first the sizes: how much goes to memory
++	uint32 rawSize = 0;
++	for (uint32 lcnt = 0; lcnt < _numDataLists; lcnt++) {
++		for (uint32 ecnt = 0; ecnt < _dataListLen[lcnt]; ecnt++) {
++			uint16 sz = gwNext();
++			_cptSizes[lcnt][ecnt] = sz;
++			_cptTypes[lcnt][ecnt] = sz ? gwNext() : 0;
++			_compacts[lcnt][ecnt] = NULL;
++			if (sz) {
++				uint16 t = _cptTypes[lcnt][ecnt];
++				if (!gwInFlash || gwToMemory(t, (lcnt << 12) | ecnt))
++					rawSize += sz * sizeof(uint16);
++				gwPos += sz * sizeof(uint16);
++				gwAt = gwHave = 0;
++			}
++		}
++	}
++	uint16 *rawPos = _rawBuf = (uint16 *)malloc(rawSize);
++	gwPos = gwSrcAt;
++	gwAt = gwHave = 0;
++	for (uint32 lcnt = 0; lcnt < _numDataLists; lcnt++) {
++		for (uint32 ecnt = 0; ecnt < _dataListLen[lcnt]; ecnt++) {
++			uint16 sz = gwNext();
++			if (!sz)
++				continue;
++			uint16 t = gwNext();
++			if (gwInFlash && !gwToMemory(t, (lcnt << 12) | ecnt)) {
++				_cptFile->seek(gwPos, SEEK_SET);
++				const byte *p = gwDirectResource(_cptFile->gwStream(), sz * sizeof(uint16), 0);
++				if (!p)
++					error("sky.cpt: compact %x not in flash", (int)((lcnt << 12) | ecnt));
++				_compacts[lcnt][ecnt] = (Compact *)const_cast<byte *>(p);
++				gwPos += sz * sizeof(uint16);
++				gwAt = gwHave = 0;
++			} else {
++				_compacts[lcnt][ecnt] = (Compact *)rawPos;
++				for (uint16 elemCnt = 0; elemCnt < sz; elemCnt++)
++					*rawPos++ = gwNext();
++			}
++		}
++	}
++	_cptFile->seek(gwSrcAt + srcSize, SEEK_SET);
++	uint32 asciiSize = _cptFile->readUint32LE();
++	_asciiBuf = nullptr;
++	_cptFile->seek(asciiSize, SEEK_CUR);
++#else
+ 	uint32 rawSize = _cptFile->readUint32LE() * sizeof(uint16);
+ 	uint16 *rawPos = _rawBuf = (uint16 *)malloc(rawSize);
+ 
+@@ -191,6 +288,7 @@ SkyCompact::SkyCompact() {
+ 	}
+ 	free(srcBuf);
+ 
++#endif
+ 	uint16 numDlincs = _cptFile->readUint16LE();
+ 	uint16 *dlincBuf = (uint16 *)malloc(numDlincs * 2 * sizeof(uint16));
+ 	uint16 *dlincPos = dlincBuf;
+@@ -203,9 +301,11 @@ SkyCompact::SkyCompact() {
+ 		assert(((dlincId >> 12) < _numDataLists) && ((dlincId & 0xFFF) < _dataListLen[dlincId >> 12]) && (_compacts[dlincId >> 12][dlincId & 0xFFF] == NULL));
+ 		_compacts[dlincId >> 12][dlincId & 0xFFF] = _compacts[destId >> 12][destId & 0xFFF];
+ 
++#ifndef GW_SKY_SLIM
+ 		assert(_cptNames[dlincId >> 12][dlincId & 0xFFF] == NULL);
+ 		_cptNames[dlincId >> 12][dlincId & 0xFFF] = asciiPos;
+ 		asciiPos += strlen(asciiPos) + 1;
++#endif
+ 	}
+ 	free(dlincBuf);
+ 
+@@ -243,8 +343,13 @@ SkyCompact::~SkyCompact() {
+ 	free(_rawBuf);
+ 	free(_asciiBuf);
+ 	free(_saveIds);
++#ifdef GW_SKY_SLIM
++	free(_cptNames[0]);		// the one row they share
++#endif
+ 	for (int i = 0; i < _numDataLists; i++) {
++#ifndef GW_SKY_SLIM
+ 		free(_cptNames[i]);
++#endif
+ 		free(_cptSizes[i]);
+ 		free(_cptTypes[i]);
+ 		free(_compacts[i]);
+diff --git a/engines/sky/disk.cpp b/engines/sky/disk.cpp
+index 8e9be3e2..297d1604 100644
+--- a/engines/sky/disk.cpp
++++ b/engines/sky/disk.cpp
+@@ -31,6 +31,10 @@
+ #include "sky/sky.h"
+ #include "sky/struc.h"
+ 
++#ifdef GW_SKY_SLIM
++const byte *gwSkyFile(uint16 nr, uint32 *size);		// src/gw_system.cpp
++#endif
++
+ namespace Sky {
+ 
+ static const char *const dataFilename = "sky.dsk";
+@@ -200,6 +204,18 @@ uint8 *Disk::loadFile(uint16 fileNr) {
+ 		_lastLoadedFileSize = entry->_size;
+ 		return uncompressedData;
+ 	}
++#ifdef GW_SKY_SLIM
++	// Game & Watch: every file but the speech lies unpacked in the external flash (the game's
++	// pack, src/pack.c) and is used there: READ-ONLY, and free() leaves it alone
++	{
++		uint32 gwSize = 0;
++		const byte *gw = gwSkyFile(fileNr, &gwSize);
++		if (gw) {
++			_lastLoadedFileSize = gwSize;
++			return const_cast<uint8 *>(gw);
++		}
++	}
++#endif
+ 	uint8 cflag;
+ 
+ 	debug(3, "load file %d,%d (%d)", (fileNr >> 11), (fileNr & 2047), fileNr);
+@@ -295,6 +311,30 @@ uint8 *Disk::loadFile(uint16 fileNr) {
+ 	}
+ }
+ 
++bool Disk::gwInFlash(uint16 fileNr, const uint8 *p) {
++#ifdef GW_SKY_SLIM
++	uint32 size = 0;
++	return p && p == gwSkyFile(fileNr, &size);
++#else
++	return false;
++#endif
++}
++
++uint8 *Disk::loadFileRam(uint16 fileNr) {
++	uint8 *p = loadFile(fileNr);
++#ifdef GW_SKY_SLIM
++	uint32 size = 0;
++	if (p && p == gwSkyFile(fileNr, &size)) {
++		uint8 *q = (uint8 *)malloc(size + 4);
++		if (!q)
++			error("Out of memory loading file %d (%d bytes)", fileNr, (int)size);
++		memcpy(q, p, size);
++		return q;
++	}
++#endif
++	return p;
++}
++
+ uint16 *Disk::loadScriptFile(uint16 fileNr) {
+ 	uint16 *buf = (uint16 *)loadFile(fileNr);
+ #ifdef SCUMM_BIG_ENDIAN
+diff --git a/engines/sky/disk.h b/engines/sky/disk.h
+index d1165411..2053a277 100644
+--- a/engines/sky/disk.h
++++ b/engines/sky/disk.h
+@@ -62,6 +62,10 @@ public:
+ 	~Disk();
+ 
+ 	uint8 *loadFile(uint16 fileNr);
++	// Game & Watch: loadFile() may hand out a file where it lies in the flash, read-only;
++	// this one is always a copy in memory, for the callers that write into what they load
++	uint8 *loadFileRam(uint16 fileNr);
++	bool gwInFlash(uint16 fileNr, const uint8 *p);	// did loadFile() hand out the flash's copy?
+ 	uint16 *loadScriptFile(uint16 fileNr);
+ 	bool fileExists(uint16 fileNr);
+ 
+diff --git a/engines/sky/grid.cpp b/engines/sky/grid.cpp
+index a76340a1..167d6a7c 100644
+--- a/engines/sky/grid.cpp
++++ b/engines/sky/grid.cpp
+@@ -147,7 +147,7 @@ void Grid::loadGrids() {
+ 	for (uint8 cnt = 0; cnt < TOT_NO_GRIDS; cnt++) {
+ 		if (_gameGrids[cnt])
+ 			free(_gameGrids[cnt]);
+-		_gameGrids[cnt] = _skyDisk->loadFile(GRID_FILE_START + cnt);
++		_gameGrids[cnt] = _skyDisk->loadFileRam(GRID_FILE_START + cnt);
+ 	}
+ 	if (!SkyEngine::isDemo()) { // single disk demos never get that far
+ 		// Reloading the grids can sometimes cause problems eg when reichs door is
+diff --git a/engines/sky/intro.cpp b/engines/sky/intro.cpp
+index f134065b..4a5b7a63 100644
+--- a/engines/sky/intro.cpp
++++ b/engines/sky/intro.cpp
+@@ -747,6 +747,13 @@ bool Intro::nextPart(uint16 *&data) {
+ 		if (!escDelay(200))
+ 			return false;
+ 		vData = _skyDisk->loadFile(*data++);
++		if (_skyDisk->gwInFlash(data[-1], vData)) {
++			// Game & Watch: played from the flash, past its header (read-only: not silenced)
++			stream = Audio::makeRawStream(vData + sizeof(DataFileHeader), _skyDisk->_lastLoadedFileSize - sizeof(DataFileHeader),
++			                              11025, Audio::FLAG_UNSIGNED, DisposeAfterUse::NO);
++			_mixer->playStream(Audio::Mixer::kSpeechSoundType, &_voice, stream, SOUND_VOICE);
++			return true;
++		}
+ 		// HACK: Fill the header with silence. We should
+ 		// probably use _skySound instead of calling playStream()
+ 		// directly, but this will have to do for now.
+diff --git a/engines/sky/mouse.cpp b/engines/sky/mouse.cpp
+index 7cea2552..2baa6769 100644
+--- a/engines/sky/mouse.cpp
++++ b/engines/sky/mouse.cpp
+@@ -102,7 +102,7 @@ Mouse::Mouse(OSystem *system, Disk *skyDisk, SkyCompact *skyCompact, Screen *sky
+ 	_mouseX = GAME_SCREEN_WIDTH / 2;
+ 	_mouseY = GAME_SCREEN_HEIGHT / 2;
+ 
+-	_miceData = _skyDisk->loadFile(MICE_FILE);
++	_miceData = _skyDisk->loadFileRam(MICE_FILE);	// (fnOpenHand copies the held object's picture into it)
+ 
+ 	//load in the object mouse file
+ 	_objectMouseData = _skyDisk->loadFile(MICE_FILE + 1);
+diff --git a/engines/sky/music/musicbase.cpp b/engines/sky/music/musicbase.cpp
+index 9ab99783..4490d0ef 100644
+--- a/engines/sky/music/musicbase.cpp
++++ b/engines/sky/music/musicbase.cpp
+@@ -48,7 +48,7 @@ void MusicBase::loadSection(uint8 pSection) {
+ 	Common::StackLock lock(_mutex);
+ 	free(_musicData);
+ 	_currentSection = pSection;
+-	_musicData = _skyDisk->loadFile(_driverFileBase + FILES_PER_SECTION * pSection);
++	_musicData = _skyDisk->loadFileRam(_driverFileBase + FILES_PER_SECTION * pSection);
+ 
+ 	_musicTempo0 = 0x78; // init constants taken from idb file, area ~0x1060
+ 	_musicTempo1 = 0xC0;
+diff --git a/engines/sky/screen.cpp b/engines/sky/screen.cpp
+index 2d334840..c7877a2d 100644
+--- a/engines/sky/screen.cpp
++++ b/engines/sky/screen.cpp
+@@ -407,7 +407,7 @@ void Screen::showScreen(uint16 fileNum, bool fullscreen) {
+ 
+ 	// This is only used for static images in the floppy and cd intro
+ 	free(_currentScreen);
+-	_currentScreen = _skyDisk->loadFile(fileNum);
++	_currentScreen = _skyDisk->loadFileRam(fileNum);
+ 	if (!fullscreen && _currentScreen) {
+ 		// make sure the last 8 lines are forced to black.
+ 		memset(_currentScreen + GAME_SCREEN_HEIGHT * GAME_SCREEN_WIDTH, 0, (FULL_SCREEN_HEIGHT - GAME_SCREEN_HEIGHT) * GAME_SCREEN_WIDTH);
+diff --git a/engines/sky/sky.cpp b/engines/sky/sky.cpp
+index 81baee63..a3753eb0 100644
+--- a/engines/sky/sky.cpp
++++ b/engines/sky/sky.cpp
+@@ -67,6 +67,13 @@
+  With apologies to the CD32 SteelSky file.
+ */
+ 
++#ifdef GW_SKY_SLIM
++extern "C" int heap_screen_spill;		// src/heap.c
++#ifndef GW_SKY_VOLUME
++#define GW_SKY_VOLUME 144
++#endif
++#endif
++
+ namespace Sky {
+ 
+ void *SkyEngine::_itemList[300];
+@@ -203,6 +210,10 @@ void SkyEngine::handleKey() {
+ 	_keyPressed.reset();
+ }
+ 
++bool SkyEngine::gwSave(int slot) {
++	return _skyControl->saveGameToFile(false, getSaveStateName(slot).c_str()) == GAME_SAVED;
++}
++
+ Common::Error SkyEngine::go() {
+ 	_action = kSkyActionNone;
+ 
+@@ -244,6 +255,11 @@ Common::Error SkyEngine::go() {
+ 
+ 	uint32 delayCount = _system->getMillis();
+ 	while (!shouldQuit()) {
++		if (_gwLoadSlot >= 0) {		// asked for from the Retro-Go menu: done here, between two frames
++			int slot = _gwLoadSlot;
++			_gwLoadSlot = -1;
++			_skyControl->quickXRestore(slot);
++		}
+ 		_skySound->checkFxQueue();
+ 		if (SkyEngine::isIbass()) {
+ 			if (_curScreen != Logic::_scriptVariables[SCREEN]) {
+@@ -360,6 +376,14 @@ bool SkyEngine::loadChineseTraditional() {
+ }
+ 
+ Common::Error SkyEngine::init() {
++#ifdef GW_SKY_SLIM
++	heap_screen_spill = 1;	// Game & Watch: no SCUMM screens here, their heap is everyone's
++	// The core runs ScummVM at full volume (the console has its own); this game's voices,
++	// effects and music played together clip at that level (the intro: 2.3% of the samples), and
++	// still do at ScummVM's own 192. At 144 the intro peaks at 90% of full scale.
++	for (const char *k : { "music_volume", "sfx_volume", "speech_volume" })
++		ConfMan.setInt(k, GW_SKY_VOLUME, Common::ConfigManager::kTransientDomain);
++#endif
+ 	if (SkyEngine::isIbass()) {
+ 		Graphics::PixelFormat format(4, 8, 8, 8, 8, 24, 16, 8, 0);
+ 		initGraphics(320, 200, &format);
+@@ -667,3 +691,18 @@ Common::String SkyEngine::giveButton(const Common::String &button) {
+ }
+ 
+ } // End of namespace Sky
++
++extern "C" int gw_sky_save(int slot) {
++	Sky::SkyEngine *e = static_cast<Sky::SkyEngine *>(g_engine);
++	if (!e || !e->canSaveGameStateCurrently(nullptr))
++		return 0;
++	return e->gwSave(slot) ? 1 : 0;
++}
++
++extern "C" int gw_sky_load(int slot) {
++	Sky::SkyEngine *e = static_cast<Sky::SkyEngine *>(g_engine);
++	if (!e || !e->canLoadGameStateCurrently(nullptr))
++		return 0;
++	e->_gwLoadSlot = slot;
++	return 1;
++}
+diff --git a/engines/sky/sky.h b/engines/sky/sky.h
+index 8b0b8ce2..64809a25 100644
+--- a/engines/sky/sky.h
++++ b/engines/sky/sky.h
+@@ -125,6 +125,9 @@ public:
+ 	Graphics::Big5Font *_big5Font;
+ 
+ 	bool canSaveGameStateCurrently();
++	// Game & Watch: the Retro-Go menu's save and load (src/gw_system.cpp)
++	bool gwSave(int slot);
++	int _gwLoadSlot = -1;
+ 	static int giveCurrentScreen();
+ 
+ 	static uint32 giveScriptVar(uint32 s);
 diff --git a/gui/dialog.cpp b/gui/dialog.cpp
 index b6cbe9db..081a1c78 100644
 --- a/gui/dialog.cpp
