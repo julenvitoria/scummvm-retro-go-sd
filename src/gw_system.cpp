@@ -337,9 +337,9 @@ static char g_rgPath[256];
 
 class GWSaveFileManager : public DefaultSaveFileManager {
 	static bool redirected(const Common::String &name) {
-		// (SCUMM's <target>.s99, Beneath a Steel Sky's SKY-VM.099)
+		// (SCUMM's <target>.s99, Beneath a Steel Sky's SKY-VM.099, the other engines' <name>.099)
 		return g_rgPath[0] && (name.hasSuffix(Common::String::format(".s%02d", RG_SLOT)) ||
-		                       name.equalsIgnoreCase(Common::String::format("SKY-VM.%03d", RG_SLOT)));
+		                       name.hasSuffix(Common::String::format(".%03d", RG_SLOT)));
 	}
 public:
 	GWSaveFileManager() : DefaultSaveFileManager(Common::Path(plat_save_path())) {}
@@ -367,10 +367,31 @@ extern "C" int gw_engine_is(const char *id) {
 }
 static bool g_loadAtStart;
 
+/* The engines without a hook of their own: ScummVM's interface for its global menu. A load is
+   done from the next pollEvent(), where that menu would do it, not from wherever in the
+   engine's drawing the firmware's menu was opened. */
+static bool g_loadPending;
+static int generic_save(int slot) {
+	if (!g_engine || !g_engine->canSaveGameStateCurrently()) return 0;
+	return g_engine->saveGameState(slot, "Retro-Go").getCode() == Common::kNoError;
+}
+static int generic_load(int slot) {
+	(void)slot;
+	if (!g_engine || !g_engine->canLoadGameStateCurrently()) return 0;
+	g_loadPending = true;
+	return 1;
+}
+static void generic_load_now() {
+	if (!g_loadPending) return;
+	g_loadPending = false;
+	if (g_engine && g_engine->loadGameState(RG_SLOT).getCode() != Common::kNoError)
+		plat_log("ScummVM: could not load the saved game\n");
+}
+
 /* the firmware's save callback: written now, into path */
 extern "C" int gw_rg_save(const char *path) {
 	Common::strlcpy(g_rgPath, path, sizeof g_rgPath);
-	int ok = gw_engine_is("sky") ? gw_sky_save(RG_SLOT) : gw_scumm_save(RG_SLOT);
+	int ok = gw_engine_is("sky") ? gw_sky_save(RG_SLOT) : gw_engine_is("scumm") ? gw_scumm_save(RG_SLOT) : generic_save(RG_SLOT);
 	if (!ok) plat_log("ScummVM: cannot save right now\n");
 	return ok;
 }
@@ -380,7 +401,7 @@ extern "C" int gw_rg_save(const char *path) {
 extern "C" int gw_rg_load(const char *path) {
 	Common::strlcpy(g_rgPath, path, sizeof g_rgPath);
 	if (!g_engine) { g_loadAtStart = true; return 1; }
-	int ok = gw_engine_is("sky") ? gw_sky_load(RG_SLOT) : gw_scumm_load(RG_SLOT);
+	int ok = gw_engine_is("sky") ? gw_sky_load(RG_SLOT) : gw_engine_is("scumm") ? gw_scumm_load(RG_SLOT) : generic_load(RG_SLOT);
 	if (!ok) plat_log("ScummVM: cannot load right now\n");
 	return ok;
 }
@@ -395,6 +416,11 @@ public:
 };
 
 /* ================================================================ screen */
+
+extern "C" int heap_screen_spill;       /* src/heap.c: may everything use the SCUMM screens' heap? */
+#ifndef GW_ENGINE_VOLUME
+#define GW_ENGINE_VOLUME 160
+#endif
 
 class GWGraphics : public NullGraphicsManager {
 public:
@@ -418,6 +444,22 @@ public:
 		if (_screen.w != (int)w || _screen.h != (int)h) {
 			_screen.free();
 			_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+		}
+		// SCUMM keeps its screens in a heap of their own; no other engine has such screens
+		if (!ConfMan.get("engineid").equalsIgnoreCase("scumm")) heap_screen_spill = 1;
+		// The core runs ScummVM at full volume (the console has its own control), which suits
+		// SCUMM. The other engines' music, effects and voices played together clip at that level
+		// (Ween's music: 4.6% of the samples): GW_ENGINE_VOLUME of 255 for them. Beneath a Steel
+		// Sky sets its own (patches/scummvm-slim.patch, sky.cpp).
+		if (!_mouseSet && !ConfMan.get("engineid").equalsIgnoreCase("scumm") &&
+		    !ConfMan.get("engineid").equalsIgnoreCase("sky")) {
+			static const char *const vol[] = { "music_volume", "sfx_volume", "speech_volume" };
+			for (const char *k : vol) ConfMan.setInt(k, GW_ENGINE_VOLUME, Common::ConfigManager::kTransientDomain);
+			Audio::Mixer *m = g_system->getMixer();
+			m->setVolumeForSoundType(Audio::Mixer::kMusicSoundType, GW_ENGINE_VOLUME);
+			m->setVolumeForSoundType(Audio::Mixer::kSFXSoundType, GW_ENGINE_VOLUME);
+			m->setVolumeForSoundType(Audio::Mixer::kSpeechSoundType, GW_ENGINE_VOLUME);
+			m->setVolumeForSoundType(Audio::Mixer::kPlainSoundType, GW_ENGINE_VOLUME);
 		}
 		if (!_mouseSet) {
 			_mouseSet = _mouseTell = true;       // pollEvent() tells the game where it is
@@ -629,6 +671,7 @@ public:
 	bool pollEvent(Common::Event &event) override {
 		((DefaultTimerManager *)getTimerManager())->checkTimers();
 		pumpAudio();
+		generic_load_now();
 		if (gfx()->_mouseTell) {
 			gfx()->_mouseTell = false;
 			push(Common::EVENT_MOUSEMOVE);
