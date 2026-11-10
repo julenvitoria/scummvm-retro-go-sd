@@ -1,6 +1,6 @@
 # Beneath a Steel Sky on the console: where the memory goes
 
-Branch `sky`. The engine is ScummVM's `sky` (Revolution's Virtual Theatre), built with
+The engine is ScummVM's `sky` (Revolution's Virtual Theatre), built with
 `-DGW_SKY_SLIM` (`make ... SKY_SLIM=` builds the PC test program without the cuts).
 
 ## The engine loads every file whole
