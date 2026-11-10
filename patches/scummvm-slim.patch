@@ -1557,7 +1557,7 @@ index 3e684bd7..70c999f8 100644
  
  } // End of namespace Scumm
 diff --git a/engines/scumm/saveload.cpp b/engines/scumm/saveload.cpp
-index d1d7a764..009ec887 100644
+index d1d7a764..a17349cd 100644
 --- a/engines/scumm/saveload.cpp
 +++ b/engines/scumm/saveload.cpp
 @@ -81,7 +81,7 @@ struct SaveInfoSection {
@@ -1596,7 +1596,7 @@ index d1d7a764..009ec887 100644
  	if (_game.id == GID_REBEL1) {
  		const InsaneRebel1 *rebel = (InsaneRebel1 *)((ScummEngine_v7 *)this)->getInsane();
  		return rebel && rebel->hasPlayableLevels();
-@@ -280,6 +280,142 @@ void ScummEngine::requestSave(int slot, const Common::String &name) {
+@@ -280,6 +280,152 @@ void ScummEngine::requestSave(int slot, const Common::String &name) {
  	_saveLoadDescription = name;
  }
  
@@ -1707,18 +1707,26 @@ index d1d7a764..009ec887 100644
 +
 +} // End of namespace Scumm
 +
++extern "C" int gw_engine_is(const char *id);		// src/gw_system.cpp: g_engine is not always a ScummEngine
++
 +extern "C" int gw_scumm_voice_mode(void) {
++	if (!gw_engine_is("scumm"))
++		return -1;
 +	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
 +	return e ? e->gwVoiceMode() : -1;
 +}
 +
 +extern "C" void gw_scumm_set_voice_mode(int mode) {
++	if (!gw_engine_is("scumm"))
++		return;
 +	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
 +	if (e)
 +		e->gwSetVoiceMode(mode);
 +}
 +
 +extern "C" int gw_scumm_save(int slot) {
++	if (!gw_engine_is("scumm"))
++		return 0;
 +	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
 +	if (!e || !e->canSaveGameStateCurrently())
 +		return 0;
@@ -1726,6 +1734,8 @@ index d1d7a764..009ec887 100644
 +}
 +
 +extern "C" int gw_scumm_load(int slot) {
++	if (!gw_engine_is("scumm"))
++		return 0;
 +	Scumm::ScummEngine *e = static_cast<Scumm::ScummEngine *>(g_engine);
 +	if (!e || !e->canLoadGameStateCurrently())
 +		return 0;
@@ -1739,7 +1749,7 @@ index d1d7a764..009ec887 100644
  void ScummEngine::requestLoad(int slot) {
  	_saveLoadSlot = slot;
  	_saveTemporaryState = (slot == 100);
-@@ -630,7 +766,8 @@ bool ScummEngine::saveState(Common::SeekableWriteStream *out, bool writeHeader)
+@@ -630,7 +776,8 @@ bool ScummEngine::saveState(Common::SeekableWriteStream *out, bool writeHeader)
  		Common::strlcpy(hdr.name, _saveLoadDescription.c_str(), sizeof(hdr.name));
  		saveSaveGameHeader(out, hdr);
  	}
@@ -3063,6 +3073,19 @@ index f134065b..4a5b7a63 100644
  		// HACK: Fill the header with silence. We should
  		// probably use _skySound instead of calling playStream()
  		// directly, but this will have to do for now.
+diff --git a/engines/sky/music/musicbase.cpp b/engines/sky/music/musicbase.cpp
+index 9ab99783..4490d0ef 100644
+--- a/engines/sky/music/musicbase.cpp
++++ b/engines/sky/music/musicbase.cpp
+@@ -48,7 +48,7 @@ void MusicBase::loadSection(uint8 pSection) {
+ 	Common::StackLock lock(_mutex);
+ 	free(_musicData);
+ 	_currentSection = pSection;
+-	_musicData = _skyDisk->loadFile(_driverFileBase + FILES_PER_SECTION * pSection);
++	_musicData = _skyDisk->loadFileRam(_driverFileBase + FILES_PER_SECTION * pSection);
+ 
+ 	_musicTempo0 = 0x78; // init constants taken from idb file, area ~0x1060
+ 	_musicTempo1 = 0xC0;
 diff --git a/engines/sky/screen.cpp b/engines/sky/screen.cpp
 index 2d334840..c7877a2d 100644
 --- a/engines/sky/screen.cpp
@@ -3077,7 +3100,7 @@ index 2d334840..c7877a2d 100644
  		// make sure the last 8 lines are forced to black.
  		memset(_currentScreen + GAME_SCREEN_HEIGHT * GAME_SCREEN_WIDTH, 0, (FULL_SCREEN_HEIGHT - GAME_SCREEN_HEIGHT) * GAME_SCREEN_WIDTH);
 diff --git a/engines/sky/sky.cpp b/engines/sky/sky.cpp
-index 81baee63..3ec84ff2 100644
+index 81baee63..4e25302b 100644
 --- a/engines/sky/sky.cpp
 +++ b/engines/sky/sky.cpp
 @@ -67,6 +67,10 @@
@@ -3091,7 +3114,30 @@ index 81baee63..3ec84ff2 100644
  namespace Sky {
  
  void *SkyEngine::_itemList[300];
-@@ -360,6 +364,9 @@ bool SkyEngine::loadChineseTraditional() {
+@@ -203,6 +207,10 @@ void SkyEngine::handleKey() {
+ 	_keyPressed.reset();
+ }
+ 
++bool SkyEngine::gwSave(int slot) {
++	return _skyControl->saveGameToFile(false, getSaveStateName(slot).c_str()) == GAME_SAVED;
++}
++
+ Common::Error SkyEngine::go() {
+ 	_action = kSkyActionNone;
+ 
+@@ -244,6 +252,11 @@ Common::Error SkyEngine::go() {
+ 
+ 	uint32 delayCount = _system->getMillis();
+ 	while (!shouldQuit()) {
++		if (_gwLoadSlot >= 0) {		// asked for from the Retro-Go menu: done here, between two frames
++			int slot = _gwLoadSlot;
++			_gwLoadSlot = -1;
++			_skyControl->quickXRestore(slot);
++		}
+ 		_skySound->checkFxQueue();
+ 		if (SkyEngine::isIbass()) {
+ 			if (_curScreen != Logic::_scriptVariables[SCREEN]) {
+@@ -360,6 +373,9 @@ bool SkyEngine::loadChineseTraditional() {
  }
  
  Common::Error SkyEngine::init() {
@@ -3101,6 +3147,39 @@ index 81baee63..3ec84ff2 100644
  	if (SkyEngine::isIbass()) {
  		Graphics::PixelFormat format(4, 8, 8, 8, 8, 24, 16, 8, 0);
  		initGraphics(320, 200, &format);
+@@ -667,3 +683,18 @@ Common::String SkyEngine::giveButton(const Common::String &button) {
+ }
+ 
+ } // End of namespace Sky
++
++extern "C" int gw_sky_save(int slot) {
++	Sky::SkyEngine *e = static_cast<Sky::SkyEngine *>(g_engine);
++	if (!e || !e->canSaveGameStateCurrently(nullptr))
++		return 0;
++	return e->gwSave(slot) ? 1 : 0;
++}
++
++extern "C" int gw_sky_load(int slot) {
++	Sky::SkyEngine *e = static_cast<Sky::SkyEngine *>(g_engine);
++	if (!e || !e->canLoadGameStateCurrently(nullptr))
++		return 0;
++	e->_gwLoadSlot = slot;
++	return 1;
++}
+diff --git a/engines/sky/sky.h b/engines/sky/sky.h
+index 8b0b8ce2..64809a25 100644
+--- a/engines/sky/sky.h
++++ b/engines/sky/sky.h
+@@ -125,6 +125,9 @@ public:
+ 	Graphics::Big5Font *_big5Font;
+ 
+ 	bool canSaveGameStateCurrently();
++	// Game & Watch: the Retro-Go menu's save and load (src/gw_system.cpp)
++	bool gwSave(int slot);
++	int _gwLoadSlot = -1;
+ 	static int giveCurrentScreen();
+ 
+ 	static uint32 giveScriptVar(uint32 s);
 diff --git a/gui/dialog.cpp b/gui/dialog.cpp
 index b6cbe9db..081a1c78 100644
 --- a/gui/dialog.cpp

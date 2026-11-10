@@ -138,10 +138,26 @@ void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 	fclose(f);
 }
 
+/* the Retro-Go menu's save and load (src/gw_system.cpp), as the console's firmware calls them:
+   GW_RGSAVE=<ms> saves to <saves>/rg.sav at that time, GW_RGLOAD=<ms> loads it (0: at start) */
+int gw_rg_save(const char *path);
+int gw_rg_load(const char *path);
+int gw_rg_load_at_start(void);
+static const char *rg_path(void) { static char p[600]; snprintf(p, sizeof p, "%s/rg.sav", g_saves); return p; }
+
 uint32_t plat_buttons(void)
 {
 	const char *p = getenv("GW_INPUT");
 	uint32_t now = plat_millis(), held = 0;
+	static int saved, loaded;
+	if (!saved && getenv("GW_RGSAVE") && now >= (uint32_t)atoi(getenv("GW_RGSAVE"))) {
+		saved = 1;
+		fprintf(stderr, "rg save at %u: %d\n", now, gw_rg_save(rg_path()));
+	}
+	if (!loaded && getenv("GW_RGLOAD") && atoi(getenv("GW_RGLOAD")) && now >= (uint32_t)atoi(getenv("GW_RGLOAD"))) {
+		loaded = 1;
+		fprintf(stderr, "rg load at %u: %d\n", now, gw_rg_load(rg_path()));
+	}
 	while (p && *p) {
 		unsigned t, len; char keys[16];
 		if (sscanf(p, "%u:%15[a-z]:%u", &t, keys, &len) != 3) break;
@@ -288,6 +304,10 @@ int main(int argc, char **argv)
 	args[n++] = g_game;
 	for (int i = 2; i < argc && n < 30; i++) args[n++] = argv[i];
 	if (argc == 2) args[n++] = "--auto-detect";   /* as on the console */
+	if (getenv("GW_RGLOAD") && !atoi(getenv("GW_RGLOAD"))) {
+		gw_rg_load(rg_path());
+		if (gw_rg_load_at_start()) { args[n++] = "-x"; args[n++] = "99"; }
+	}
 	args[n] = NULL;
 	return gw_scummvm_main(n, args);
 }
