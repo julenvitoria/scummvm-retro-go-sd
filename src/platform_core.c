@@ -162,8 +162,11 @@ void plat_set_palette(const uint8_t *rgb, int start, int count)
 	lcd_set_clut(g_hw, 256);
 }
 
+static void log_save_if_new(void);
+
 void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 {
+	log_save_if_new();
 	wdog_refresh();
 	lcd_sleep_while_swap_pending();
 	g_last = pixels; g_last_pitch = pitch; g_last_w = w; g_last_h = h;
@@ -373,6 +376,8 @@ static void logf_(const char *fmt, ...)
 	plat_log(buf);
 }
 
+static uint32_t g_log_saved, g_log_saved_at;
+
 static void log_save(void)
 {
 	FILE *f = fopen(SAVE_DIR "/scummvm.log", "w");
@@ -380,6 +385,17 @@ static void log_save(void)
 	uint32_t n = g_log_len < LOG_SIZE ? g_log_len : LOG_SIZE, start = g_log_len - n;
 	for (uint32_t i = 0; i < n; i++) fputc(g_log[(start + i) % LOG_SIZE], f);
 	fclose(f);
+	g_log_saved = g_log_len;
+}
+
+/* while the game runs (plat_present): new lines reach the card within a few seconds, so the
+   log is there too when the console is switched off instead of leaving the game */
+static void log_save_if_new(void)
+{
+	uint32_t now = HAL_GetTick();
+	if (g_log_len == g_log_saved || now - g_log_saved_at < 3000) return;
+	g_log_saved_at = now;
+	log_save();
 }
 
 plat_stat_t plat_stat(const char *path)
