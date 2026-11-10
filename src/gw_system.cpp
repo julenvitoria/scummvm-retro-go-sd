@@ -418,6 +418,9 @@ public:
 /* ================================================================ screen */
 
 extern "C" int heap_screen_spill;       /* src/heap.c: may everything use the SCUMM screens' heap? */
+#ifndef GW_ENGINE_VOLUME
+#define GW_ENGINE_VOLUME 160
+#endif
 
 class GWGraphics : public NullGraphicsManager {
 public:
@@ -444,6 +447,20 @@ public:
 		}
 		// SCUMM keeps its screens in a heap of their own; no other engine has such screens
 		if (!ConfMan.get("engineid").equalsIgnoreCase("scumm")) heap_screen_spill = 1;
+		// The core runs ScummVM at full volume (the console has its own control), which suits
+		// SCUMM. The other engines' music, effects and voices played together clip at that level
+		// (Ween's music: 4.6% of the samples): GW_ENGINE_VOLUME of 255 for them. Beneath a Steel
+		// Sky sets its own (patches/scummvm-slim.patch, sky.cpp).
+		if (!_mouseSet && !ConfMan.get("engineid").equalsIgnoreCase("scumm") &&
+		    !ConfMan.get("engineid").equalsIgnoreCase("sky")) {
+			static const char *const vol[] = { "music_volume", "sfx_volume", "speech_volume" };
+			for (const char *k : vol) ConfMan.setInt(k, GW_ENGINE_VOLUME, Common::ConfigManager::kTransientDomain);
+			Audio::Mixer *m = g_system->getMixer();
+			m->setVolumeForSoundType(Audio::Mixer::kMusicSoundType, GW_ENGINE_VOLUME);
+			m->setVolumeForSoundType(Audio::Mixer::kSFXSoundType, GW_ENGINE_VOLUME);
+			m->setVolumeForSoundType(Audio::Mixer::kSpeechSoundType, GW_ENGINE_VOLUME);
+			m->setVolumeForSoundType(Audio::Mixer::kPlainSoundType, GW_ENGINE_VOLUME);
+		}
 		if (!_mouseSet) {
 			_mouseSet = _mouseTell = true;       // pollEvent() tells the game where it is
 			_mouseX = w / 2;
