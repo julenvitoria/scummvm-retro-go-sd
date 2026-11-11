@@ -455,12 +455,60 @@ static void decrypt_chunk(uint8_t *buf, uint32_t len, uint32_t offset, uint8_t *
 	for (i *= 4; i < len; i++) buf[i] ^= g_decrypting;
 }
 
-/* SCUMM v7 data files too big for the flash: their resource packs (src/pack.c), which are */
+/* Data files too big for the flash (Full Throttle's FT.LA1, Beneath a Steel Sky's sky.dsk):
+   their resource packs (src/pack.c), made on the card the first time and put in the flash in
+   pieces (svm_pack_split), each where there is room for it */
+/* the firmware's blob store (Core/Inc/gw_flash_alloc.h, through the bridge) */
+typedef struct {
+	uint32_t key_crc, flash_address, prog_addr, erase_addr, erase_left, total, done, erase_size_total;
+	bool active;
+} flash_stream_t;
+const uint8_t *lookup_data_in_flash(const char *key, uint32_t *size_out);
+bool store_data_begin(flash_stream_t *st, const char *key, uint32_t total_size);
+bool store_data_append(flash_stream_t *st, const uint8_t *buf, uint32_t len);
+const uint8_t *store_data_finish(flash_stream_t *st);
+void store_data_abort(flash_stream_t *st);
+
 #define MAX_PACKS 2
-static struct { char name[28]; const pack_head_t *head; } g_pack[MAX_PACKS];
+static struct {
+	char name[28];
+	const pack_head_t *head;
+	int pieces;
+	uint32_t start[SVM_PACK_MAX_PIECES];
+	const uint8_t *at[SVM_PACK_MAX_PIECES];
+} g_pack[MAX_PACKS];
 static int g_packs;
 
 static void pack_progress(int pct) { odroid_overlay_draw_progress_bar("Preparing the game (first time only)", (uint8_t)pct); }
+
+/* piece k of the pack in the flash, by key (the firmware's blob store): put there from the
+   card when it is not there yet. The key carries what the pack was made from, so a new pack
+   (the game's files changed) does not find the old pieces. */
+static const uint8_t *pack_piece(void *f, const char *name, const pack_head_t *h, uint32_t start, uint32_t len,
+                                 int k, uint32_t *done, uint32_t total)
+{
+	char key[96];
+	snprintf(key, sizeof key, "svm-pack|%s|%lx|%lx|%lx|%d", name, (unsigned long)h->src_size,
+	         (unsigned long)h->src_sum, (unsigned long)h->total, k);
+	uint32_t got = 0;
+	const uint8_t *p = lookup_data_in_flash(key, &got);
+	if (p && got == len) { *done += len; return p; }
+	static flash_stream_t st;                 /* (the firmware's: the caller owns it) */
+	uint8_t *buf = (uint8_t *)malloc(16384);
+	if (!buf) return NULL;
+	if (!plat_fseek(f, (int32_t)start, 0) || !store_data_begin(&st, key, len)) { free(buf); return NULL; }
+	uint8_t last = 0xff;
+	for (uint32_t left = len; left;) {
+		uint32_t n = left < 16384 ? left : 16384;
+		if (plat_fread(buf, n, f) != n || !store_data_append(&st, buf, n)) { store_data_abort(&st); free(buf); return NULL; }
+		left -= n;
+		*done += n;
+		uint8_t pct = (uint8_t)((uint64_t)*done * 100 / total);
+		if (pct != last) { odroid_overlay_draw_progress_bar("Copying the game to the flash", pct); last = pct; }
+	}
+	free(buf);
+	return store_data_finish(&st);
+}
 
 static void cache_pack(const char *name, uint32_t size)
 {
@@ -485,15 +533,32 @@ static void cache_pack(const char *name, uint32_t size)
 			logf_("ScummVM: could not make %s.gwpack: its resources are read from the SD card\n", name);
 			return;
 		}
+		void *f = plat_fopen(dst, "rb");
+		valid = f && plat_fread(&h, sizeof h, f) == sizeof h;
+		if (f) plat_fclose(f);
+		if (!valid) return;
 	}
-	uint32_t got = 0;
-	const uint8_t *p = odroid_overlay_cache_file_in_flash_relocate(dst, &got, false, decrypt_chunk);
-	if (!p) { logf_("ScummVM: no room in external flash for %s.gwpack\n", name); return; }
-	strcpy(g_pack[g_packs].name, name);
-	g_pack[g_packs].head = (const pack_head_t *)p;
+	typeof(g_pack[0]) *P = &g_pack[g_packs];
+	void *f = plat_fopen(dst, "rb");
+	if (!f) return;
+	P->pieces = svm_pack_split(f, &h, P->start, SVM_PACK_MAX_PIECES);
+	uint32_t done = 0;
+	int k = 0;
+	for (; k < P->pieces; k++) {
+		uint32_t end = k + 1 < P->pieces ? P->start[k + 1] : h.total;
+		P->at[k] = pack_piece(f, name, &h, P->start[k], end - P->start[k], k, &done, h.total);
+		if (!P->at[k]) break;
+	}
+	plat_fclose(f);
+	if (!P->pieces || k < P->pieces) {
+		logf_("ScummVM: no room in external flash for %s.gwpack (piece %d of %d)\n", name, k + 1, P->pieces);
+		return;
+	}
+	strcpy(P->name, name);
+	P->head = (const pack_head_t *)P->at[0];
 	g_packs++;
-	logf_("ScummVM: %s: %lu resources (%lu KB) in external flash\n", name, (unsigned long)((const pack_head_t *)p)->count,
-	      (unsigned long)(got / 1024));
+	logf_("ScummVM: %s: %lu resources (%lu KB) in external flash, in %d pieces\n", name,
+	      (unsigned long)h.count, (unsigned long)(h.total / 1024), P->pieces);
 }
 
 const void *plat_map_pack(const char *path)
@@ -503,6 +568,17 @@ const void *plat_map_pack(const char *path)
 	for (int i = 0; i < g_packs; i++)
 		if (!strcasecmp(g_pack[i].name, path + gl + 1)) return g_pack[i].head;
 	return NULL;
+}
+
+const void *plat_pack_ptr(const pack_head_t *h, uint32_t off)
+{
+	for (int i = 0; i < g_packs; i++)
+		if (g_pack[i].head == h) {
+			int k = g_pack[i].pieces - 1;
+			while (k > 0 && off < g_pack[i].start[k]) k--;
+			return g_pack[i].at[k] + (off - g_pack[i].start[k]);
+		}
+	return (const uint8_t *)h + off;
 }
 
 /* name: relative to the game folder ("FT.LA1", "DATA/ICONS.NUT") */

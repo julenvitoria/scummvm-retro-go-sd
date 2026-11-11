@@ -187,6 +187,29 @@ done:
 	return ok;
 }
 
+int svm_pack_split(void *f, const pack_head_t *h, uint32_t *starts, int cap)
+{
+	pack_entry_t e[64];
+	int n = 1;
+	uint32_t start = 0;
+	starts[0] = 0;
+	if (h->data_off > SVM_PACK_PIECE || !plat_fseek(f, (int32_t)sizeof *h, 0)) return 0;
+	for (uint32_t i = 0; i < h->count;) {
+		uint32_t k = h->count - i < 64 ? h->count - i : 64;
+		if (plat_fread(e, k * sizeof *e, f) != k * sizeof *e) return 0;
+		for (uint32_t j = 0; j < k; j++) {
+			uint32_t end = e[j].pack + ((e[j].size + 3) & ~3u);
+			if (e[j].pack < start || end > h->total) return 0;   /* not in order: not a pack of ours */
+			if (end - start > SVM_PACK_PIECE && e[j].pack > start) {
+				if (n == cap) return 0;
+				starts[n++] = start = e[j].pack;
+			}
+		}
+		i += k;
+	}
+	return n;
+}
+
 const pack_entry_t *svm_pack_find(const pack_head_t *h, uint32_t pos, uint32_t n)
 {
 	const pack_entry_t *e = (const pack_entry_t *)(h + 1);

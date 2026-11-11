@@ -175,7 +175,7 @@ public:
 	}
 	const byte *inFlash(uint32 n) const {
 		const pack_entry_t *e = svm_pack_find(_head, _pos, n);
-		return e ? (const byte *)_head + e->pack + (_pos - e->src) : nullptr;
+		return e ? (const byte *)plat_pack_ptr(_head, e->pack) + (_pos - e->src) : nullptr;
 	}
 	uint32 read(void *buf, uint32 n) override {
 		if (n > _size - _pos) { n = _size - _pos; _eos = true; }
@@ -229,10 +229,19 @@ const byte *gwSkyFile(uint16 nr, uint32 *size)
 		}
 		if (head && head->reserved != PACK_SKY) head = nullptr;
 	}
-	const pack_entry_t *e = head ? svm_pack_file(head, nr) : nullptr;
+	// a pack on the card that is not in the flash: the engine would load its files whole into
+	// the heap, and a 1 MB animation is a crash somewhere later, so it is said here
+	static bool packOnCard;
+	if (!head && !packOnCard) {
+		for (const char *name : { "sky.dsk.gwpack", "SKY.DSK.gwpack" })
+			packOnCard = packOnCard || plat_stat((Common::String(plat_game_path()) + "/" + name).c_str()).exists;
+		if (packOnCard)
+			error("Beneath a Steel Sky: no room in the external flash for its files (sky.dsk.gwpack)");
+	}
+	const pack_entry_t *e = svm_pack_file(head, nr);
 	if (!e) return nullptr;
 	*size = e->size;
-	return (const byte *)head + e->pack;
+	return (const byte *)plat_pack_ptr(head, e->pack);
 }
 
 class GWFileStream : public Common::SeekableReadStream, public Common::SeekableWriteStream {
