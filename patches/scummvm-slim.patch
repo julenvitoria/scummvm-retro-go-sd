@@ -224,7 +224,7 @@ index 42e39380..6fe92a3c 100644
  
  	case kGameTypeAdibou1:
 diff --git a/engines/gob/surface.cpp b/engines/gob/surface.cpp
-index 452492a6..440e389f 100644
+index 452492a6..f6167987 100644
 --- a/engines/gob/surface.cpp
 +++ b/engines/gob/surface.cpp
 @@ -45,6 +45,8 @@
@@ -244,7 +244,7 @@ index 452492a6..440e389f 100644
  	if (_ownVidMem)
  		delete[] _vidMem;
  
-@@ -256,9 +259,29 @@ uint8 Surface::getBPP() const {
+@@ -256,9 +259,28 @@ uint8 Surface::getBPP() const {
  	return _bpp;
  }
  
@@ -253,9 +253,8 @@ index 452492a6..440e389f 100644
 +static const byte *gwAdopted;
 +
 +void Surface::gwAdopt() {
-+	if (_bpp != 1 || !_ownVidMem)
++	if (_bpp != 1 || !_ownVidMem || gwAdopted == _vidMem)
 +		return;
-+	gwUnadopt();
 +	gwAdopted = _vidMem;
 +	gwAdoptScreen(_vidMem, _width, _height);
 +}
@@ -274,7 +273,7 @@ index 452492a6..440e389f 100644
  	if (_ownVidMem)
  		delete[] _vidMem;
  
-@@ -273,6 +296,8 @@ void Surface::setBPP(uint8 bpp) {
+@@ -273,6 +295,8 @@ void Surface::setBPP(uint8 bpp) {
  	if (_bpp == bpp)
  		return;
  
@@ -297,10 +296,19 @@ index 0cc05382..7929faa8 100644
  	void setBPP(uint8 bpp);
  
 diff --git a/engines/gob/video.cpp b/engines/gob/video.cpp
-index 9f637fbf..3c1717ad 100644
+index 9f637fbf..4ac64f0c 100644
 --- a/engines/gob/video.cpp
 +++ b/engines/gob/video.cpp
-@@ -244,6 +244,7 @@ SurfacePtr Video::initSurfDesc(int16 width, int16 height, int16 flags, byte bpp)
+@@ -40,6 +40,8 @@
+ #include "gob/dataio.h"
+ #include "gob/draw.h"
+ 
++bool gwScreenReady();   // src/gw_system.cpp
++
+ namespace Gob {
+ 
+ Font::Font(const byte *data) : _dataPtr(data) {
+@@ -244,6 +246,7 @@ SurfacePtr Video::initSurfDesc(int16 width, int16 height, int16 flags, byte bpp)
  
  		descPtr = _vm->_global->_primarySurfDesc;
  		descPtr->resize(width, height);
@@ -308,6 +316,19 @@ index 9f637fbf..3c1717ad 100644
  	} else {
  		assert(!(flags & DISABLE_SPR_ALLOC));
  
+@@ -278,6 +281,12 @@ void Video::retrace(bool mouse) {
+ 		CursorMan.showMouse((_vm->_draw->_showCursor & 6) != 0);
+ 
+ 	if (_vm->_global->_primarySurfDesc) {
++		// Game & Watch: the front buffer is the screen itself when it can be (surface.cpp).
++		// While the backend has no screen (between two front buffers), or has just made
++		// one of its own, everything is drawn again.
++		_vm->_global->_primarySurfDesc->gwAdopt();
++		if (!gwScreenReady())
++			dirtyRectsAll();
+ 		int screenX = _screenDeltaX;
+ 		int screenY = _screenDeltaY;
+ 		int screenWidth = MIN<int>(_surfWidth - _scrollOffsetX, _vm->_width);
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea52..380eb1fa 100644
 --- a/engines/scumm/dialogs.cpp
