@@ -436,15 +436,47 @@ public:
 	bool _mouseSet = false, _mouseTell = false;   // the pointer starts in the middle of the screen
 	int _shakeX = 0, _shakeY = 0;
 
-	GWGraphics() { memset(_pal, 0, sizeof _pal); }
-	~GWGraphics() override { _screen.free(); free(_cursor); }
+	static GWGraphics *_the;
+	GWGraphics() { memset(_pal, 0, sizeof _pal); _the = this; }
+	~GWGraphics() override { dropScreen(); free(_cursor); }
+
+	// gwAdoptScreen(): the engine's own front buffer used as the screen, when it has the
+	// screen's size, instead of a copy of it (Ween at 640x200: 128 KB)
+	byte *_adopt = nullptr;
+	int _adoptW = 0, _adoptH = 0;
+	bool adopted() const { return _adopt && _screen.getPixels() == _adopt; }
+	void dropScreen() {
+		if (adopted()) _screen = Graphics::Surface();
+		else _screen.free();
+	}
+	void makeScreen(int w, int h) {
+		dropScreen();
+		if (_adopt && _adoptW == w && _adoptH == h)
+			_screen.init(w, h, w, _adopt, Graphics::PixelFormat::createFormatCLUT8());
+		else
+			_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+	}
+	void adopt(byte *p, int w, int h) {
+		int sw = _screen.w, sh = _screen.h;
+		if (!p) {                              // the engine is about to free it: back to a copy
+			bool was = adopted();
+			const byte *old = _adopt;
+			if (was) _screen = Graphics::Surface();
+			_adopt = nullptr;
+			if (was) {
+				_screen.create(sw, sh, Graphics::PixelFormat::createFormatCLUT8());
+				if (_screen.getPixels()) memcpy(_screen.getPixels(), old, sw * sh);
+			}
+			return;
+		}
+		_adopt = p; _adoptW = w; _adoptH = h;
+		if (sw == w && sh == h && _screen.getPixels()) makeScreen(w, h);
+	}
 
 	void initSize(uint w, uint h, const Graphics::PixelFormat *format) override {
 		NullGraphicsManager::initSize(w, h, format);
-		if (_screen.w != (int)w || _screen.h != (int)h) {
-			_screen.free();
-			_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
-		}
+		if (_screen.w != (int)w || _screen.h != (int)h || !_screen.getPixels())
+			makeScreen(w, h);
 		// SCUMM keeps its screens in a heap of their own; no other engine has such screens
 		if (!ConfMan.get("engineid").equalsIgnoreCase("scumm")) heap_screen_spill = 1;
 		// The core runs ScummVM at full volume (the console has its own control), which suits
@@ -473,11 +505,21 @@ public:
 	}
 	void grabPalette(byte *c, uint start, uint num) const override { memcpy(c, _pal + start * 3, num * 3); }
 	void copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) override {
+		if (!_screen.getPixels()) return;
+		const byte *src = (const byte *)buf;
+		if (adopted() && src >= _adopt && src < _adopt + _adoptW * _adoptH) {
+			// from the adopted buffer itself: nothing to do when it is the same place
+			if (x < 0 || y < 0 || x + w > _screen.w || y + h > _screen.h) return;
+			byte *dst = (byte *)_screen.getBasePtr(x, y);
+			if (dst == src && pitch == _screen.pitch) return;
+			for (int i = 0; i < h; i++) memmove(dst + i * _screen.pitch, src + i * pitch, w);
+			return;
+		}
 		_screen.copyRectToSurface(buf, pitch, x, y, w, h);
 	}
 	Graphics::Surface *lockScreen() override { return &_screen; }
-	void fillScreen(uint32 col) override { _screen.fillRect(Common::Rect(_screen.w, _screen.h), col); }
-	void fillScreen(const Common::Rect &r, uint32 col) override { _screen.fillRect(r, col); }
+	void fillScreen(uint32 col) override { if (_screen.getPixels()) _screen.fillRect(Common::Rect(_screen.w, _screen.h), col); }
+	void fillScreen(const Common::Rect &r, uint32 col) override { if (_screen.getPixels()) _screen.fillRect(r, col); }
 	void setShakePos(int x, int y) override { _shakeX = x; _shakeY = y; }
 
 	bool showMouse(bool visible) override { bool old = _cursorVisible; _cursorVisible = visible; return old; }
@@ -516,6 +558,15 @@ public:
 		}
 	}
 };
+
+GWGraphics *GWGraphics::_the;
+
+/* patches/scummvm-slim.patch (Gob::Surface): the engine's front buffer, w x h bytes, is the
+   screen from now on when the screen has that size; NULL before the engine frees it */
+void gwAdoptScreen(byte *pixels, int w, int h)
+{
+	if (GWGraphics::_the) GWGraphics::_the->adopt(pixels, w, h);
+}
 
 /* ================================================================ sound */
 
