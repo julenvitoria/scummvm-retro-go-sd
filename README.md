@@ -7,16 +7,23 @@
 ## English
 
 A [ScummVM](https://github.com/scummvm/scummvm) core for the Nintendo Game & Watch running
-sylverb's Retro-Go SD firmware (`external_cores` branch). It starts with the SCUMM engine
-(LucasArts adventures, versions 0 to 6).
-
-**Status: test version.** *The Secret of Monkey Island* (EGA and VGA talkie) starts and plays,
-with music and sound effects (AdLib / Sound Blaster FM through DOSBox's OPL emulator),
-speech and saved games.
+sylverb's Retro-Go SD firmware (`external_cores` branch).
 
 No games are included, nor will they be: bring your own.
 
-### Installation
+| Engine | Games |
+|---|---|
+| SCUMM (LucasArts) | Maniac Mansion, Zak McKracken, Indiana Jones and the Last Crusade, Loom, Monkey Island 1 and 2, Indiana Jones and the Fate of Atlantis, Day of the Tentacle, Sam & Max, Full Throttle |
+| Sky | Beneath a Steel Sky |
+| CGE | Sołtys |
+| Lure | Lure of the Temptress |
+
+Not supported: The Dig and The Curse of Monkey Island (too big), Macintosh and FM-Towns versions.
+
+Open a section:
+
+<details>
+<summary><b>Installation</b></summary>
 
 1. Copy `scummvm.bin` to `/cores/` on the SD card.
 2. Copy each game's files, as they are (`000.lfl`, `901.lfl`, `disk01.lec`…), to a folder of
@@ -41,7 +48,46 @@ No games are included, nor will they be: bring your own.
    Games copied to the flash by an older version of this core are copied once more (their
    data files are now stored decrypted, see "How it is made").
 
-### Telling ScummVM which game it is
+</details>
+
+<details>
+<summary><b>Notes for each game</b></summary>
+
+**Full Throttle**
+
+Copy the whole game as it is (`FT.LA0`, `FT.LA1`, `MONSTER.SOU` and the `DATA` and `VIDEO`
+folders) into its folder. `FT.LA1` (152 MB) does not fit in the flash: the first time, the
+core copies what it holds besides the sounds into `FT.LA1.gwpack` next to it (28 MB, so leave
+that much free on the card) and puts that in the flash; a progress bar shows it, and it takes
+a few minutes (if the bar seems stuck, it is still working). The sounds, voices and videos
+are read from the SD card as they play. If the
+game's files change, the pack is made again; it can be deleted at any time.
+
+The Dig does not fit: its characters' graphics alone are 57 MB.
+
+**Beneath a Steel Sky**
+
+Copy `sky.dsk`, `sky.dnr` and `sky.cpt` into the game's folder (`sky.cpt` comes with ScummVM,
+not with the game). The first time, the core unpacks everything but the speech into
+`sky.dsk.gwpack` next to them (38 MB, so leave that much free on the card) and puts it in
+the flash; a progress bar shows it, and it takes a few minutes. The speech is read from the
+SD card. TIME opens the game's own control panel (save, load, volume, text speed).
+
+**Sołtys**
+
+Copy `vol.cat` and `vol.dat` into the game's folder (the game is freeware: scummvm.org/games).
+`vol.dat` is kept decrypted in the flash, and the sprites are drawn from there.
+
+**Lure of the Temptress**
+
+Copy `DISK1.VGA` to `DISK4.VGA` into the game's folder, with ScummVM's `lure.dat` (it comes
+with ScummVM, not with the game). Everything goes to the flash; nothing is built on the
+first launch.
+
+</details>
+
+<details>
+<summary><b>Telling ScummVM which game it is</b></summary>
 
 ScummVM recognises a game by a fingerprint of its files, and knows thousands of versions.
 With an unusual copy (a rare release, a fan-made talkie…) it has to guess, and may guess
@@ -90,38 +136,10 @@ Island), Beneath a Steel Sky, Sołtys and Lure of the Temptress.
 They do not fix an incomplete copy, nor the versions this core leaves out on purpose:
 Macintosh (its buffers are cut to save memory) and FM-Towns.
 
-### Lure of the Temptress
+</details>
 
-Copy `DISK1.VGA` to `DISK4.VGA` into the game's folder, with ScummVM's `lure.dat` (it comes
-with ScummVM, not with the game). Everything goes to the flash; nothing is built on the
-first launch.
-
-### Full Throttle
-
-Copy the whole game as it is (`FT.LA0`, `FT.LA1`, `MONSTER.SOU` and the `DATA` and `VIDEO`
-folders) into its folder. `FT.LA1` (152 MB) does not fit in the flash: the first time, the
-core copies what it holds besides the sounds into `FT.LA1.gwpack` next to it (28 MB, so leave
-that much free on the card) and puts that in the flash; a progress bar shows it, and it takes
-a few minutes (if the bar seems stuck, it is still working). The sounds, voices and videos
-are read from the SD card as they play. If the
-game's files change, the pack is made again; it can be deleted at any time.
-
-The Dig does not fit: its characters' graphics alone are 57 MB.
-
-### Beneath a Steel Sky
-
-Copy `sky.dsk`, `sky.dnr` and `sky.cpt` into the game's folder (`sky.cpt` comes with ScummVM,
-not with the game). The first time, the core unpacks everything but the speech into
-`sky.dsk.gwpack` next to them (38 MB, so leave that much free on the card) and puts it in
-the flash; a progress bar shows it, and it takes a few minutes. The speech is read from the
-SD card. TIME opens the game's own control panel (save, load, volume, text speed).
-
-### Sołtys
-
-Copy `vol.cat` and `vol.dat` into the game's folder (the game is freeware: scummvm.org/games).
-`vol.dat` is kept decrypted in the flash, and the sprites are drawn from there.
-
-### Saved games
+<details>
+<summary><b>Saved games</b></summary>
 
 - **Retro-Go menu (PAUSE/SET):** *Save & Continue*, *Save & Quit* and *Reload*, with the
   firmware's 4 slots and their previews, as in the other cores. Powering off saves too, and
@@ -131,12 +149,10 @@ Copy `vol.cat` and `vol.dat` into the game's folder (the game is freeware: scumm
   save's name with the on-screen keyboard (GAME); left empty, it becomes the date and time. These saves are ScummVM's usual files, in `/saves/scummvm/`.
 - Saves carry no thumbnail (it would take 128 KB of memory).
 
-### When a game does not start
+</details>
 
-If a game goes back to the Retro-Go menu, the reason is shown on screen and written to
-`/saves/scummvm/scummvm.log`.
-
-### Controls
+<details>
+<summary><b>Controls</b></summary>
 
 | Button | Action |
 |---|---|
@@ -159,7 +175,18 @@ continue") are typed from here.
 (voice + text / text only / voice only), or `Txt` on the keyboard (Ctrl+T). The choice is
 kept for every game.
 
-### How it is made
+</details>
+
+<details>
+<summary><b>When a game does not start</b></summary>
+
+If a game goes back to the Retro-Go menu, the reason is shown on screen and written to
+`/saves/scummvm/scummvm.log`.
+
+</details>
+
+<details>
+<summary><b>How it is made</b></summary>
 
 - The essentials (boot, SD card access, the heap) live in the core's RAM; the rest of
   ScummVM (~2.5 MB of code) runs straight from the external flash (XIP). At boot the core
@@ -181,7 +208,10 @@ kept for every game.
   once for the Retro-Go menu, resources freed when memory runs low, and the fingerprints of
   a few Spanish copies ScummVM did not know.
 
-### Building
+</details>
+
+<details>
+<summary><b>Building</b></summary>
 
 ```
 git submodule update --init
@@ -192,22 +222,30 @@ make host-gwheap  # the same with the console's heap, to find out-of-memory spot
 
 `tools/host/` has the PC memory tools ([tools/host/README.md](tools/host/README.md)).
 
+</details>
+
 ---
 
 ## Español
 
 Core de [ScummVM](https://github.com/scummvm/scummvm) para la Game & Watch con el firmware
-Retro-Go SD de sylverb (rama `external_cores`). Empieza por el motor SCUMM (aventuras de
-LucasArts, versiones 0 a 6).
+Retro-Go SD de sylverb (rama `external_cores`).
 
-**Estado: versión de prueba.** Arranca y se juega *The Secret of Monkey Island* (EGA y la
-versión hablada VGA), con música y efectos (AdLib / Sound Blaster FM, emulador OPL de
-DOSBox), voces y partidas guardadas. El estudio previo está en
-[docs/estudio-viabilidad.md](docs/estudio-viabilidad.md).
+No incluye juegos ni los incluirá: usa los tuyos.
 
-Los juegos no se incluyen ni se incluirán: cada uno pone los suyos.
+| Motor | Juegos |
+|---|---|
+| SCUMM (LucasArts) | Maniac Mansion, Zak McKracken, Indiana Jones y la Última Cruzada, Loom, Monkey Island 1 y 2, Indiana Jones and the Fate of Atlantis, Day of the Tentacle, Sam & Max, Full Throttle |
+| Sky | Beneath a Steel Sky |
+| CGE | Sołtys |
+| Lure | Lure of the Temptress |
 
-### Instalación
+No soportados: The Dig y The Curse of Monkey Island (demasiado grandes), versiones Macintosh y FM-Towns.
+
+Abre una sección:
+
+<details>
+<summary><b>Instalación</b></summary>
 
 1. Copia `scummvm.bin` en `/cores/` de la SD.
 2. Copia los ficheros de cada juego, tal cual (`000.lfl`, `901.lfl`, `disk01.lec`…), en una
@@ -232,7 +270,46 @@ Los juegos no se incluyen ni se incluirán: cada uno pone los suyos.
    Los juegos que una versión anterior de este core ya copió a la flash se copian una vez
    más (sus ficheros de datos ahora se guardan descifrados, ver "Cómo está hecho").
 
-### Decirle a ScummVM qué juego es
+</details>
+
+<details>
+<summary><b>Notas de cada juego</b></summary>
+
+**Full Throttle**
+
+Copia el juego entero tal cual (`FT.LA0`, `FT.LA1`, `MONSTER.SOU` y las carpetas `DATA` y
+`VIDEO`) en su carpeta. `FT.LA1` (152 MB) no cabe en la flash: la primera vez, el core copia
+lo que contiene salvo los sonidos en `FT.LA1.gwpack`, a su lado (28 MB, deja ese espacio
+libre en la SD), y eso lo pone en la flash; lo muestra una barra de progreso y tarda unos
+minutos (si la barra parece parada, sigue trabajando). Los sonidos, las voces y los vídeos
+se leen de la SD según se reproducen. Si los
+ficheros del juego cambian, el paquete se vuelve a hacer; se puede borrar cuando se quiera.
+
+The Dig no cabe: solo los gráficos de sus personajes ocupan 57 MB.
+
+**Beneath a Steel Sky**
+
+Copia `sky.dsk`, `sky.dnr` y `sky.cpt` en la carpeta del juego (`sky.cpt` viene con ScummVM,
+no con el juego). La primera vez, el core descomprime todo menos las voces en
+`sky.dsk.gwpack`, a su lado (38 MB, deja ese espacio libre en la SD), y lo pone en la flash;
+lo muestra una barra de progreso y tarda unos minutos. Las voces se leen de la SD. TIME abre
+el panel de control del propio juego (guardar, cargar, volumen, velocidad del texto).
+
+**Sołtys**
+
+Copia `vol.cat` y `vol.dat` en la carpeta del juego (es freeware: scummvm.org/games).
+`vol.dat` se guarda descifrado en la flash y los sprites se dibujan desde ahí.
+
+**Lure of the Temptress**
+
+Copia `DISK1.VGA` a `DISK4.VGA` en la carpeta del juego, junto con `lure.dat` de ScummVM
+(viene con ScummVM, no con el juego). Todo va a la flash; no se crea nada en el primer
+arranque.
+
+</details>
+
+<details>
+<summary><b>Decirle a ScummVM qué juego es</b></summary>
 
 ScummVM reconoce cada juego por una huella de sus ficheros y conoce miles de versiones. Con
 una copia poco común (una edición rara, una versión hablada de aficionados…) tiene que
@@ -282,38 +359,10 @@ tabla: SCUMM (The Dig y The Curse of Monkey Island no), Beneath a Steel Sky, So�
 No arreglan una copia incompleta ni las versiones que este core deja fuera a propósito:
 Macintosh (sus buffers están recortados para ahorrar memoria) y FM-Towns.
 
-### Lure of the Temptress
+</details>
 
-Copia `DISK1.VGA` a `DISK4.VGA` en la carpeta del juego, junto con `lure.dat` de ScummVM
-(viene con ScummVM, no con el juego). Todo va a la flash; no se crea nada en el primer
-arranque.
-
-### Full Throttle
-
-Copia el juego entero tal cual (`FT.LA0`, `FT.LA1`, `MONSTER.SOU` y las carpetas `DATA` y
-`VIDEO`) en su carpeta. `FT.LA1` (152 MB) no cabe en la flash: la primera vez, el core copia
-lo que contiene salvo los sonidos en `FT.LA1.gwpack`, a su lado (28 MB, deja ese espacio
-libre en la SD), y eso lo pone en la flash; lo muestra una barra de progreso y tarda unos
-minutos (si la barra parece parada, sigue trabajando). Los sonidos, las voces y los vídeos
-se leen de la SD según se reproducen. Si los
-ficheros del juego cambian, el paquete se vuelve a hacer; se puede borrar cuando se quiera.
-
-The Dig no cabe: solo los gráficos de sus personajes ocupan 57 MB.
-
-### Beneath a Steel Sky
-
-Copia `sky.dsk`, `sky.dnr` y `sky.cpt` en la carpeta del juego (`sky.cpt` viene con ScummVM,
-no con el juego). La primera vez, el core descomprime todo menos las voces en
-`sky.dsk.gwpack`, a su lado (38 MB, deja ese espacio libre en la SD), y lo pone en la flash;
-lo muestra una barra de progreso y tarda unos minutos. Las voces se leen de la SD. TIME abre
-el panel de control del propio juego (guardar, cargar, volumen, velocidad del texto).
-
-### Sołtys
-
-Copia `vol.cat` y `vol.dat` en la carpeta del juego (es freeware: scummvm.org/games).
-`vol.dat` se guarda descifrado en la flash y los sprites se dibujan desde ahí.
-
-### Partidas guardadas
+<details>
+<summary><b>Partidas guardadas</b></summary>
 
 - **Menú de Retro-Go (PAUSE/SET):** *Save & Continue*, *Save & Quit* y *Reload*, con los 4
   huecos del firmware y su vista previa, como en los demás cores. Al apagar también se
@@ -324,12 +373,10 @@ Copia `vol.cat` y `vol.dat` en la carpeta del juego (es freeware: scummvm.org/ga
   la hora. Estas partidas son los ficheros normales de ScummVM, en `/saves/scummvm/`.
 - Las partidas no llevan miniatura (costaría 128 KB de memoria).
 
-### Cuando un juego no arranca
+</details>
 
-Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escrito en
-`/saves/scummvm/scummvm.log`.
-
-### Controles
+<details>
+<summary><b>Controles</b></summary>
 
 | Botón | Acción |
 |---|---|
@@ -352,7 +399,18 @@ continuar") se escriben desde aquí.
 Opciones → Subtítulos (voz y texto / solo texto / solo voz), o `Txt` en el teclado (Ctrl+T).
 La elección se guarda para todos los juegos.
 
-### Cómo está hecho
+</details>
+
+<details>
+<summary><b>Cuando un juego no arranca</b></summary>
+
+Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escrito en
+`/saves/scummvm/scummvm.log`.
+
+</details>
+
+<details>
+<summary><b>Cómo está hecho</b></summary>
 
 - Lo esencial (arranque, acceso a la SD, el heap) va en la RAM del core; el resto de ScummVM
   (~2,5 MB de código) se ejecuta directamente desde la flash externa (XIP). Al arrancar, el
@@ -374,7 +432,10 @@ La elección se guarda para todos los juegos.
   momento para el menú de Retro-Go, recursos liberados cuando falta memoria y las huellas de
   algunas copias españolas que ScummVM no conocía.
 
-### Compilar
+</details>
+
+<details>
+<summary><b>Compilar</b></summary>
 
 ```
 git submodule update --init
@@ -385,3 +446,5 @@ make host-gwheap  # lo mismo con el heap de la consola, para encontrar faltas de
 
 `tools/host/` tiene las herramientas de medición de memoria en el PC
 ([tools/host/README.md](tools/host/README.md)).
+
+</details>
