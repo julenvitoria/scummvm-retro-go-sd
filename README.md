@@ -78,12 +78,13 @@ these lines nothing changes: ScummVM picks what it finds in the folder.
 | Sam & Max Hit the Road | `samnmax` |
 | Full Throttle | `ft` |
 | Beneath a Steel Sky | `sky` |
+| Sołtys | `soltys` |
 
 Every game's short name is in ScummVM's
 [compatibility list](https://www.scummvm.org/compatibility/), column "ScummVM ID", without
 the engine in front (`scumm:ft` → `game=ft`). The list covers every engine, not only
 LucasArts', but this core runs the games above for now: SCUMM (not The Dig nor The Curse of Monkey
-Island) and Beneath a Steel Sky.
+Island), Beneath a Steel Sky and Sołtys.
 
 They do not fix an incomplete copy, nor the versions this core leaves out on purpose:
 Macintosh (its buffers are cut to save memory) and FM-Towns.
@@ -107,6 +108,11 @@ not with the game). The first time, the core unpacks everything but the speech i
 `sky.dsk.gwpack` next to them (38 MB, so leave that much free on the card) and puts it in
 the flash; a progress bar shows it, and it takes a few minutes. The speech is read from the
 SD card. TIME opens the game's own control panel (save, load, volume, text speed).
+
+### Sołtys
+
+Copy `vol.cat` and `vol.dat` into the game's folder (the game is freeware: scummvm.org/games).
+`vol.dat` is kept decrypted in the flash, and the sprites are drawn from there.
 
 ### Saved games
 
@@ -257,12 +263,13 @@ líneas no cambia nada: ScummVM elige lo que encuentra en la carpeta.
 | Sam & Max Hit the Road | `samnmax` |
 | Full Throttle | `ft` |
 | Beneath a Steel Sky | `sky` |
+| Sołtys | `soltys` |
 
 El nombre corto de cada juego está en la
 [lista de compatibilidad](https://www.scummvm.org/compatibility/) de ScummVM, columna
 "ScummVM ID", sin el motor delante (`scumm:ft` → `game=ft`). La lista incluye todos los
 motores, no solo los de LucasArts, pero por ahora este core ejecuta los juegos de la
-tabla: SCUMM (The Dig y The Curse of Monkey Island no) y Beneath a Steel Sky.
+tabla: SCUMM (The Dig y The Curse of Monkey Island no), Beneath a Steel Sky y Sołtys.
 
 No arreglan una copia incompleta ni las versiones que este core deja fuera a propósito:
 Macintosh (sus buffers están recortados para ahorrar memoria) y FM-Towns.
@@ -286,6 +293,11 @@ no con el juego). La primera vez, el core descomprime todo menos las voces en
 `sky.dsk.gwpack`, a su lado (38 MB, deja ese espacio libre en la SD), y lo pone en la flash;
 lo muestra una barra de progreso y tarda unos minutos. Las voces se leen de la SD. TIME abre
 el panel de control del propio juego (guardar, cargar, volumen, velocidad del texto).
+
+### Sołtys
+
+Copia `vol.cat` y `vol.dat` en la carpeta del juego (es freeware: scummvm.org/games).
+`vol.dat` se guarda descifrado en la flash y los sprites se dibujan desde ahí.
 
 ### Partidas guardadas
 

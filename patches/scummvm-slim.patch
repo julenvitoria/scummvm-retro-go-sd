@@ -191,6 +191,159 @@ index 70081d8f..d24a71a4 100644
  
  	// cache management
  	void cacheDirectoryRecursive(FSNode node, int depth, const Path& prefix) const;
+diff --git a/engines/cge/bitmap.cpp b/engines/cge/bitmap.cpp
+index 868dad8f..0fc18f32 100644
+--- a/engines/cge/bitmap.cpp
++++ b/engines/cge/bitmap.cpp
+@@ -372,6 +372,13 @@ bool Bitmap::loadVBM(EncryptedStream *f) {
+ 				f->seek(f->pos() + kPalSize);
+ 		}
+ 	}
++	// Game & Watch: a sprite's frames are drawn from vol.dat in the flash (kept decrypted
++	// there), not copied: 300 KB in a busy scene. Read-only; delete[] leaves such a pointer
++	// alone (src/heap.c)
++	if (!f->err() && (_v = const_cast<uint8 *>(f->gwDirect(n))) != nullptr) {
++		_b = (HideDesc *)(_v + n - _h * sizeof(HideDesc));
++		return true;
++	}
+ 	if ((_v = new uint8[n]) == nullptr)
+ 		return false;
+ 
+diff --git a/engines/cge/cge.cpp b/engines/cge/cge.cpp
+index b5f2b759..f1f6266f 100644
+--- a/engines/cge/cge.cpp
++++ b/engines/cge/cge.cpp
+@@ -155,7 +155,11 @@ void CGEEngine::init() {
+ 	_mouse = new Mouse(this);
+ 	_keyboard = new Keyboard(this);
+ 	_eventManager = new EventManager(this);
++#ifdef GW_CGE_SLIM
++	_fx = new Fx(this, 2);    // one playing and the next; when full, both are dropped
++#else
+ 	_fx = new Fx(this, 16);   // must precede SOUND!!
++#endif
+ 	_sound = new Sound(this);
+ 
+ 	_offUseCount = atoi(_text->getText(kOffUseCount));
+diff --git a/engines/cge/fileio.cpp b/engines/cge/fileio.cpp
+index 0fa49333..ae8f9550 100644
+--- a/engines/cge/fileio.cpp
++++ b/engines/cge/fileio.cpp
+@@ -206,6 +206,8 @@ EncryptedStream::EncryptedStream(ResourceManager *resman, const char *name) {
+ 
+ 	_error = false;
+ 	BtKeypack *kp = resman->find(name);
++	_gwResman = resman;
++	_gwBase = kp->_pos;
+ 	if (scumm_stricmp(kp->_key, name) != 0)
+ 		_error = true;
+ 
+@@ -234,6 +236,25 @@ EncryptedStream::EncryptedStream(ResourceManager *resman, const char *name) {
+ 	_readStream = new Common::MemoryReadStream(dataBuffer, bufSize, DisposeAfterUse::YES);
+ }
+ 
++}
++const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte enc);   // src/gw_system.cpp
++namespace CGE {
++
++const byte *ResourceManager::gwDirect(uint32 pos, uint32 n) {
++	if (!_datFile->isOpen() || !_datFile->seek(pos))
++		return nullptr;
++	return gwDirectResource(_datFile->gwStream(), n, kCryptSeed);
++}
++
++const byte *EncryptedStream::gwDirect(uint32 n) {
++	if (_error || (int32)n > size() - pos())
++		return nullptr;
++	const byte *p = _gwResman->gwDirect(_gwBase + pos(), n);
++	if (p)
++		seek(pos() + n);
++	return p;
++}
++
+ uint32 EncryptedStream::read(byte *dataPtr, uint32 dataSize) {
+ 	return _readStream->read(dataPtr, dataSize);
+ }
+diff --git a/engines/cge/fileio.h b/engines/cge/fileio.h
+index 1b92a1b7..44d78eea 100644
+--- a/engines/cge/fileio.h
++++ b/engines/cge/fileio.h
+@@ -83,6 +83,9 @@ class ResourceManager {
+ 	uint16 catRead(byte *buf, uint16 length);
+ 	Common::File *_catFile;
+ 	Common::File *_datFile;
++public:
++	const byte *gwDirect(uint32 pos, uint32 n);
++private:
+ 	void XCrypt(byte *buf, uint16 length);
+ public:
+ 
+@@ -99,7 +102,12 @@ class EncryptedStream {
+ private:
+ 	Common::SeekableReadStream *_readStream;
+ 	bool _error;
++	ResourceManager *_gwResman;
++	uint32 _gwBase;
+ public:
++	// Game & Watch: the next n bytes where they lie decrypted in the flash (and past them), or
++	// nullptr: vol.dat is not there
++	const byte *gwDirect(uint32 n);
+ 	EncryptedStream(ResourceManager *resman, const char *name);
+ 	~EncryptedStream();
+ 	bool err();
+diff --git a/engines/cge/sound.cpp b/engines/cge/sound.cpp
+index 4a17b40c..ce09e612 100644
+--- a/engines/cge/sound.cpp
++++ b/engines/cge/sound.cpp
+@@ -147,6 +147,13 @@ int Fx::find(int ref) {
+ }
+ 
+ void Fx::preload(int ref0) {
++#ifdef GW_CGE_SLIM
++	// Game & Watch: no sounds loaded ahead (ten of the game's and ten of the scene's, 140 KB).
++	// vol.dat is in the flash, so loading one when it is played costs nothing; see cge.cpp
++	// for how many are kept.
++	(void)ref0;
++	return;
++#endif
+ 	Handler *cacheLim = _cache + _size;
+ 	char filename[12];
+ 
+diff --git a/engines/cge/vga13h.cpp b/engines/cge/vga13h.cpp
+index 05a40b5e..a81823d2 100644
+--- a/engines/cge/vga13h.cpp
++++ b/engines/cge/vga13h.cpp
+@@ -638,6 +638,11 @@ Vga::Vga(CGEEngine *vm) : _frmCnt(0), _msg(nullptr), _name(nullptr), _setPal(fal
+ 
+ 	for (int idx = 0; idx < 4; idx++) {
+ 		_page[idx] = new Graphics::Surface();
++#ifdef GW_CGE_SLIM
++		// Game & Watch: nothing draws on the fourth page, 64 KB of the console's 880
++		if (idx == 3)
++			continue;
++#endif
+ 		_page[idx]->create(320, 200, Graphics::PixelFormat::createFormatCLUT8());
+ 	}
+ 
+@@ -839,11 +844,17 @@ void Vga::update() {
+ 
+ void Vga::clear(uint8 color) {
+ 	for (int paneNum = 0; paneNum < 4; paneNum++)
+-		_page[paneNum]->fillRect(Common::Rect(0, 0, kScrWidth, kScrHeight), color);
++		if (_page[paneNum]->getPixels())		// Game & Watch: no fourth page
++			_page[paneNum]->fillRect(Common::Rect(0, 0, kScrWidth, kScrHeight), color);
+ }
+ 
+ void Vga::copyPage(uint16 d, uint16 s) {
++#ifdef GW_CGE_SLIM
++	// not copyFrom(): it frees the page and asks for another one
++	memcpy(_page[d]->getPixels(), _page[s]->getPixels(), kScrWidth * kScrHeight);
++#else
+ 	_page[d]->copyFrom(*_page[s]);
++#endif
+ }
+ 
+ //--------------------------------------------------------------------------
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea52..380eb1fa 100644
 --- a/engines/scumm/dialogs.cpp
