@@ -13,10 +13,13 @@ On the PC (64-bit) the unpatched engine peaks at 1678 KB before the first room. 
   patched for Italian; the audio icon).
 - A room's foreground layers keep only their occupied 32x32 cells, not a screen each
   (`RoomLayer::cellPixels`), and are unpacked without a screen of their own.
-- Animations (the intro): the unpacker asked for 300000 bytes and cut the buffer afterwards.
-  It runs twice, the first time only counting, and for VGA animations writes into 2 KB
-  pieces (`vgaDecodeChunks`, `AnimationSequence::gwRead`): the biggest seen is 190 KB, and the
-  console's heap is several regions, none with that much free in one block. 2 KB pieces fit
-  the holes the small heaps are left with.
+- Animations (the intro): the unpacker asked for 300000 bytes and cut the buffer afterwards;
+  the biggest unpacks to 190 KB, which the console does not have left (seen there: out of
+  memory in the intro's last scenes). The packing has no back references, so a VGA animation
+  is unpacked as it is shown, a byte at a time, from the packed resource in the flash
+  (`GwVgaStream`, `AnimationSequence::gwRead`); a loop starts the unpacker again.
+- Sound: the AdLib music alone, scaled by the volume twice (driver and mixer), peaked at 2%
+  of full scale. Full volume and four times the output gain for this engine
+  (`src/gw_system.cpp`, `g_gwGain`).
 - Save and load from the Retro-Go menu go through ScummVM's own interface
   (`src/gw_system.cpp`, `generic_save`/`generic_load`), as for every engine without a hook.
