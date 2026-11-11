@@ -470,6 +470,10 @@ public:
 		if (sw == w && sh == h) makeScreen(w, h);
 	}
 	bool ensureScreen() {
+		// an adopted buffer of another size is waiting for its initSize(): the engine is
+		// between two video modes, and what it draws now is not shown. No screen is made
+		// for it (Ween going to 640x200: 64 KB at the worst moment)
+		if (!_screen.getPixels() && _adopt) return false;
 		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0) makeScreen(_screen.w, _screen.h);
 		return _screen.getPixels() != nullptr;
 	}
@@ -506,7 +510,9 @@ public:
 	}
 	void grabPalette(byte *c, uint start, uint num) const override { memcpy(c, _pal + start * 3, num * 3); }
 	void copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) override {
-		if (!ensureScreen()) return;
+		// (no ensureScreen() here: a frame drawn between the engine dropping its front buffer
+		// and the next one being adopted is skipped rather than given a screen of its own)
+		if (!_screen.getPixels()) return;
 		const byte *src = (const byte *)buf;
 		if (adopted() && src >= _adopt && src < _adopt + _adoptW * _adoptH) {
 			// from the adopted buffer itself: nothing to do when it is the same place
@@ -518,9 +524,12 @@ public:
 		}
 		_screen.copyRectToSurface(buf, pitch, x, y, w, h);
 	}
-	Graphics::Surface *lockScreen() override { ensureScreen(); return &_screen; }
-	void fillScreen(uint32 col) override { if (ensureScreen()) _screen.fillRect(Common::Rect(_screen.w, _screen.h), col); }
-	void fillScreen(const Common::Rect &r, uint32 col) override { if (ensureScreen()) _screen.fillRect(r, col); }
+	Graphics::Surface *lockScreen() override {
+		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0) makeScreen(_screen.w, _screen.h);   // the caller writes to it
+		return &_screen;
+	}
+	void fillScreen(uint32 col) override { if (_screen.getPixels()) _screen.fillRect(Common::Rect(_screen.w, _screen.h), col); }
+	void fillScreen(const Common::Rect &r, uint32 col) override { if (_screen.getPixels()) _screen.fillRect(r, col); }
 	void setShakePos(int x, int y) override { _shakeX = x; _shakeY = y; }
 
 	bool showMouse(bool visible) override { bool old = _cursorVisible; _cursorVisible = visible; return old; }

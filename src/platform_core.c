@@ -388,6 +388,11 @@ static void log_save(void)
 	g_log_saved = g_log_len;
 }
 
+/* src/heap.c, when an allocation fails: an engine that does not check for NULL goes on to
+   write to address 0, which is RAM on the console (ITCM), and hangs until the watchdog bites;
+   the log has to be on the card before that */
+void plat_log_flush(void) { log_save(); }
+
 /* while the game runs (plat_present): new lines reach the card within a few seconds, so the
    log is there too when the console is switched off instead of leaving the game */
 static void log_save_if_new(void)
