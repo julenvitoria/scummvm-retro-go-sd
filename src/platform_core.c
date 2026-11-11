@@ -488,7 +488,15 @@ static void show_bar(const char *header, int pct)
 	odroid_overlay_draw_progress_bar(header, (uint8_t)pct);
 	lcd_swap();
 }
-static void pack_progress(int pct) { show_bar("Preparing the game (first time only)", pct); }
+static const gw_i18n_entry_t i18n_preparing[] = {
+	{ "en", "Preparing the game (first time only)" }, { "es", "Preparando el juego (solo la primera vez)" },
+	{ "fr", "Préparation du jeu (1re fois seulement)" }, { "de", "Spiel wird vorbereitet (nur beim 1. Mal)" },
+	{ "it", "Preparazione del gioco (solo la 1a volta)" }, { "pt", "A preparar o jogo (só a 1.ª vez)" }, GW_I18N_END };
+static const gw_i18n_entry_t i18n_copying[] = {
+	{ "en", "Copying the game to the flash" }, { "es", "Copiando el juego a la flash" },
+	{ "fr", "Copie du jeu dans la flash" }, { "de", "Spiel wird in den Flash kopiert" },
+	{ "it", "Copia del gioco nella flash" }, { "pt", "A copiar o jogo para a flash" }, GW_I18N_END };
+static void pack_progress(int pct) { show_bar(gw_i18n(i18n_preparing), pct); }
 
 /* piece k of the pack in the flash, by key (the firmware's blob store): put there from the
    card when it is not there yet. The key carries what the pack was made from, so a new pack
@@ -513,7 +521,7 @@ static const uint8_t *pack_piece(void *f, const char *name, const pack_head_t *h
 		left -= n;
 		*done += n;
 		uint8_t pct = (uint8_t)((uint64_t)*done * 100 / total);
-		if (pct != last) { show_bar("Copying the game to the flash", pct); last = pct; }
+		if (pct != last) { show_bar(gw_i18n(i18n_copying), pct); last = pct; }
 	}
 	free(buf);
 	return store_data_finish(&st);
