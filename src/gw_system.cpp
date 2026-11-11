@@ -213,6 +213,14 @@ const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte 
 	return nullptr;
 }
 
+/* patches/scummvm-slim.patch (Broken Sword, ResMan::gwInFlash): is the file in the flash? */
+bool gwStreamMapped(Common::SeekableReadStream *stream)
+{
+	for (GWMappedStream *m = GWMappedStream::_open; m; m = m->_next)
+		if (m == stream) return true;
+	return false;
+}
+
 /* patches/scummvm-slim.patch (Sky::Disk::loadFile): file 'nr' of Beneath a Steel Sky's sky.dsk
    as the engine would load it, where it lies in the game's pack in the flash (src/pack.c), or
    NULL: not in the pack (speech), or no pack */
@@ -345,6 +353,10 @@ public:
 static char g_rgPath[256];
 
 class GWSaveFileManager : public DefaultSaveFileManager {
+	// Broken Sword's save between two rooms (SwordEngine::gwZoneCheck): slot 98, a file of
+	// its own, read once (it is emptied as it is loaded)
+	static Common::String zonePath() { return Common::String(plat_save_path()) + "/sword1_zone.sav"; }
+	static bool zone(const Common::String &name) { return name.equalsIgnoreCase("sword1.098"); }
 	static bool redirected(const Common::String &name) {
 		// (SCUMM's <target>.s99, Beneath a Steel Sky's SKY-VM.099, the other engines' <name>.099)
 		return g_rgPath[0] && (name.hasSuffix(Common::String::format(".s%02d", RG_SLOT)) ||
@@ -353,12 +365,27 @@ class GWSaveFileManager : public DefaultSaveFileManager {
 public:
 	GWSaveFileManager() : DefaultSaveFileManager(Common::Path(plat_save_path())) {}
 	Common::InSaveFile *openForLoading(const Common::String &name) override {
+		if (zone(name)) {
+			plat_stat_t st = plat_stat(zonePath().c_str());
+			void *f = st.exists && st.size ? plat_fopen(zonePath().c_str(), "rb") : nullptr;
+			if (!f) return nullptr;
+			byte *buf = (byte *)malloc(st.size);
+			uint32 got = buf ? plat_fread(buf, st.size, f) : 0;
+			plat_fclose(f);
+			if (got != st.size) { free(buf); return nullptr; }
+			if ((f = plat_fopen(zonePath().c_str(), "wb"))) plat_fclose(f);
+			return new Common::MemoryReadStream(buf, st.size, DisposeAfterUse::YES);
+		}
 		if (!redirected(name)) return DefaultSaveFileManager::openForLoading(name);
 		plat_stat_t st = plat_stat(g_rgPath);
 		void *f = st.exists ? plat_fopen(g_rgPath, "rb") : nullptr;
 		return f ? new GWFileStream(f, st.size) : nullptr;
 	}
 	Common::OutSaveFile *openForSaving(const Common::String &name, bool compress) override {
+		if (zone(name)) {
+			void *f = plat_fopen(zonePath().c_str(), "wb");
+			return f ? new Common::OutSaveFile(new GWFileStream(f, 0)) : nullptr;
+		}
 		if (!redirected(name)) return DefaultSaveFileManager::openForSaving(name, compress);
 		void *f = plat_fopen(g_rgPath, "wb");
 		return f ? new Common::OutSaveFile(new GWFileStream(f, 0)) : nullptr;
