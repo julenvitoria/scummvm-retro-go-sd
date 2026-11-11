@@ -284,8 +284,6 @@ engines/gob/save/saveload_playtoons.cpp
 engines/gob/save/saveload_v2.cpp
 engines/gob/save/saveload_v3.cpp
 engines/gob/save/saveload_v4.cpp
-engines/gob/save/saveload_v6.cpp
-engines/gob/save/saveload_v7.cpp
 engines/gob/scenery.cpp
 engines/gob/scenery_v1.cpp
 engines/gob/scenery_v2.cpp

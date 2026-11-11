@@ -191,6 +191,38 @@ index 70081d8f..d24a71a4 100644
  
  	// cache management
  	void cacheDirectoryRecursive(FSNode node, int depth, const Path& prefix) const;
+diff --git a/engines/gob/gob.cpp b/engines/gob/gob.cpp
+index 42e39380..6fe92a3c 100644
+--- a/engines/gob/gob.cpp
++++ b/engines/gob/gob.cpp
+@@ -666,7 +666,13 @@ Common::Error GobEngine::initGameParts() {
+ 		_map      = new Map_v2(this);
+ 		_goblin   = new Goblin_v4(this);
+ 		_scenery  = new Scenery_v2(this);
++#ifdef GW_GOB_SLIM
++		// Game & Watch: these games (640x480 and up) are out of the console's reach, and their
++		// tables of save files are 34 KB of RAM whatever game runs
++		_saveLoad = new SaveLoad(this);
++#else
+ 		_saveLoad = new SaveLoad_v6(this, _targetName.c_str());
++#endif
+ 		break;
+ 
+ 	case kGameTypePlaytoons:
+@@ -692,7 +698,13 @@ Common::Error GobEngine::initGameParts() {
+ 		_map      = new Map_v2(this);
+ 		_goblin   = new Goblin_v7(this);
+ 		_scenery  = new Scenery_v2(this);
++#ifdef GW_GOB_SLIM
++		// Game & Watch: these games (640x480 and up) are out of the console's reach, and their
++		// tables of save files are 34 KB of RAM whatever game runs
++		_saveLoad = new SaveLoad(this);
++#else
+ 		_saveLoad = new SaveLoad_v7(this, _targetName.c_str());
++#endif
+ 		break;
+ 
+ 	case kGameTypeAdibou1:
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea52..380eb1fa 100644
 --- a/engines/scumm/dialogs.cpp
