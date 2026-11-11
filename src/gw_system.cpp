@@ -469,6 +469,17 @@ public:
 		_adopt = p; _adoptW = w; _adoptH = h;
 		if (sw == w && sh == h) makeScreen(w, h);
 	}
+	// Is there a screen to draw on? While the engine has a front buffer of another size waiting
+	// to be adopted (it is about to change the screen's size: Ween going to 640x200), a few
+	// frames are skipped rather than given a screen of their own, which would be the third one
+	// in memory at the worst moment. Not for ever: an engine whose front buffer is never the
+	// screen's size gets its copy.
+	int _skipped = 0;
+	bool drawable() {
+		if (_screen.getPixels()) { _skipped = 0; return true; }
+		if (_adopt && ++_skipped < 30) return false;
+		return ensureScreen();
+	}
 	bool ensureScreen() {
 		// an adopted buffer of another size is waiting for its initSize(): the engine is
 		// between two video modes, and what it draws now is not shown. No screen is made
@@ -510,9 +521,7 @@ public:
 	}
 	void grabPalette(byte *c, uint start, uint num) const override { memcpy(c, _pal + start * 3, num * 3); }
 	void copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) override {
-		// (no ensureScreen() here: a frame drawn between the engine dropping its front buffer
-		// and the next one being adopted is skipped rather than given a screen of its own)
-		if (!_screen.getPixels()) return;
+		if (!drawable()) return;
 		const byte *src = (const byte *)buf;
 		if (adopted() && src >= _adopt && src < _adopt + _adoptW * _adoptH) {
 			// from the adopted buffer itself: nothing to do when it is the same place
@@ -528,8 +537,8 @@ public:
 		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0) makeScreen(_screen.w, _screen.h);   // the caller writes to it
 		return &_screen;
 	}
-	void fillScreen(uint32 col) override { if (_screen.getPixels()) _screen.fillRect(Common::Rect(_screen.w, _screen.h), col); }
-	void fillScreen(const Common::Rect &r, uint32 col) override { if (_screen.getPixels()) _screen.fillRect(r, col); }
+	void fillScreen(uint32 col) override { if (drawable()) _screen.fillRect(Common::Rect(_screen.w, _screen.h), col); }
+	void fillScreen(const Common::Rect &r, uint32 col) override { if (drawable()) _screen.fillRect(r, col); }
 	void setShakePos(int x, int y) override { _shakeX = x; _shakeY = y; }
 
 	bool showMouse(bool visible) override { bool old = _cursorVisible; _cursorVisible = visible; return old; }
@@ -576,6 +585,12 @@ GWGraphics *GWGraphics::_the;
 void gwAdoptScreen(byte *pixels, int w, int h)
 {
 	if (GWGraphics::_the) GWGraphics::_the->adopt(pixels, w, h);
+}
+
+/* ...and has the backend a screen to draw on right now? */
+bool gwScreenReady()
+{
+	return GWGraphics::_the && GWGraphics::_the->_screen.getPixels() != nullptr;
 }
 
 /* ================================================================ sound */
