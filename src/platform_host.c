@@ -8,6 +8,9 @@
  *   GW_INPUT="t:buttons:ms;..."  hold buttons (letters u d l r a b g t s p) at t ms for ms
  *   GW_QUIT=ms     exit after ms milliseconds
  *   GW_SAVES=dir   saves and scummvm.ini (default ./saves)
+ *   GW_WDOG=ms     the console's watchdog, roughly: a backtrace on stderr whenever the program
+ *                  computes for ms of CPU time without asking the time or reading a file (the
+ *                  console resets after ~0.5 s of that; the PC is some 30 times faster)
  *
  * plat_map_file() reads the whole file into memory once, standing in for the flash copy.
  */
@@ -45,8 +48,31 @@ void plat_quit(void) { exit(0); }
 const char *plat_game_path(void) { return g_game; }
 const char *plat_save_path(void) { return g_saves; }
 
+#include <execinfo.h>
+#include <signal.h>
+#include <unistd.h>
+static void wdog_bark(int sig)
+{
+	void *bt[24];
+	(void)sig;
+	(void)!write(2, "GW_WDOG: no refresh; backtrace:\n", 32);
+	backtrace_symbols_fd(bt, backtrace(bt, 24), 2);
+}
+static void wdog_refresh(void)
+{
+	static int ms = -1;
+	if (ms < 0) {
+		ms = getenv("GW_WDOG") ? atoi(getenv("GW_WDOG")) : 0;
+		if (ms) signal(SIGVTALRM, wdog_bark);
+	}
+	if (!ms) return;
+	struct itimerval it = { { 0, 0 }, { ms / 1000, (ms % 1000) * 1000 } };
+	setitimer(ITIMER_VIRTUAL, &it, 0);
+}
+
 uint32_t plat_millis(void)
 {
+	wdog_refresh();
 	struct timeval t;
 	gettimeofday(&t, 0);
 	uint32_t ms = (uint32_t)((t.tv_sec - g_t0.tv_sec) * 1000 + (t.tv_usec - g_t0.tv_usec) / 1000);
@@ -269,6 +295,10 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size, uint8_t *key)
 				for (long j = 0; j < n; j++) map[i].data[j] ^= 0x69;
 				map[i].key = 0x69;
 			}
+			if (!getenv("GW_NO_INPLACE") && svm_fixed_key(path)) {
+				map[i].key = svm_fixed_key(path);
+				for (long j = 0; j < n; j++) map[i].data[j] ^= map[i].key;
+			}
 			mprotect(map[i].data, n ? n : 1, PROT_READ);
 			snprintf(map[i].path, sizeof map[i].path, "%s", path);
 			map[i].size = (uint32_t)n;
@@ -282,7 +312,7 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size, uint8_t *key)
 
 bool plat_mkdir(const char *path) { return mkdir(path, 0777) == 0; }
 void *plat_fopen(const char *path, const char *mode) { return fopen(mode[0] == 'r' ? ci(path) : path, mode); }
-uint32_t plat_fread(void *buf, uint32_t n, void *f) { return (uint32_t)fread(buf, 1, n, f); }
+uint32_t plat_fread(void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fread(buf, 1, n, f); }
 uint32_t plat_fwrite(const void *buf, uint32_t n, void *f) { return (uint32_t)fwrite(buf, 1, n, f); }
 bool plat_fseek(void *f, int32_t off, int whence) { return fseek(f, off, whence) == 0; }
 int32_t plat_ftell(void *f) { return (int32_t)ftell(f); }

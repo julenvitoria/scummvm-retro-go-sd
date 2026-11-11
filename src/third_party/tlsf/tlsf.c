@@ -755,6 +755,32 @@ static block_header_t* block_locate_free(control_t* control, size_t size)
 	int fl = 0, sl = 0;
 	block_header_t* block = 0;
 
+	/*
+	** Game & Watch: first the size's own class. mapping_search() rounds the size up to the
+	** next class, so a free block of exactly the size asked for (a 64000-byte screen just
+	** freed, in the class 63488..64511) is never found for the same request: seen on the
+	** console as "out of memory for 64000 bytes" with a free block of 64000. The class's list
+	** is walked a few blocks deep for one that is big enough.
+	*/
+	if (size >= SMALL_BLOCK_SIZE)
+	{
+		int n = 0;
+		mapping_insert(size, &fl, &sl);
+		if (fl < FL_INDEX_COUNT)
+		{
+			block_header_t* b = control->blocks[fl][sl];
+			for (; b && b != &control->block_null && n < 8; b = b->next_free, n++)
+			{
+				if (block_size(b) >= size)
+				{
+					remove_free_block(control, b, fl, sl);
+					return b;
+				}
+			}
+		}
+		fl = sl = 0;
+	}
+
 	if (size)
 	{
 		mapping_search(size, &fl, &sl);
