@@ -4433,7 +4433,7 @@ index 999ed4da7c5..8ed59926eca 100644
  	MemHandle *resHandle(uint32 id);
  	uint32     resOffset(uint32 id);
 diff --git a/engines/sword1/screen.cpp b/engines/sword1/screen.cpp
-index 67158526c6a..4bb2e30e695 100644
+index 67158526c6a..8b6a35224cc 100644
 --- a/engines/sword1/screen.cpp
 +++ b/engines/sword1/screen.cpp
 @@ -36,6 +36,10 @@
@@ -4447,7 +4447,7 @@ index 67158526c6a..4bb2e30e695 100644
  namespace Sword1 {
  
  #define SCROLL_FRACTION      16
-@@ -95,10 +99,37 @@ Screen::~Screen() {
+@@ -95,10 +99,80 @@ Screen::~Screen() {
  		quitScreen();
  }
  
@@ -4474,6 +4474,49 @@ index 67158526c6a..4bb2e30e695 100644
 +}
 +#endif
 +
++#ifdef GW_SWORD1_SLIM
++// decompressTony() straight into the view, a row at a time: a big sprite (a whole
++// foreground, 120 KB) needs no buffer of its size. False: too wide for the row buffer.
++bool Screen::gwDrawTony(const uint8 *src, uint32 compSize, int w, int h, int x, int y) {
++	static uint8 row[1024];
++	if (w <= 0 || w > (int)sizeof(row))
++		return false;
++	const uint8 *end = src + compSize;
++	int col = 0, r = 0;
++	auto put = [&](const uint8 *p, uint8 c, int n, bool flat) {
++		while (n > 0 && r < h) {
++			int k = MIN(n, w - col);
++			if (flat)
++				memset(row + col, c, k);
++			else {
++				memcpy(row + col, p, k);
++				p += k;
++			}
++			col += k;
++			n -= k;
++			if (col == w) {
++				gwSpan(x, y + r, row, w, true);
++				col = 0;
++				r++;
++			}
++		}
++	};
++	while (src < end && r < h) {
++		uint8 numFlat = *src++;
++		if (numFlat) {
++			put(nullptr, *src, numFlat, true);
++			src++;
++		}
++		if (src < end) {
++			uint8 numNoFlat = *src++;
++			put(src, 0, numNoFlat, false);
++			src += numNoFlat;
++		}
++	}
++	return true;
++}
++#endif
++
  void Screen::clearScreen() {
  	if (_screenBuf) {
  		_fullRefresh = true;
@@ -4485,7 +4528,7 @@ index 67158526c6a..4bb2e30e695 100644
  		_system->fillScreen(0);
  	}
  }
-@@ -326,6 +357,9 @@ void Screen::fadePalette() {
+@@ -326,6 +400,9 @@ void Screen::fadePalette() {
  }
  
  bool Screen::showScrollFrame() {
@@ -4495,7 +4538,7 @@ index 67158526c6a..4bb2e30e695 100644
  	if ((!_fullRefresh) || Logic::_scriptVars[NEW_PALETTE] || _updatePalette)
  		return false; // don't draw an additional frame if we aren't scrolling or have to change the palette
  	if ((_oldScrollX == Logic::_scriptVars[SCROLL_OFFSET_X]) &&
-@@ -361,6 +395,15 @@ void Screen::updateScreen() {
+@@ -361,6 +438,15 @@ void Screen::updateScreen() {
  		_updatePalette = false;
  	}
  
@@ -4511,7 +4554,7 @@ index 67158526c6a..4bb2e30e695 100644
  	uint16 scrlX = (uint16)Logic::_scriptVars[SCROLL_OFFSET_X];
  	uint16 scrlY = (uint16)Logic::_scriptVars[SCROLL_OFFSET_Y];
  	if (_fullRefresh) {
-@@ -508,7 +551,12 @@ void Screen::newScreen(uint32 screen) {
+@@ -508,7 +594,12 @@ void Screen::newScreen(uint32 screen) {
  	if (SwordEngine::isPsx())
  		flushPsxCache();
  
@@ -4524,7 +4567,7 @@ index 67158526c6a..4bb2e30e695 100644
  	_screenGrid = (uint8 *)malloc(_gridSizeX * _gridSizeY);
  	memset(_screenGrid, 0, _gridSizeX * _gridSizeY);
  	for (cnt = 0; cnt < _roomDefTable[_currentScreen].totalLayers; cnt++) {
-@@ -552,6 +600,23 @@ void Screen::draw() {
+@@ -552,6 +643,23 @@ void Screen::draw() {
  
  	debug(8, "Screen::draw() -> _currentScreen %u", _currentScreen);
  
@@ -4548,7 +4591,57 @@ index 67158526c6a..4bb2e30e695 100644
  	if (_currentScreen == 54) {
  		// rm54 has a BACKGROUND parallax layer in parallax[0]
  		if (_parallax[0] && !SwordEngine::isPsx()) //Avoid drawing this parallax on PSX edition, it gets occluded by background
-@@ -809,6 +874,13 @@ void Screen::verticalMask(uint16 x, uint16 y, uint16 bWidth, uint16 bHeight) {
+@@ -676,6 +784,9 @@ void Screen::processImage(uint32 id) {
+ 
+ 	uint8 *tonyBuf = nullptr;
+ 	uint8 *hifBuf = nullptr;
++#ifdef GW_SWORD1_SLIM
++	uint8 *gwTony = nullptr;
++#endif
+ 	if (SwordEngine::isPsx() && compact->o_type != TYPE_TEXT) { // PSX sprites are compressed with HIF
+ 		hifBuf = (uint8 *)malloc(_resMan->readUint16(&frameHead->width) * _resMan->readUint16(&frameHead->height) / 2);
+ 		memset(hifBuf, 0x00, (_resMan->readUint16(&frameHead->width) * _resMan->readUint16(&frameHead->height) / 2));
+@@ -688,9 +799,18 @@ void Screen::processImage(uint32 id) {
+ 		decompressRLE0(sprData, _resMan->readUint32(&frameHead->compSize), _rleBuffer);
+ 		sprData = _rleBuffer;
+ 	} else if (frameHead->runTimeComp[1] == 'I') { // new type
++#ifdef GW_SWORD1_SLIM
++		if (!(compact->o_status & STAT_SHRINK) && !SwordEngine::isPsx() &&
++		    _resMan->readUint16(&frameHead->width) <= 1024) {
++			gwTony = sprData;                      // drawn from the compressed data, below
++			sprData = nullptr;
++		} else
++#endif
++		{
+ 		tonyBuf = (uint8 *)malloc(_resMan->readUint16(&frameHead->width) * _resMan->readUint16(&frameHead->height));
+ 		decompressTony(sprData, _resMan->readUint32(&frameHead->compSize), tonyBuf);
+ 		sprData = tonyBuf;
++		}
+ 	}
+ 
+ 	uint16 sprSizeX, sprSizeY;
+@@ -737,9 +857,20 @@ void Screen::processImage(uint32 id) {
+ 
+ 	uint16 sprPitch = sprSizeX;
+ 	uint16 incr;
++#ifdef GW_SWORD1_SLIM
++	int gwRoomX = (int16)spriteX - SCREEN_LEFT_EDGE, gwRoomY = (int16)spriteY - SCREEN_TOP_EDGE;
++	uint16 gwW = sprSizeX, gwH = sprSizeY;
++#endif
+ 	spriteClipAndSet(&spriteX, &spriteY, &sprSizeX, &sprSizeY, &incr);
+ 
+ 	if ((sprSizeX > 0) && (sprSizeY > 0)) {
++#ifdef GW_SWORD1_SLIM
++		if (gwTony) {
++			gwDrawTony(gwTony, _resMan->readUint32(&frameHead->compSize), gwW, gwH, gwRoomX, gwRoomY);
++			if (!(compact->o_status & STAT_FORE))
++				verticalMask(spriteX, spriteY, sprSizeX, sprSizeY);
++		} else
++#endif
+ 		if ((!(SwordEngine::isPsx()) || (compact->o_type == TYPE_TEXT)
+ 		        || (compact->o_resource == LVSFLY) || (!(compact->o_resource == GEORGE_MEGA) && (sprSizeX < 260))))
+ 			drawSprite(sprData + incr, spriteX, spriteY, sprSizeX, sprSizeY, sprPitch);
+@@ -809,6 +940,13 @@ void Screen::verticalMask(uint16 x, uint16 y, uint16 bWidth, uint16 bHeight) {
  }
  
  void Screen::blitBlockClear(uint16 x, uint16 y, uint8 *data) {
@@ -4562,7 +4655,7 @@ index 67158526c6a..4bb2e30e695 100644
  	uint8 *dest = _screenBuf + (y * SCRNGRID_Y) * _scrnSizeX + (x * SCRNGRID_X);
  
  	for (uint8 cnty = 0; cnty < (SwordEngine::isPsx() ? SCRNGRID_Y / 2 : SCRNGRID_Y); cnty++) {
-@@ -868,6 +940,58 @@ void Screen::renderParallax(uint8 *data) {
+@@ -868,6 +1006,58 @@ void Screen::renderParallax(uint8 *data) {
  
  	if (SwordEngine::isPsx())
  		drawPsxParallax(data, paraScrlX, scrnScrlX, scrnWidth);
@@ -4621,7 +4714,7 @@ index 67158526c6a..4bb2e30e695 100644
  	else
  		for (uint16 cnty = 0; cnty < scrnHeight; cnty++) {
  			uint8 *src = data + _resMan->readUint32(lineIndexes + cnty + paraScrlY);
-@@ -913,9 +1037,17 @@ void Screen::renderParallax(uint8 *data) {
+@@ -913,9 +1103,17 @@ void Screen::renderParallax(uint8 *data) {
  				}
  			}
  		}
@@ -4639,7 +4732,7 @@ index 67158526c6a..4bb2e30e695 100644
  	uint8 *dest = _screenBuf + (sprY * _scrnSizeX) + sprX;
  
  	for (uint16 cnty = 0; cnty < sprHeight; cnty++) {
-@@ -1508,6 +1640,9 @@ void Screen::showFrame(uint16 x, uint16 y, uint32 resId, uint32 frameNo, const b
+@@ -1508,6 +1706,9 @@ void Screen::showFrame(uint16 x, uint16 y, uint32 resId, uint32 frameNo, const b
  // ------------------- Router debugging code --------------------------------
  
  void Screen::bresenhamLine(int32 x1, int32 y1, int32 x2, int32 y2, uint8 color) {
@@ -4649,7 +4742,7 @@ index 67158526c6a..4bb2e30e695 100644
  	int32 tmpX, tmpY;
  	uint8 *dstPt1, *dstPt2;
  	int32 dx, dy;
-@@ -1567,6 +1702,10 @@ void Screen::bresenhamLine(int32 x1, int32 y1, int32 x2, int32 y2, uint8 color)
+@@ -1567,6 +1768,10 @@ void Screen::bresenhamLine(int32 x1, int32 y1, int32 x2, int32 y2, uint8 color)
  }
  
  void Screen::plotPoint(int32 x, int32 y, uint8 color) {
@@ -4661,10 +4754,10 @@ index 67158526c6a..4bb2e30e695 100644
  		_screenBuf[_scrnSizeX * y + x] = color;
  }
 diff --git a/engines/sword1/screen.h b/engines/sword1/screen.h
-index 7834da2550d..879ae7f9804 100644
+index 7834da2550d..ae8a19bfba3 100644
 --- a/engines/sword1/screen.h
 +++ b/engines/sword1/screen.h
-@@ -191,6 +191,15 @@ private:
+@@ -191,6 +191,16 @@ private:
  	uint8 _zeroPalette[256 * 3];
  
  	bool _forceNextFadeOutToBlack = false;
@@ -4676,10 +4769,197 @@ index 7834da2550d..879ae7f9804 100644
 +	enum { GW_VIEW_W = SCREEN_WIDTH / 2, GW_VIEW_H = SCREEN_DEPTH / 2 };
 +	int _gwVx = 0, _gwVy = 0;
 +	void gwSpan(int x, int y, const uint8 *src, int n, bool transparent);
++	bool gwDrawTony(const uint8 *src, uint32 compSize, int w, int h, int x, int y);
 +#endif
  };
  
  } // End of namespace Sword1
+diff --git a/engines/sword1/sound.cpp b/engines/sword1/sound.cpp
+index 540903a965d..6565c003d08 100644
+--- a/engines/sword1/sound.cpp
++++ b/engines/sword1/sound.cpp
+@@ -424,6 +424,20 @@ bool Sound::amISpeaking() {
+ 		_speechLipsyncCounter += 1;
+ 
+ 		readPos = _speechLipsyncCounter * 919 * 2;
++#ifdef GW_SWORD1_SLIM
++		if (_gwSpeech8) {                              // (8-bit samples)
++			readPos /= 2;
++			if (readPos + 150 > _speechSize)
++				return false;
++			const int8 *s8 = (const int8 *)_speechSample + readPos;
++			count = 0;
++			for (int i = 0; i < 150; i++)
++				if ((s8[i] * 256 < NEG_MOUTH_THRESHOLD) || (s8[i] * 256 > POS_MOUTH_THRESHOLD))
++					if (++count == 50)
++						return true;
++			return false;
++		}
++#endif
+ 
+ 		// Ensure that we don't read beyond the buffer...
+ 		if (readPos + (int32)(150 * sizeof(int16)) > _speechSize)
+@@ -533,6 +547,13 @@ void Sound::startSpeech(uint16 roomNo, uint16 localNo) {
+ 
+ 	debug(6, "Sound::startSpeech(%d, %d): locIndex %d, sampleFileSize %d, index %d", roomNo, localNo, locIndex, sampleFileSize, index);
+ 
++#ifdef GW_SWORD1_SLIM
++	_gwSpeech8 = false;
++	if (sampleFileSize && _cowMode == CowWave && !_bigEndianSpeech) {
++		SwordEngine::_systemVars.speechRunning = gwLoadSpeech(index + _cowHeaderSize, sampleFileSize);
++		return;
++	}
++#endif
+ 	if (sampleFileSize) {
+ 		byte *compSample = (byte *)malloc(sampleFileSize);
+ 		if (compSample) {
+@@ -567,6 +588,79 @@ void Sound::startSpeech(uint16 roomNo, uint16 localNo) {
+ 	}
+ }
+ 
++#ifdef GW_SWORD1_SLIM
++// expandSpeech()'s CowWave case, read from _cowFile 2 KB at a time, to signed 8-bit samples
++bool Sound::gwLoadSpeech(uint32 offset, uint32 size) {
++	byte head[128];
++	uint32 n = MIN<uint32>(size, sizeof(head));
++	_cowFile.seek(offset);
++	if (_cowFile.read(head, n) != n)
++		return false;
++	uint32 pos = 0;
++	while (pos + 8 <= n && READ_BE_UINT32(head + pos) != MKTAG('d','a','t','a'))
++		pos++;
++	if (pos + 8 > n || pos >= 100) {
++		warning("Sound::gwLoadSpeech(): DATA tag not found in wave header");
++		return false;
++	}
++	int32 samples = READ_LE_UINT32(head + pos + 4) >> 1;
++	pos += 8;
++	if (samples <= 0)
++		return false;
++	int8 *dst = (int8 *)malloc(samples + 1);
++	if (!dst)
++		return false;
++	memset(dst, 0, samples + 1);
++
++	// the compressed words: a count, then that many samples, or (count < 0) one to repeat
++	enum { BUF = 2048 };
++	byte buf[BUF];
++	uint32 bufLen = 0, bufPos = 0, left = size - pos;   // bytes of the stream still in the file
++	_cowFile.seek(offset + pos);
++	auto word = [&](int16 &w) -> bool {
++		if (bufPos + 2 > bufLen) {
++			uint32 keep = bufLen - bufPos;                // (an odd byte: never, the words are aligned)
++			memmove(buf, buf + bufPos, keep);
++			uint32 get = MIN<uint32>(BUF - keep, left);
++			get = _cowFile.read(buf + keep, get);
++			left -= get;
++			bufLen = keep + get;
++			bufPos = 0;
++			if (bufLen < 2)
++				return false;
++		}
++		w = (int16)READ_LE_UINT16(buf + bufPos);
++		bufPos += 2;
++		return true;
++	};
++	int32 out = 0;
++	int16 length, value;
++	while (out < samples && word(length)) {
++		if (length < 0) {
++			int32 l = MIN<int32>(-(int32)length, samples - out);
++			if (!word(value))
++				break;
++			memset(dst + out, (int8)(value >> 8), l);
++			out += l;
++		} else {
++			int32 l = MIN<int32>(length, samples - out);
++			for (int32 i = 0; i < length; i++) {
++				if (!word(value))
++					break;
++				if (i < l)
++					dst[out + i] = (int8)(value >> 8);
++			}
++			out += l;
++		}
++	}
++	free(_speechSample);
++	_speechSample = (byte *)dst;
++	_speechSize = samples;
++	_gwSpeech8 = true;
++	return true;
++}
++#endif
++
+ bool Sound::expandSpeech(byte *src, byte *dst, uint32 dstSize, bool *endiannessCheck, uint32 *sizeForEndiannessCheck) {
+ 
+ 	if (_cowMode == CowPSX) {
+@@ -863,8 +957,13 @@ void Sound::playSpeech() {
+ 
+ 	_speechSampleBusy = true;
+ 
++#ifdef GW_SWORD1_SLIM
++	Audio::SeekableAudioStream *stream = Audio::makeRawStream(
++		(byte *)_speechSample, _speechSize, 11025, _gwSpeech8 ? 0 : SPEECH_FLAGS, DisposeAfterUse::NO);
++#else
+ 	Audio::SeekableAudioStream *stream = Audio::makeRawStream(
+ 		(byte *)_speechSample, _speechSize, 11025, SPEECH_FLAGS, DisposeAfterUse::NO);
++#endif
+ 	_mixer->playStream(Audio::Mixer::kPlainSoundType, &_hSampleSpeech, stream);
+ 
+ 	if (SwordEngine::_systemVars.useWindowsAudioMode) {
+diff --git a/engines/sword1/sound.h b/engines/sword1/sound.h
+index 4f97e480bc8..bf4f419991e 100644
+--- a/engines/sword1/sound.h
++++ b/engines/sword1/sound.h
+@@ -239,6 +239,12 @@ private:
+ 	// Speech variables
+ 	int32 _speechLipsyncCounter = 0;
+ 	int32 _speechSize = 0;
++#ifdef GW_SWORD1_SLIM
++	// Game & Watch: a line of speech is decoded from the file a piece at a time, to 8 bits
++	// (a 10 s line: 110 KB, not 220 KB of 16-bit samples plus its whole compressed copy)
++	bool _gwSpeech8 = false;
++	bool gwLoadSpeech(uint32 offset, uint32 size);
++#endif
+ 	bool _speechSampleBusy = false;
+ 
+ 	// Sound handles
+diff --git a/graphics/scaler/thumbnail_intern.cpp b/graphics/scaler/thumbnail_intern.cpp
+index 11f20630172..3ea13a589b1 100644
+--- a/graphics/scaler/thumbnail_intern.cpp
++++ b/graphics/scaler/thumbnail_intern.cpp
+@@ -232,6 +232,31 @@ static bool createThumbnail(Graphics::Surface &out, Graphics::Surface &in) {
+ bool createThumbnailFromScreen(Graphics::Surface *surf) {
+ 	assert(surf);
+ 
++#ifdef GW_SWORD1_SLIM
++	// Game & Watch: a paletted screen straight to the thumbnail's size, every so many pixels,
++	// without a copy of the whole screen in RGB565 first (640x480: 600 KB)
++	if (g_system->getScreenFormat().bytesPerPixel == 1) {
++		Graphics::Surface *scr = g_system->lockScreen();
++		if (!scr || !scr->w || !scr->h) {
++			if (scr)
++				g_system->unlockScreen();
++			return false;
++		}
++		int height = ((scr->w == 320 && scr->h == 200) || (scr->w == 640 && scr->h == 400)) ? kThumbnailHeight1 : kThumbnailHeight2;
++		surf->create(kThumbnailWidth, height, Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0));
++		byte palette[256 * 3];
++		g_system->getPaletteManager()->grabPalette(palette, 0, 256);
++		for (int y = 0; y < height; y++) {
++			const byte *row = (const byte *)scr->getBasePtr(0, y * scr->h / height);
++			for (int x = 0; x < kThumbnailWidth; x++) {
++				const byte *c = palette + 3 * row[x * scr->w / kThumbnailWidth];
++				*((uint16 *)surf->getBasePtr(x, y)) = surf->format.RGBToColor(c[0], c[1], c[2]);
++			}
++		}
++		g_system->unlockScreen();
++		return true;
++	}
++#endif
+ 	Graphics::Surface screen;
+ 
+ 	if (!grabScreen565(&screen))
 diff --git a/gui/dialog.cpp b/gui/dialog.cpp
 index b6cbe9dba56..081a1c784ee 100644
 --- a/gui/dialog.cpp
