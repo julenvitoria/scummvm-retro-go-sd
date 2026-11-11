@@ -19,7 +19,7 @@ On the PC (64-bit) the unpatched engine peaks at 1678 KB before the first room. 
   is unpacked as it is shown, a byte at a time, from the packed resource in the flash
   (`GwVgaStream`, `AnimationSequence::gwRead`); a loop starts the unpacker again.
 - Sound: the AdLib music alone, scaled by the volume twice (driver and mixer), peaked at 2%
-  of full scale. Full volume and four times the output gain for this engine
+  of full scale. Full volume and eight times the output gain for this engine
   (`src/gw_system.cpp`, `g_gwGain`).
 - Save and load from the Retro-Go menu go through ScummVM's own interface
   (`src/gw_system.cpp`, `generic_save`/`generic_load`), as for every engine without a hook.
