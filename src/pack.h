@@ -30,6 +30,17 @@ int svm_pack_build(const char *src, uint32_t src_size, const char *dst, void (*p
 const pack_entry_t *svm_pack_file(const pack_head_t *h, uint32_t nr);
 const pack_entry_t *svm_pack_find(const pack_head_t *h, uint32_t pos, uint32_t n);
 
+/* A pack goes into the flash in pieces of at most SVM_PACK_PIECE bytes, each where the flash
+   has room for it: 38 MB in one piece needed 38 MB free in a row, which a flash with the core
+   copied to its middle does not have. A piece starts at an entry, so an entry is never split.
+   starts[0] = 0 (the header and the table are in the first piece); returns the number of
+   pieces (0: the table could not be read, or more than cap pieces). f: the pack, open. */
+#define SVM_PACK_PIECE (8u << 20)
+#define SVM_PACK_MAX_PIECES 12
+int svm_pack_split(void *f, const pack_head_t *h, uint32_t *starts, int cap);
+/* where offset off of the pack is in memory (plat_map_pack()'s pack: platform_*.c) */
+const void *plat_pack_ptr(const pack_head_t *h, uint32_t off);
+
 #ifdef __cplusplus
 }
 #endif

@@ -358,9 +358,36 @@ int main(int argc, char **argv)
    file, then mapped outside the heap */
 static void host_progress(int pct) { fprintf(stderr, "\rpack: %d%%", pct); if (pct >= 100) fputc('\n', stderr); }
 
+/* The pack is mapped in pieces as on the console (svm_pack_split), each in a mapping of its
+   own followed by an unreadable page: an access through the wrong piece, or past the end of
+   one, crashes here instead of reading the neighbour. GW_PACK_WHOLE=1: one mapping. */
+static struct { char path[512]; const pack_head_t *head; int pieces; uint32_t start[SVM_PACK_MAX_PIECES]; const uint8_t *at[SVM_PACK_MAX_PIECES]; } packs[2];
+
+const void *plat_pack_ptr(const pack_head_t *h, uint32_t off)
+{
+	for (int i = 0; i < 2; i++)
+		if (packs[i].head == h) {
+			int k = packs[i].pieces - 1;
+			while (k > 0 && off < packs[i].start[k]) k--;
+			return packs[i].at[k] + (off - packs[i].start[k]);
+		}
+	return (const uint8_t *)h + off;
+}
+
+static const uint8_t *map_piece(FILE *f, uint32_t start, uint32_t len)
+{
+	long pg = sysconf(_SC_PAGESIZE);
+	size_t span = ((len + pg - 1) / pg + 1) * pg;
+	uint8_t *m = (uint8_t *)mmap(0, span, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (m == MAP_FAILED) return NULL;
+	if (fseek(f, start, SEEK_SET) || fread(m, 1, len, f) != len) return NULL;
+	mprotect(m, span - pg, PROT_READ);       /* resources used in place are read-only, as in flash */
+	mprotect(m + span - pg, pg, PROT_NONE);
+	return m;
+}
+
 const void *plat_map_pack(const char *path)
 {
-	static struct { char path[512]; const void *head; } packs[2];
 	char own[1024];
 	snprintf(own, sizeof own, "%s", ci(path));   /* ci()'s buffer is reused by the calls below */
 	path = own;
@@ -379,14 +406,28 @@ const void *plat_map_pack(const char *path)
 		fprintf(stderr, "pack: making %s\n", dst);
 		if (!svm_pack_build(path, st.size, dst, host_progress)) return NULL;
 		ps = plat_stat(dst);
+		f = fopen(dst, "rb");
+		if (!f || fread(&h, sizeof h, 1, f) != 1) { if (f) fclose(f); return NULL; }
+		fclose(f);
 	}
+	int slot = -1;
+	for (int i = 0; i < 2; i++) if (!packs[i].head) { slot = i; break; }
+	if (slot < 0) return NULL;
 	f = fopen(dst, "rb");
 	if (!f) return NULL;
-	void *m = mmap(0, ps.size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	if (m == MAP_FAILED || fread(m, 1, ps.size, f) != ps.size) { fclose(f); return NULL; }
+	int n;
+	if (getenv("GW_PACK_WHOLE")) { n = 1; packs[slot].start[0] = 0; }
+	else n = svm_pack_split(f, &h, packs[slot].start, SVM_PACK_MAX_PIECES);
+	for (int k = 0; k < n; k++) {
+		uint32_t end = k + 1 < n ? packs[slot].start[k + 1] : h.total;
+		packs[slot].at[k] = map_piece(f, packs[slot].start[k], end - packs[slot].start[k]);
+		if (!packs[slot].at[k]) n = 0;
+	}
 	fclose(f);
-	mprotect(m, ps.size, PROT_READ);         /* resources used in place are read-only, as in flash */
-	for (int i = 0; i < 2; i++)
-		if (!packs[i].head) { snprintf(packs[i].path, sizeof packs[i].path, "%s", path); packs[i].head = m; break; }
-	return m;
+	if (!n) return NULL;
+	fprintf(stderr, "pack: %s in %d pieces\n", dst, n);
+	snprintf(packs[slot].path, sizeof packs[slot].path, "%s", path);
+	packs[slot].pieces = n;
+	packs[slot].head = (const pack_head_t *)packs[slot].at[0];
+	return packs[slot].head;
 }
