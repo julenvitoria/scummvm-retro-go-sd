@@ -4324,6 +4324,669 @@ index 8b0b8ce28a6..64809a25e75 100644
  	static int giveCurrentScreen();
  
  	static uint32 giveScriptVar(uint32 s);
+diff --git a/engines/sword1/control.cpp b/engines/sword1/control.cpp
+index 1c40eb63566..9cc0203d729 100644
+--- a/engines/sword1/control.cpp
++++ b/engines/sword1/control.cpp
+@@ -220,7 +220,7 @@ void Control::getPlayerOptions() {
+ 	debug(1, "Control::getPlayerOptions(): Entering Control Panel");
+ 	_panelShown = true;
+ 
+-	_screenBuf = (uint8 *)malloc(SCREEN_WIDTH * SCREEN_FULL_DEPTH);
++	_screenBuf = (uint8 *)malloc(GW_CP_SIZE(SCREEN_FULL_DEPTH));
+ 	// Make a thumbnail of the screen before displaying the menu
+ 	// in case we want to save the game from the menu.
+ 	_tempThumbnail = new Common::MemoryWriteStreamDynamic(DisposeAfterUse::YES);
+@@ -325,13 +325,13 @@ void Control::getPlayerOptions() {
+ 
+ void Control::askForCdMessage(uint32 needCD, bool incorrectCDPhase) {
+ 	uint8 buf[255];
+-	_screenBuf = (uint8 *)malloc(SCREEN_WIDTH * SCREEN_FULL_DEPTH);
++	_screenBuf = (uint8 *)malloc(GW_CP_SIZE(SCREEN_FULL_DEPTH));
+ 	if (!_screenBuf)
+ 		return;
+ 
+ 	if (!incorrectCDPhase) {
+ 		//ScreenOpen(640 / XBLOCKSIZE, 400 / YBLOCKSIZE); // sets up global structure screenDef
+-		memset(_screenBuf, 0, SCREEN_WIDTH * SCREEN_DEPTH);
++		memset(_screenBuf, 0, GW_CP_SIZE(SCREEN_DEPTH));
+ 
+ 		Common::sprintf_s(buf, "%s%d", _lStrings[STR_INSERT_CD_A], needCD);
+ 		renderText(buf, (640 - getTextLength(buf, true)) / 2, 190, true);
+@@ -339,14 +339,14 @@ void Control::askForCdMessage(uint32 needCD, bool incorrectCDPhase) {
+ 		Common::sprintf_s(buf, "%s", _lStrings[STR_INSERT_CD_B]);
+ 		renderText(buf, (640 - getTextLength(buf, true)) / 2, 210, true);
+ 
+-		_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		GWCP_COPY(40, SCREEN_DEPTH);
+ 	} else {
+ 		//if (displayInfo.backBuffer == 0) {
+-		memset(_screenBuf, 0, SCREEN_WIDTH * SCREEN_DEPTH);
+-			_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		memset(_screenBuf, 0, GW_CP_SIZE(SCREEN_DEPTH));
++			GWCP_COPY(40, SCREEN_DEPTH);
+ 		//}
+ 
+-		memset(_screenBuf, 0, SCREEN_WIDTH * SCREEN_DEPTH);
++		memset(_screenBuf, 0, GW_CP_SIZE(SCREEN_DEPTH));
+ 
+ 		Common::sprintf_s(buf, "%s", _lStrings[STR_INCORRECT_CD]);
+ 		renderText(buf, (640 - getTextLength(buf, true)) / 2, 160, true);
+@@ -357,7 +357,7 @@ void Control::askForCdMessage(uint32 needCD, bool incorrectCDPhase) {
+ 		Common::sprintf_s(buf, "%s", _lStrings[STR_INSERT_CD_B]);
+ 		renderText(buf, (640 - getTextLength(buf, true)) / 2, 210, true);
+ 
+-		_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		GWCP_COPY(40, SCREEN_DEPTH);
+ 	}
+ 	free(_screenBuf);
+ }
+@@ -368,13 +368,13 @@ void Control::saveRestoreScreen() {
+ 	if (_oldSnrStatus != SwordEngine::_systemVars.snrStatus) {
+ 		// Tidy up after snr section
+ 		if (_oldSnrStatus == SNR_BLANK) {
+-			memset(_screenBuf, 0, SCREEN_WIDTH * SCREEN_FULL_DEPTH);
++			memset(_screenBuf, 0, GW_CP_SIZE(SCREEN_FULL_DEPTH));
+ 			_newPal = true;
+ 		}
+ 
+ 		switch (_oldSnrStatus) {
+ 		case SNR_BLANK:
+-			memset(_screenBuf, 0, SCREEN_WIDTH * SCREEN_FULL_DEPTH);
++			memset(_screenBuf, 0, GW_CP_SIZE(SCREEN_FULL_DEPTH));
+ 			break;
+ 		case SNR_MAINPANEL:
+ 			removeControlPanel();
+@@ -424,7 +424,7 @@ void Control::saveRestoreScreen() {
+ 		case SNR_RESTART:
+ 			if (SwordEngine::_systemVars.controlPanelMode == CP_NEWGAME) {
+ 				SwordEngine::_systemVars.snrStatus = SNR_BLANK;
+-				_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++				GWCP_COPY(40, SCREEN_DEPTH);
+ 			} else {
+ 				initialiseConfirmation(_lStrings[STR_RESTART]);
+ 			}
+@@ -455,7 +455,7 @@ void Control::saveRestoreScreen() {
+ 		break;
+ 	case SNR_MAINPANEL:
+ 		implementControlPanel();
+-		_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		GWCP_COPY(40, SCREEN_DEPTH);
+ 
+ 		if (_newPal) {
+ 			_newPal = false;
+@@ -465,12 +465,12 @@ void Control::saveRestoreScreen() {
+ 		break;
+ 	case SNR_SAVE:
+ 		implementSave();
+-		_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		GWCP_COPY(40, SCREEN_DEPTH);
+ 
+ 		break;
+ 	case SNR_RESTORE:
+ 		implementRestore();
+-		_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		GWCP_COPY(40, SCREEN_DEPTH);
+ 
+ 		break;
+ 	case SNR_RESTART:
+@@ -484,7 +484,7 @@ void Control::saveRestoreScreen() {
+ 			}
+ 		}
+ 
+-		_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		GWCP_COPY(40, SCREEN_DEPTH);
+ 
+ 		break;
+ 	case SNR_QUIT:
+@@ -498,16 +498,16 @@ void Control::saveRestoreScreen() {
+ 			}
+ 		}
+ 
+-		_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		GWCP_COPY(40, SCREEN_DEPTH);
+ 
+ 		break;
+ 	case SNR_SPEED:
+ 		implementSpeed();
+-		_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		GWCP_COPY(40, SCREEN_DEPTH);
+ 		break;
+ 	case SNR_VOLUME:
+ 		implementVolume();
+-		_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		GWCP_COPY(40, SCREEN_DEPTH);
+ 		break;
+ 	case SNR_SUBTITLES:
+ 		SwordEngine::_systemVars.snrStatus = SNR_MAINPANEL;
+@@ -522,13 +522,13 @@ void Control::saveRestoreScreen() {
+ 			SwordEngine::_systemVars.snrStatus = SNR_SAVE;
+ 		}
+ 
+-		_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		GWCP_COPY(40, SCREEN_DEPTH);
+ 		break;
+ 	}
+ }
+ 
+ void Control::renderSlab(int32 start, int32 i) {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	FrameHeader *f;
+ 
+ 	if (start + 1 == _slabSelected) {
+@@ -540,16 +540,16 @@ void Control::renderSlab(int32 start, int32 i) {
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+ 
+ 	if (start + 1 == _slabSelected) {
+-		dst = _screenBuf + saveButtons[i].x1 + SCREEN_WIDTH * (saveButtons[i].y1 - 1);
++		dst = GWSB + saveButtons[i].x1 + SCREEN_WIDTH * (saveButtons[i].y1 - 1);
+ 	} else {
+-		dst = _screenBuf + saveButtons[i].x1 + SCREEN_WIDTH * saveButtons[i].y1;
++		dst = GWSB + saveButtons[i].x1 + SCREEN_WIDTH * saveButtons[i].y1;
+ 	}
+ 
+ 	if (SwordEngine::isPsx()) {
+ 		drawPsxComponent(PSX_SLAB, src, dst, f);
+ 	} else {
+ 		for (int j = 0; j < _resMan->getUint16(f->height); j++) {
+-			memcpy(dst, src, _resMan->getUint16(f->width));
++			GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 			src += _resMan->getUint16(f->width);
+ 			dst += SCREEN_WIDTH;
+ 		}
+@@ -557,7 +557,7 @@ void Control::renderSlab(int32 start, int32 i) {
+ }
+ 
+ void Control::renderSlabs() {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	int32 start;
+ 	FrameHeader *f;
+ 
+@@ -571,13 +571,13 @@ void Control::renderSlabs() {
+ 
+ 		f = (FrameHeader *)((uint8 *)_slabs[start] + _resMan->getUint32(_slabs[start]->spriteOffset[0]));
+ 		src = (uint8 *)f + sizeof(FrameHeader);
+-		dst = _screenBuf + saveButtons[i].x1 + SCREEN_WIDTH * saveButtons[i].y1;
++		dst = GWSB + saveButtons[i].x1 + SCREEN_WIDTH * saveButtons[i].y1;
+ 
+ 		if (SwordEngine::isPsx()) {
+ 			drawPsxComponent(PSX_SLAB, src, dst, f);
+ 		} else {
+ 			for (int j = 0; j < _resMan->getUint16(f->height); j++) {
+-				memcpy(dst, src, _resMan->getUint16(f->width));
++				GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 				src += _resMan->getUint16(f->width);
+ 				dst += SCREEN_WIDTH;
+ 			}
+@@ -599,13 +599,13 @@ void Control::renderSlabs() {
+ 
+ 		f = (FrameHeader *)((uint8 *)_slabs[start] + _resMan->getUint32(_slabs[start]->spriteOffset[1]));
+ 		src = (uint8 *)f + sizeof(FrameHeader);
+-		dst = _screenBuf + saveButtons[_slabSelected - 1].x1 + SCREEN_WIDTH * (saveButtons[_slabSelected - 1].y1 - 1);
++		dst = GWSB + saveButtons[_slabSelected - 1].x1 + SCREEN_WIDTH * (saveButtons[_slabSelected - 1].y1 - 1);
+ 
+ 		if (SwordEngine::isPsx()) {
+ 			drawPsxComponent(PSX_SLAB, src, dst, f);
+ 		} else {
+ 			for (int j = 0; j < _resMan->getUint16(f->height); j++) {
+-				memcpy(dst, src, _resMan->getUint16(f->width));
++				GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 				src += _resMan->getUint16(f->width);
+ 				dst += SCREEN_WIDTH;
+ 			}
+@@ -614,7 +614,7 @@ void Control::renderSlabs() {
+ }
+ 
+ void Control::renderText(const uint8 *str, int32 x, int32 y, bool useSpeechFont) {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	int32 i, l;
+ 	FrameHeader *f;
+ 	Sprite *srFont;
+@@ -646,7 +646,7 @@ void Control::renderText(const uint8 *str, int32 x, int32 y, bool useSpeechFont)
+ 
+ 	while (str[i] != 0) {
+ 		f = (FrameHeader *)((uint8 *)srFont + _resMan->getUint32(srFont->spriteOffset[str[i] - 32]));
+-		dst = _screenBuf + SCREEN_WIDTH * y + x + l;
++		dst = GWSB + SCREEN_WIDTH * y + x + l;
+ 		src = (uint8 *)f + sizeof(FrameHeader);
+ 
+ 		if (SwordEngine::isPsx()) {
+@@ -698,7 +698,7 @@ void Control::renderText(const uint8 *str, int32 x, int32 y, bool useSpeechFont)
+ }
+ 
+ void Control::renderRedText(const uint8 *str, int32 x, int32 y) {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	int32 i, l;
+ 	FrameHeader *f;
+ 	Sprite *srRedfont;
+@@ -713,7 +713,7 @@ void Control::renderRedText(const uint8 *str, int32 x, int32 y) {
+ 	l = 0;
+ 	while (str[i] != 0) {
+ 		f = (FrameHeader *)((uint8 *)srRedfont + _resMan->getUint32(srRedfont->spriteOffset[str[i] - 32]));
+-		dst = _screenBuf + SCREEN_WIDTH * y + x + l;
++		dst = GWSB + SCREEN_WIDTH * y + x + l;
+ 		src = (uint8 *)f + sizeof(FrameHeader);
+ 
+ 		if (SwordEngine::isPsx()) {
+@@ -801,7 +801,7 @@ int32 Control::getTextLength(const uint8 *str, bool useSpeechFont) {
+ }
+ 
+ void Control::putButton(int32 x, int32 y, int32 index) {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	FrameHeader *f;
+ 	Sprite *srButton;
+ 
+@@ -809,7 +809,7 @@ void Control::putButton(int32 x, int32 y, int32 index) {
+ 
+ 	f = (FrameHeader *)((uint8 *)srButton + _resMan->getUint32(srButton->spriteOffset[index]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf + SCREEN_WIDTH * y + x;
++	dst = GWSB + SCREEN_WIDTH * y + x;
+ 
+ 	if (SwordEngine::isPsx()) {
+ 		drawPsxComponent(PSX_BUTTON, src, dst, f);
+@@ -826,12 +826,12 @@ void Control::putButton(int32 x, int32 y, int32 index) {
+ }
+ 
+ void Control::putSpriteButton(Sprite *spr, int32 x, int32 y, int32 index) {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	FrameHeader *f;
+ 
+ 	f = (FrameHeader *)((uint8 *)spr + _resMan->getUint32(spr->spriteOffset[index]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf + SCREEN_WIDTH * y + x;
++	dst = GWSB + SCREEN_WIDTH * y + x;
+ 
+ 	if (SwordEngine::isPsx()) {
+ 		drawPsxComponent(PSX_BUTTON, src, dst, f);
+@@ -848,7 +848,7 @@ void Control::putSpriteButton(Sprite *spr, int32 x, int32 y, int32 index) {
+ }
+ 
+ void Control::putTextButton(int32 index) {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	int32 x, y;
+ 	FrameHeader *f;
+ 	Sprite *srTextButton;
+@@ -860,12 +860,12 @@ void Control::putTextButton(int32 index) {
+ 
+ 	f = (FrameHeader *)((uint8 *)srTextButton + _resMan->getUint32(srTextButton->spriteOffset[index]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf + SCREEN_WIDTH * y + x;
++	dst = GWSB + SCREEN_WIDTH * y + x;
+ 	if (SwordEngine::isPsx()) {
+ 		drawPsxComponent(PSX_BUTTON, src, dst, f);
+ 	} else {
+ 		for (int i = 0; i < _resMan->getUint16(f->height); i++) {
+-			memcpy(dst, src, _resMan->getUint16(f->width));
++			GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 			src += _resMan->getUint16(f->width);
+ 			dst += SCREEN_WIDTH;
+ 		}
+@@ -884,7 +884,7 @@ int32 Control::getCurrentButton(const Button b[]) {
+ }
+ 
+ void Control::initialiseConfirmation(const uint8 *title) {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	FrameHeader *f;
+ 	Sprite *srConfirm;
+ 
+@@ -892,7 +892,7 @@ void Control::initialiseConfirmation(const uint8 *title) {
+ 
+ 	f = (FrameHeader *)((uint8 *)srConfirm + _resMan->getUint32(srConfirm->spriteOffset[0]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf +
++	dst = GWSB +
+ 		((SCREEN_WIDTH - _resMan->getUint16(f->width)) / 2) +
+ 		(SCREEN_WIDTH * ((SCREEN_DEPTH - _resMan->getUint16(f->height)) / 2));
+ 
+@@ -900,7 +900,7 @@ void Control::initialiseConfirmation(const uint8 *title) {
+ 		drawPsxComponent(PSX_CONFIRM, src, dst, f);
+ 	} else {
+ 		for (int i = 0; i < _resMan->getUint16(f->height); i++) {
+-			memcpy(dst, src, _resMan->getUint16(f->width));
++			GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 			src += _resMan->getUint16(f->width);
+ 			dst += SCREEN_WIDTH;
+ 		}
+@@ -958,7 +958,7 @@ void Control::removeConfirmation() {
+ }
+ 
+ void Control::renderVolumeLight(int32 i) {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	uint8 vol[2] = { 0, 0 };
+ 	int32 x;
+ 	FrameHeader *f;
+@@ -990,13 +990,13 @@ void Control::renderVolumeLight(int32 i) {
+ 	// Render left light
+ 	f = (FrameHeader *)((uint8 *)srVlight + _resMan->getUint32(srVlight->spriteOffset[vol[0]]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf + x + 211 * SCREEN_WIDTH;
++	dst = GWSB + x + 211 * SCREEN_WIDTH;
+ 
+ 	if (SwordEngine::isPsx()) {
+ 		drawPsxComponent(PSX_BUTTON, src, dst, f);
+ 	} else {
+ 		for (int y = 0; y < _resMan->getUint16(f->height); y++) {
+-			memcpy(dst, src, _resMan->getUint16(f->width));
++			GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 			src += _resMan->getUint16(f->width);
+ 			dst += SCREEN_WIDTH;
+ 		}
+@@ -1005,13 +1005,13 @@ void Control::renderVolumeLight(int32 i) {
+ 	// Render right light
+ 	f = (FrameHeader *)((uint8 *)srVlight + _resMan->getUint32(srVlight->spriteOffset[vol[1]]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf + x + 32 + 211 * SCREEN_WIDTH;
++	dst = GWSB + x + 32 + 211 * SCREEN_WIDTH;
+ 
+ 	if (SwordEngine::isPsx()) {
+ 		drawPsxComponent(PSX_BUTTON, src, dst, f);
+ 	} else {
+ 		for (int y = 0; y < _resMan->getUint16(f->height); y++) {
+-			memcpy(dst, src, _resMan->getUint16(f->width));
++			GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 			src += _resMan->getUint16(f->width);
+ 			dst += SCREEN_WIDTH;
+ 		}
+@@ -1057,7 +1057,7 @@ void Control::volDown(int32 i, int32 j) {
+ }
+ 
+ void Control::renderVolumeDisc(int32 i, int32 j) {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	int32 x = 0;
+ 	FrameHeader *f;
+ 	Sprite *srVnob;
+@@ -1081,7 +1081,7 @@ void Control::renderVolumeDisc(int32 i, int32 j) {
+ 	// Render the disc
+ 	f = (FrameHeader *)((uint8 *)srVnob + _resMan->getUint32(srVnob->spriteOffset[j]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf + x + VDY * SCREEN_WIDTH;
++	dst = GWSB + x + VDY * SCREEN_WIDTH;
+ 
+ 	if (SwordEngine::isPsx()) {
+ 		drawPsxComponent(PSX_BUTTON, src, dst, f);
+@@ -1097,7 +1097,7 @@ void Control::renderVolumeDisc(int32 i, int32 j) {
+ }
+ 
+ void Control::initialiseVolume() {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	FrameHeader *f;
+ 	Sprite *srVolume;
+ 
+@@ -1107,7 +1107,7 @@ void Control::initialiseVolume() {
+ 	srVolume = (Sprite *)_resMan->openFetchRes(SR_VOLUME);
+ 	f = (FrameHeader *)((uint8 *)srVolume + _resMan->getUint32(srVolume->spriteOffset[0]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf +
++	dst = GWSB +
+ 		((SCREEN_WIDTH - _resMan->getUint16(f->width)) / 2) +
+ 		(SCREEN_WIDTH * ((SCREEN_DEPTH - _resMan->getUint16(f->height)) / 2));
+ 
+@@ -1115,7 +1115,7 @@ void Control::initialiseVolume() {
+ 		drawPsxComponent(PSX_PANEL, src, dst, f);
+ 	} else {
+ 		for (int i = 0; i < _resMan->getUint16(f->height); i++) {
+-			memcpy(dst, src, _resMan->getUint16(f->width));
++			GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 			src += _resMan->getUint16(f->width);
+ 			dst += SCREEN_WIDTH;
+ 		}
+@@ -1274,7 +1274,7 @@ void Control::removeVolume() {
+ }
+ 
+ void Control::renderScrolls() {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	FrameHeader *f;
+ 	Sprite *srScroll1, *srScroll2;
+ 
+@@ -1283,13 +1283,13 @@ void Control::renderScrolls() {
+ 
+ 	f = (FrameHeader *)((uint8 *)srScroll1 + _resMan->getUint32(srScroll1->spriteOffset[_scrollIndex[0]]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf + SCROLL1X + SCREEN_WIDTH * SCROLL1Y;
++	dst = GWSB + SCROLL1X + SCREEN_WIDTH * SCROLL1Y;
+ 
+ 	if (SwordEngine::isPsx()) {
+ 		drawPsxComponent(PSX_CONFIRM, src, dst, f);
+ 	} else {
+ 		for (int i = 0; i < _resMan->getUint16(f->height); i++) {
+-			memcpy(dst, src, _resMan->getUint16(f->width));
++			GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 			src += _resMan->getUint16(f->width);
+ 			dst += SCREEN_WIDTH;
+ 		}
+@@ -1297,13 +1297,13 @@ void Control::renderScrolls() {
+ 
+ 	f = (FrameHeader *)((uint8 *)srScroll2 + _resMan->getUint32(srScroll2->spriteOffset[_scrollIndex[1]]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf + SCROLL2X + SCREEN_WIDTH * SCROLL2Y;
++	dst = GWSB + SCROLL2X + SCREEN_WIDTH * SCROLL2Y;
+ 
+ 	if (SwordEngine::isPsx()) {
+ 		drawPsxComponent(PSX_CONFIRM, src, dst, f);
+ 	} else {
+ 		for (int i = 0; i < _resMan->getUint16(f->height); i++) {
+-			memcpy(dst, src, _resMan->getUint16(f->width));
++			GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 			src += _resMan->getUint16(f->width);
+ 			dst += SCREEN_WIDTH;
+ 		}
+@@ -1311,7 +1311,7 @@ void Control::renderScrolls() {
+ }
+ 
+ void Control::initialiseSpeed() {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	FrameHeader *f;
+ 	Sprite *srSpeed;
+ 
+@@ -1322,7 +1322,7 @@ void Control::initialiseSpeed() {
+ 
+ 	f = (FrameHeader *)((uint8 *)srSpeed + _resMan->getUint32(srSpeed->spriteOffset[0]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf +
++	dst = GWSB +
+ 		((SCREEN_WIDTH - _resMan->getUint16(f->width)) / 2) +
+ 		(SCREEN_WIDTH * ((SCREEN_DEPTH - _resMan->getUint16(f->height)) / 2));
+ 
+@@ -1330,7 +1330,7 @@ void Control::initialiseSpeed() {
+ 		drawPsxComponent(PSX_PANEL, src, dst, f);
+ 	} else {
+ 		for (int i = 0; i < _resMan->getUint16(f->height); i++) {
+-			memcpy(dst, src, _resMan->getUint16(f->width));
++			GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 			src += _resMan->getUint16(f->width);
+ 			dst += SCREEN_WIDTH;
+ 		}
+@@ -1613,7 +1613,7 @@ void Control::initialiseSave() {
+ 	Common::Keymapper *keymapper = _vm->getEventManager()->getKeymapper();
+ 	keymapper->getKeymap("game-shortcuts")->setEnabled(false);
+ 
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	int32 size;
+ 	FrameHeader *f;
+ 	Sprite *srWindow;
+@@ -1629,7 +1629,7 @@ void Control::initialiseSave() {
+ 
+ 	f = (FrameHeader *)((uint8 *)srWindow + _resMan->getUint32(srWindow->spriteOffset[0]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf +
++	dst = GWSB +
+ 		((SCREEN_WIDTH - _resMan->getUint16(f->width)) / 2) +
+ 		(SCREEN_WIDTH * ((SCREEN_DEPTH - _resMan->getUint16(f->height)) / 2));
+ 
+@@ -1637,7 +1637,7 @@ void Control::initialiseSave() {
+ 		drawPsxComponent(PSX_PANEL, src, dst, f);
+ 	} else {
+ 		for (int i = 0; i < _resMan->getUint16(f->height); i++) {
+-			memcpy(dst, src, _resMan->getUint16(f->width));
++			GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 			src += _resMan->getUint16(f->width);
+ 			dst += SCREEN_WIDTH;
+ 		}
+@@ -2004,7 +2004,7 @@ bool Control::restoreGame() {
+ }
+ 
+ void Control::initialiseRestore() {
+-	uint8 *src, *dst;
++	uint8 *src; GWDST dst;
+ 	int32 size;
+ 	FrameHeader *f;
+ 	Sprite *srWindow;
+@@ -2020,7 +2020,7 @@ void Control::initialiseRestore() {
+ 
+ 	f = (FrameHeader *)((uint8 *)srWindow + _resMan->getUint32(srWindow->spriteOffset[0]));
+ 	src = (uint8 *)f + sizeof(FrameHeader);
+-	dst = _screenBuf +
++	dst = GWSB +
+ 		((SCREEN_WIDTH - _resMan->getUint16(f->width)) / 2) +
+ 		(SCREEN_WIDTH * ((SCREEN_DEPTH - _resMan->getUint16(f->height)) / 2));
+ 
+@@ -2028,7 +2028,7 @@ void Control::initialiseRestore() {
+ 		drawPsxComponent(PSX_PANEL, src, dst, f);
+ 	} else {
+ 		for (int i = 0; i < _resMan->getUint16(f->height); i++) {
+-			memcpy(dst, src, _resMan->getUint16(f->width));
++			GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 			src += _resMan->getUint16(f->width);
+ 			dst += SCREEN_WIDTH;
+ 		}
+@@ -2405,7 +2405,7 @@ void Control::removeRestore() {
+ 
+ void Control::initialiseControlPanel() {
+ 	uint8 *src;
+-	uint8 *dst;
++	GWDST dst;
+ 	FrameHeader *f;
+ 	Sprite *srPanel = nullptr;
+ 
+@@ -2413,8 +2413,8 @@ void Control::initialiseControlPanel() {
+ 	_mouse->controlPanel(true);
+ 
+ 	// Clear the render buffer and copy the control panel into it
+-	memset(_screenBuf, 0, SCREEN_WIDTH * SCREEN_FULL_DEPTH);
+-	_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 0, SCREEN_WIDTH, SCREEN_FULL_DEPTH);
++	memset(_screenBuf, 0, GW_CP_SIZE(SCREEN_FULL_DEPTH));
++	GWCP_COPY(0, SCREEN_FULL_DEPTH);
+ 
+ 	if (SwordEngine::_systemVars.controlPanelMode != CP_DEATHSCREEN) { // NOT THE DEATH SCREEN ie. start game panel, normal control panel, or end of game
+ 		switch (SwordEngine::_systemVars.language) {
+@@ -2457,24 +2457,24 @@ void Control::initialiseControlPanel() {
+ 
+ 		if (SwordEngine::isPsx()) {
+ 			int component = SwordEngine::_systemVars.controlPanelMode == CP_DEATHSCREEN ? PSX_DEATHPANEL : PSX_PANEL;
+-			dst = _screenBuf +
++			dst = GWSB +
+ 				  SCREEN_WIDTH * (SCREEN_DEPTH - _resMan->getUint16(f->height)) / 2 +
+ 				  (SCREEN_WIDTH - _resMan->getUint16(f->width)) / 2;
+ 
+ 			if (component == PSX_DEATHPANEL)
+-				dst = _screenBuf;
++				dst = GWSB;
+ 
+ 			drawPsxComponent(component, src, dst, f);
+ 		} else {
+-			dst = _screenBuf + SCREEN_WIDTH * (SCREEN_DEPTH - _resMan->getUint16(f->height)) / 2 + (SCREEN_WIDTH - _resMan->getUint16(f->width)) / 2;
++			dst = GWSB + SCREEN_WIDTH * (SCREEN_DEPTH - _resMan->getUint16(f->height)) / 2 + (SCREEN_WIDTH - _resMan->getUint16(f->width)) / 2;
+ 			for (int i = 0; i < _resMan->getUint16(f->height); i++) {
+-				memcpy(dst, src, _resMan->getUint16(f->width));
++				GWMEMCPY(dst, src, _resMan->getUint16(f->width));
+ 				dst += SCREEN_WIDTH;
+ 				src += _resMan->getUint16(f->width);
+ 			}
+ 		}
+ 
+-		_system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, 40, SCREEN_WIDTH, SCREEN_DEPTH);
++		GWCP_COPY(40, SCREEN_DEPTH);
+ 	}
+ 
+ 	if (SwordEngine::_systemVars.controlPanelMode != CP_DEATHSCREEN) {
+diff --git a/engines/sword1/control.h b/engines/sword1/control.h
+index fd004607df5..561f3c6e174 100644
+--- a/engines/sword1/control.h
++++ b/engines/sword1/control.h
+@@ -33,8 +33,58 @@ class SaveFileManager;
+ class MemoryWriteStreamDynamic;
+ }
+ 
++#ifdef GW_SWORD1_SLIM
++void gwCopyRectHalf(const byte *buf, int pitch, int x, int y, int w, int h);   // src/gw_system.cpp
++#endif
++
+ namespace Sword1 {
+ 
++#ifdef GW_SWORD1_SLIM
++// Game & Watch: the control panel's 640x480 picture is kept at half size (75 KB, not 300),
++// as the console shows it. The panel's code writes through a GWDst where it had a pointer
++// into the picture: the pixels at even coordinates land in the half-size one.
++struct GWDst {
++	uint8 *buf = nullptr;
++	int32 off = 0;
++	GWDst() {}
++	explicit GWDst(uint8 *b, int32 o = 0) : buf(b), off(o) {}
++	struct Pix {
++		uint8 *buf;
++		int32 off;
++		Pix &operator=(uint8 v) {
++			if (off >= 0) {
++				int32 y = off / SCREEN_WIDTH, x = off - y * SCREEN_WIDTH;
++				if (!((x | y) & 1) && y < SCREEN_FULL_DEPTH)
++					buf[(y >> 1) * (SCREEN_WIDTH / 2) + (x >> 1)] = v;
++			}
++			return *this;
++		}
++	};
++	Pix operator[](int32 i) const { return Pix{buf, off + i}; }
++	Pix operator*() const { return Pix{buf, off}; }
++	GWDst operator+(int32 i) const { return GWDst(buf, off + i); }
++	GWDst &operator+=(int32 i) { off += i; return *this; }
++	GWDst &operator-=(int32 i) { off -= i; return *this; }
++	GWDst &operator++() { off++; return *this; }
++	GWDst operator++(int) { GWDst t = *this; off++; return t; }
++};
++inline void gwMemcpy(GWDst d, const uint8 *s, int32 n) {
++	for (int32 i = 0; i < n; i++)
++		d[i] = s[i];
++}
++#define GWDST GWDst
++#define GWSB GWDst(_screenBuf)
++#define GWMEMCPY(d, s, n) gwMemcpy(d, s, n)
++#define GW_CP_SIZE(depth) ((SCREEN_WIDTH / 2) * ((depth) / 2))
++#define GWCP_COPY(y, depth) gwCopyRectHalf(_screenBuf, SCREEN_WIDTH / 2, 0, (y) / 2, SCREEN_WIDTH / 2, (depth) / 2)
++#else
++#define GWDST uint8 *
++#define GWSB _screenBuf
++#define GWMEMCPY(d, s, n) memcpy(d, s, n)
++#define GW_CP_SIZE(depth) (SCREEN_WIDTH * (depth))
++#define GWCP_COPY(y, depth) _system->copyRectToScreen(_screenBuf, SCREEN_WIDTH, 0, y, SCREEN_WIDTH, depth)
++#endif
++
+ enum SNRStatus {
+ 	SNR_BLANK = 0,
+ 	SNR_MAINPANEL,
+@@ -194,6 +244,9 @@ private:
+ 
+ 	uint8 *decompressPsxGfx(uint8 *src, FrameHeader *f);
+ 	void drawPsxComponent(int componentType, uint8 *src, uint8 *dst, FrameHeader *f);
++#ifdef GW_SWORD1_SLIM
++	void drawPsxComponent(int, uint8 *, GWDst, FrameHeader *) {}   // (no PlayStation version here)
++#endif
+ 
+ 	bool convertSaveGame(uint8 slot, char *desc);
+ 
 diff --git a/engines/sword1/logic.cpp b/engines/sword1/logic.cpp
 index dbc9282a3fb..34baaf0c68d 100644
 --- a/engines/sword1/logic.cpp
@@ -4343,10 +5006,22 @@ index dbc9282a3fb..34baaf0c68d 100644
  			Common::Error err;
  
 diff --git a/engines/sword1/memman.h b/engines/sword1/memman.h
-index 83d27f5b0c3..3e5f3554b0f 100644
+index 83d27f5b0c3..8223b750eba 100644
 --- a/engines/sword1/memman.h
 +++ b/engines/sword1/memman.h
-@@ -49,6 +49,9 @@ public:
+@@ -38,7 +38,11 @@ struct MemHandle {
+ #define MEM_CAN_FREE    1
+ #define MEM_DONT_FREE   2
+ 
++#ifdef GW_SWORD1_SLIM
++#define MAX_ALLOC (96*1024) // Game & Watch: what is kept of closed resources in RAM (most are in the flash)
++#else
+ #define MAX_ALLOC (6*1024*1024) // max amount of mem we want to alloc().
++#endif
+ 
+ class MemMan {
+ public:
+@@ -49,6 +53,9 @@ public:
  	void freeNow(MemHandle *bsMem);
  	void initHandle(MemHandle *bsMem);
  	void flush();
@@ -4357,10 +5032,10 @@ index 83d27f5b0c3..3e5f3554b0f 100644
  	void addToFreeList(MemHandle *bsMem);
  	void removeFromFreeList(MemHandle *bsMem);
 diff --git a/engines/sword1/resman.cpp b/engines/sword1/resman.cpp
-index b2aa6712651..720084b6ae2 100644
+index b2aa6712651..cb791747259 100644
 --- a/engines/sword1/resman.cpp
 +++ b/engines/sword1/resman.cpp
-@@ -30,6 +30,12 @@
+@@ -30,6 +30,10 @@
  
  #include "gui/message.h"
  
@@ -4368,12 +5043,117 @@ index b2aa6712651..720084b6ae2 100644
 +const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte enc);   // src/gw_system.cpp
 +#endif
 +
-+extern "C" int gw_sword1_unaligned(void) __attribute__((weak)); // PC test build only
-+
  namespace Sword1 {
  void guiFatalError(char *msg) {
  	// Displays a dialog on-screen before terminating the engine.
-@@ -258,10 +264,16 @@ void ResMan::unlockScript(uint32 scrID) {
+@@ -89,6 +93,11 @@ void ResMan::loadCluDescript(const char *fileName) {
+ 	}
+ 
+ 
++#ifdef GW_SWORD1_SLIM
++	_gwHandles = (GWHandle *)calloc(GW_HANDLES, sizeof(GWHandle));
++	if (!_gwHandles)
++		error("ResMan: out of memory");
++#endif
+ 	_prj.noClu = file.readUint32LE();
+ 	_prj.clu = new Clu[_prj.noClu]();
+ 
+@@ -114,7 +123,11 @@ void ResMan::loadCluDescript(const char *fileName) {
+ 				if (grpIndex[grpCnt]) {
+ 					Grp *group = cluster->grp + grpCnt;
+ 					group->noRes = file.readUint32LE();
++#ifdef GW_SWORD1_SLIM
++					group->resHandle = nullptr;               // (gwHandle())
++#else
+ 					group->resHandle = new MemHandle[group->noRes];
++#endif
+ 					group->offset = new uint32[group->noRes];
+ 					group->length = new uint32[group->noRes];
+ 					uint32 *resIdIdx = (uint32 *)malloc(group->noRes * 4);
+@@ -124,12 +137,12 @@ void ResMan::loadCluDescript(const char *fileName) {
+ 						if (resIdIdx[resCnt]) {
+ 							group->offset[resCnt] = file.readUint32LE();
+ 							group->length[resCnt] = file.readUint32LE();
+-							_memMan->initHandle(group->resHandle + resCnt);
+ 						} else {
+ 							group->offset[resCnt] = 0xFFFFFFFF;
+ 							group->length[resCnt] = 0;
+-							_memMan->initHandle(group->resHandle + resCnt);
+ 						}
++						if (group->resHandle)
++							_memMan->initHandle(group->resHandle + resCnt);
+ 					}
+ 					free(resIdIdx);
+ 				}
+@@ -171,14 +184,21 @@ void ResMan::freeCluDescript() {
+ 					_memMan->freeNow(group->resHandle + resCnt);
+ 
+ 				delete[] group->resHandle;
+-				delete[] group->offset;
+-				delete[] group->length;
+ 			}
++			delete[] group->offset;                     // (delete[] of nullptr: nothing)
++			delete[] group->length;
+ 		}
+ 		delete[] cluster->grp;
+ 		delete cluster->file;
+ 	}
+ 	delete[] _prj.clu;
++#ifdef GW_SWORD1_SLIM
++	for (int i = 0; i < GW_HANDLES; i++)
++		if (_gwHandles[i].id)
++			_memMan->freeNow(&_gwHandles[i].h);
++	free(_gwHandles);
++	_gwHandles = nullptr;
++#endif
+ }
+ 
+ void ResMan::flush() {
+@@ -187,6 +207,8 @@ void ResMan::flush() {
+ 		Clu *cluster = _prj.clu + clusCnt;
+ 		for (uint32 grpCnt = 0; grpCnt < cluster->noGrp; grpCnt++) {
+ 			Grp *group = cluster->grp + grpCnt;
++			if (!group->resHandle)
++				continue;
+ 			for (uint32 resCnt = 0; resCnt < group->noRes; resCnt++)
+ 				if (group->resHandle[resCnt].cond != MEM_FREED) {
+ 					_memMan->setCondition(group->resHandle + resCnt, MEM_CAN_FREE);
+@@ -202,6 +224,22 @@ void ResMan::flush() {
+ 	}
+ 	_openClus = 0;
+ 	_openCluStart = _openCluEnd = nullptr;
++#ifdef GW_SWORD1_SLIM
++	for (int i = 0; i < GW_HANDLES; i++) {
++		MemHandle *h = &_gwHandles[i].h;
++		if (_gwHandles[i].id && h->cond != MEM_FREED) {
++			if (h->size == 0) {                        // in the flash: nothing to free
++				h->cond = MEM_FREED;
++				h->refCount = 0;
++				if (h->next || h->prev || _memMan->gwIsFirstFree(h))
++					_memMan->gwUnlist(h);
++			} else {
++				_memMan->setCondition(h, MEM_CAN_FREE);
++				h->refCount = 0;
++			}
++		}
++	}
++#endif
+ 	// the memory manager cached the blocks we asked it to free, so explicitly make it free them
+ 	_memMan->flush();
+ }
+@@ -213,6 +251,11 @@ void *ResMan::fetchRes(uint32 id) {
+ 		warning("fetchRes:: resource %d out of bounds", id);
+ 		return nullptr;
+ 	}
++#ifdef GW_SWORD1_SLIM
++	if (!memHandle->data)                              // closed: still where it lies in the flash?
++		if (const void *p = gwPeek(id))
++			return const_cast<void *>(p);
++#endif
+ 	if (!memHandle->data)
+ 		error("fetchRes:: resource %d is not open", id);
+ 	return memHandle->data;
+@@ -258,10 +301,16 @@ void ResMan::unlockScript(uint32 scrID) {
  }
  
  void *ResMan::cptResOpen(uint32 id) {
@@ -4390,7 +5170,7 @@ index b2aa6712651..720084b6ae2 100644
  #endif
  	MemHandle *handle = resHandle(id);
  	return handle != nullptr ? handle->data : nullptr;
-@@ -298,10 +310,26 @@ void ResMan::resOpen(uint32 id) {  // load resource ID into memory
+@@ -298,10 +347,28 @@ void ResMan::resOpen(uint32 id) {  // load resource ID into memory
  			}
  		} else {
  			uint32 size = resLength(id);
@@ -4402,8 +5182,10 @@ index b2aa6712651..720084b6ae2 100644
 +			// Game & Watch: a resource is used where it lies in the cluster file in the flash,
 +			// not copied (a room's background is 750 KB). Read-only; it takes no room in
 +			// MemMan's count (size 0), and free() leaves a pointer outside the heap alone.
-+			const byte *p = _gwWritable || ((resOffset(id) & 3) && !(gw_sword1_unaligned && gw_sword1_unaligned())) ? nullptr : gwDirectResource(clusFile->gwStream(), size, 0);
-+			// the engine reads its structs in place: only an aligned resource can stay in the flash
++			// Many resources start at an odd offset in the cluster (all the scripts and compacts:
++			// aligned). The engine reads them with byte or single-word loads, which the Cortex-M7
++			// does unaligned (only LDRD/LDM would fault: a UsageFault on the screen).
++			const byte *p = _gwWritable ? nullptr : gwDirectResource(clusFile->gwStream(), size, 0);
 +			if (p) {
 +				if (memHandle->next || memHandle->prev || _memMan->gwIsFirstFree(memHandle))
 +					_memMan->gwUnlist(memHandle);
@@ -4418,16 +5200,90 @@ index b2aa6712651..720084b6ae2 100644
  			clusFile->read(memHandle->data, size);
  			if (clusFile->err() || clusFile->eos()) {
  				error("Can't read %d bytes from offset %d from cluster file %s\nResource ID: %d (%08X)", size, resOffset(id), _prj.clu[(id >> 24) - 1].label, id, id);
+@@ -325,6 +392,16 @@ void ResMan::resClose(uint32 id) {
+ 		warning("Resource Manager fail: unlocking object with refCount 0. Id: %d", id);
+ 	} else {
+ 		handle->refCount--;
++#ifdef GW_SWORD1_SLIM
++		if (!handle->refCount && handle->size == 0 && handle->cond != MEM_FREED) {
++			// in the flash: closed is freed (its slot may go to another resource); the pointer
++			// stays good, for code that fetches a resource it has closed (fetchRes)
++			if (handle->next || handle->prev || _memMan->gwIsFirstFree(handle))
++				_memMan->gwUnlist(handle);
++			handle->cond = MEM_FREED;
++			return;
++		}
++#endif
+ 		if (!handle->refCount)
+ 			_memMan->setCondition(handle, MEM_CAN_FREE);
+ 	}
+@@ -398,9 +475,45 @@ MemHandle *ResMan::resHandle(uint32 id) {
+ 	if (cluster >= _prj.noClu || group >= _prj.clu[cluster].noGrp)
+ 		return nullptr;
+ 
++#ifdef GW_SWORD1_SLIM
++	if (!_prj.clu[cluster].grp[group].resHandle)
++		return gwHandle(id);
++#endif
+ 	return &(_prj.clu[cluster].grp[group].resHandle[id & 0xFFFF]);
+ }
+ 
++#ifdef GW_SWORD1_SLIM
++MemHandle *ResMan::gwHandle(uint32 id) {
++	uint32 i = (id * 2654435761u) >> 23, free = GW_HANDLES;   // 9 bits: 512
++	for (int n = 0; n < GW_HANDLES; n++, i = (i + 1) & (GW_HANDLES - 1)) {
++		GWHandle &e = _gwHandles[i];
++		if (e.id == id)
++			return &e.h;
++		bool reusable = !e.id || (e.h.cond == MEM_FREED && !e.h.refCount && !e.h.next && !e.h.prev &&
++		                          !_memMan->gwIsFirstFree(&e.h));
++		if (reusable && free == GW_HANDLES)
++			free = i;
++		if (!e.id)
++			break;                                     // the end of this id's chain
++	}
++	if (free == GW_HANDLES)
++		error("ResMan: more than %d resources in use", GW_HANDLES);
++	_gwHandles[free].id = id;
++	_memMan->initHandle(&_gwHandles[free].h);
++	return &_gwHandles[free].h;
++}
++
++// a resource where it lies in the flash, without opening it (NULL: it is not in the flash)
++const void *ResMan::gwPeek(uint32 id) {
++	if ((id >> 16) == 0x0405)
++		id = _srIdList[id & 0xFFFF];
++	Common::File *f = resFile(id);
++	if (!f || !f->seek(resOffset(id)))
++		return nullptr;
++	return gwDirectResource(f->gwStream(), resLength(id), 0);
++}
++#endif
++
+ uint32 ResMan::resLength(uint32 id) {
+ 	if ((id >> 16) == 0x0405)
+ 		id = _srIdList[id & 0xFFFF];
 diff --git a/engines/sword1/resman.h b/engines/sword1/resman.h
-index 999ed4da7c5..8ed59926eca 100644
+index 999ed4da7c5..78ea279d762 100644
 --- a/engines/sword1/resman.h
 +++ b/engines/sword1/resman.h
-@@ -108,6 +108,9 @@ public:
+@@ -108,6 +108,20 @@ public:
  	uint32 getDeathFontId();
  
  private:
 +#ifdef GW_SWORD1_SLIM
 +	bool _gwWritable = false;
++	// Game & Watch: a MemHandle for the resources in use only (some hundreds), not one for
++	// each of the game's 4,850 (116 KB): an open-addressed table by resource id. A slot is
++	// reused once its resource is closed and not kept by MemMan.
++	enum { GW_HANDLES = 512 };
++	struct GWHandle {
++		uint32 id;
++		MemHandle h;
++	};
++	GWHandle *_gwHandles = nullptr;
++	MemHandle *gwHandle(uint32 id);
++	const void *gwPeek(uint32 id);
 +#endif
  	uint32     resLength(uint32 id);
  	MemHandle *resHandle(uint32 id);
