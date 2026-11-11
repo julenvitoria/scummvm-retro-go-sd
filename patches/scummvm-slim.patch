@@ -223,6 +223,91 @@ index 42e39380..6fe92a3c 100644
  		break;
  
  	case kGameTypeAdibou1:
+diff --git a/engines/gob/surface.cpp b/engines/gob/surface.cpp
+index 452492a6..440e389f 100644
+--- a/engines/gob/surface.cpp
++++ b/engines/gob/surface.cpp
+@@ -45,6 +45,8 @@
+ #include "image/jpeg.h"
+ #include "image/tga.h"
+ 
++void gwAdoptScreen(byte *pixels, int w, int h);   // src/gw_system.cpp
++
+ namespace Gob {
+ 
+ class SurfacePrimitives final : public Graphics::Primitives {
+@@ -237,6 +239,7 @@ Surface::Surface(uint16 width, uint16 height, uint8 bpp, const byte *vidMem, con
+ }
+ 
+ Surface::~Surface() {
++	gwUnadopt();
+ 	if (_ownVidMem)
+ 		delete[] _vidMem;
+ 
+@@ -256,9 +259,29 @@ uint8 Surface::getBPP() const {
+ 	return _bpp;
+ }
+ 
++// Game & Watch: the primary surface is the backend's screen too (src/gw_system.cpp), not
++// copied to one: 128 KB with Ween's 640x200
++static const byte *gwAdopted;
++
++void Surface::gwAdopt() {
++	if (_bpp != 1 || !_ownVidMem)
++		return;
++	gwUnadopt();
++	gwAdopted = _vidMem;
++	gwAdoptScreen(_vidMem, _width, _height);
++}
++
++void Surface::gwUnadopt() {
++	if (gwAdopted && gwAdopted == _vidMem) {
++		gwAdoptScreen(nullptr, 0, 0);
++		gwAdopted = nullptr;
++	}
++}
++
+ void Surface::resize(uint16 width, uint16 height) {
+ 	assert((width > 0) && (height > 0));
+ 
++	gwUnadopt();
+ 	if (_ownVidMem)
+ 		delete[] _vidMem;
+ 
+@@ -273,6 +296,8 @@ void Surface::setBPP(uint8 bpp) {
+ 	if (_bpp == bpp)
+ 		return;
+ 
++	gwUnadopt();
++
+ 	if (_ownVidMem) {
+ 		delete[] _vidMem;
+ 
+diff --git a/engines/gob/surface.h b/engines/gob/surface.h
+index 0cc05382..7929faa8 100644
+--- a/engines/gob/surface.h
++++ b/engines/gob/surface.h
+@@ -117,6 +117,8 @@ public:
+ 	const byte *getData(uint16 x = 0, uint16 y = 0) const;
+ 
+ 	void resize(uint16 width, uint16 height);
++	void gwAdopt();		// Game & Watch: this surface's memory is the backend's screen too
++	void gwUnadopt();
+ 
+ 	void setBPP(uint8 bpp);
+ 
+diff --git a/engines/gob/video.cpp b/engines/gob/video.cpp
+index 9f637fbf..3c1717ad 100644
+--- a/engines/gob/video.cpp
++++ b/engines/gob/video.cpp
+@@ -244,6 +244,7 @@ SurfacePtr Video::initSurfDesc(int16 width, int16 height, int16 flags, byte bpp)
+ 
+ 		descPtr = _vm->_global->_primarySurfDesc;
+ 		descPtr->resize(width, height);
++		descPtr->gwAdopt();
+ 	} else {
+ 		assert(!(flags & DISABLE_SPR_ALLOC));
+ 
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea52..380eb1fa 100644
 --- a/engines/scumm/dialogs.cpp
