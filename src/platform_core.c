@@ -479,7 +479,16 @@ static struct {
 } g_pack[MAX_PACKS];
 static int g_packs;
 
-static void pack_progress(int pct) { odroid_overlay_draw_progress_bar("Preparing the game (first time only)", (uint8_t)pct); }
+/* a progress bar: drawn into the frame buffer and shown (lcd_swap), as the firmware's own
+   "caching" bar does -- without the swap nothing was seen, and a minutes-long copy looked
+   like a hang with the previous bar full on screen */
+static void show_bar(const char *header, int pct)
+{
+	if (lcd_is_swap_pending()) return;
+	odroid_overlay_draw_progress_bar(header, (uint8_t)pct);
+	lcd_swap();
+}
+static void pack_progress(int pct) { show_bar("Preparing the game (first time only)", pct); }
 
 /* piece k of the pack in the flash, by key (the firmware's blob store): put there from the
    card when it is not there yet. The key carries what the pack was made from, so a new pack
@@ -504,7 +513,7 @@ static const uint8_t *pack_piece(void *f, const char *name, const pack_head_t *h
 		left -= n;
 		*done += n;
 		uint8_t pct = (uint8_t)((uint64_t)*done * 100 / total);
-		if (pct != last) { odroid_overlay_draw_progress_bar("Copying the game to the flash", pct); last = pct; }
+		if (pct != last) { show_bar("Copying the game to the flash", pct); last = pct; }
 	}
 	free(buf);
 	return store_data_finish(&st);
