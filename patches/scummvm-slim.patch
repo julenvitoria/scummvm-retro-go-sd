@@ -5780,6 +5780,23 @@ index 4f97e480bc8..bf4f419991e 100644
  	bool _speechSampleBusy = false;
  
  	// Sound handles
+diff --git a/engines/sword1/sword1.cpp b/engines/sword1/sword1.cpp
+index 5e550016216..cccaa2fd8f2 100644
+--- a/engines/sword1/sword1.cpp
++++ b/engines/sword1/sword1.cpp
+@@ -680,7 +680,12 @@ Common::Error SwordEngine::go() {
+ 		int saveSlot = ConfMan.getInt("save_slot");
+ 		// Savegames are numbered starting from 1 in the dialog window,
+ 		// but their filenames are numbered starting from 0.
++#ifdef GW_SWORD1_SLIM
++		// (slot 99 is the Retro-Go menu's file, which is not among ScummVM's saves: "resume")
++		if (saveSlot >= 0 && (saveSlot == 99 || _control->savegamesExist()) && _control->restoreGameFromFile(saveSlot)) {
++#else
+ 		if (saveSlot >= 0 && _control->savegamesExist() && _control->restoreGameFromFile(saveSlot)) {
++#endif
+ 			_control->doRestore();
+ 			startedFromGMM = true;
+ 			_systemVars.controlPanelMode = CP_NORMAL;
 diff --git a/graphics/scaler/thumbnail_intern.cpp b/graphics/scaler/thumbnail_intern.cpp
 index 11f20630172..3ea13a589b1 100644
 --- a/graphics/scaler/thumbnail_intern.cpp
