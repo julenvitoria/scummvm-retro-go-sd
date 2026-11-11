@@ -330,6 +330,8 @@ uint32_t plat_buttons(void)
 /* ---------------------------------------------------------------- time */
 
 uint32_t plat_millis(void) { wdog_refresh(); return HAL_GetTick(); }
+/* for long computations inside ScummVM (patches/scummvm-slim.patch: DBOPL's Chip::Setup) */
+void gw_wdog_kick(void) { wdog_refresh(); }
 
 void plat_delay(uint32_t ms)
 {
