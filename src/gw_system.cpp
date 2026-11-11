@@ -447,14 +447,19 @@ public:
 	bool _mouseSet = false, _mouseTell = false;   // the pointer starts in the middle of the screen
 	int _shakeX = 0, _shakeY = 0;
 
-	GWGraphics() { memset(_pal, 0, sizeof _pal); }
+	GWGraphics();
 	~GWGraphics() override { _screen.free(); free(_cursor); }
+
+	// Broken Sword is 640x480; the panel shows every other pixel of such a game anyway
+	// (platform_core.c, draw_frame), so the screen is kept at that size: 75 KB, not 300.
+	int _sh = 0;                                  // 1: the screen is stored at half size
 
 	void initSize(uint w, uint h, const Graphics::PixelFormat *format) override {
 		NullGraphicsManager::initSize(w, h, format);
-		if (_screen.w != (int)w || _screen.h != (int)h) {
+		_sh = w > 320 && ConfMan.get("engineid").equalsIgnoreCase("sword1") ? 1 : 0;
+		if (_screen.w != (int)(w >> _sh) || _screen.h != (int)(h >> _sh)) {
 			_screen.free();
-			_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+			_screen.create(w >> _sh, h >> _sh, Graphics::PixelFormat::createFormatCLUT8());
 		}
 		// SCUMM keeps its screens in a heap of their own; no other engine has such screens
 		if (!ConfMan.get("engineid").equalsIgnoreCase("scumm")) heap_screen_spill = 1;
@@ -490,11 +495,25 @@ public:
 	}
 	void grabPalette(byte *c, uint start, uint num) const override { memcpy(c, _pal + start * 3, num * 3); }
 	void copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) override {
-		_screen.copyRectToSurface(buf, pitch, x, y, w, h);
+		if (!_sh) { _screen.copyRectToSurface(buf, pitch, x, y, w, h); return; }
+		// the pixels at even coordinates of the game's screen
+		const byte *src = (const byte *)buf + (y & 1) * pitch + (x & 1);
+		int x2 = (x + 1) >> 1, y2 = (y + 1) >> 1, w2 = (x + w + 1) / 2 - x2, h2 = (y + h + 1) / 2 - y2;
+		if (x2 + w2 > _screen.w) w2 = _screen.w - x2;
+		if (y2 + h2 > _screen.h) h2 = _screen.h - y2;
+		for (int j = 0; j < h2; j++, src += 2 * pitch) {
+			byte *d = (byte *)_screen.getBasePtr(x2, y2 + j);
+			for (int i = 0; i < w2; i++) d[i] = src[2 * i];
+		}
 	}
 	Graphics::Surface *lockScreen() override { return &_screen; }
 	void fillScreen(uint32 col) override { _screen.fillRect(Common::Rect(_screen.w, _screen.h), col); }
-	void fillScreen(const Common::Rect &r, uint32 col) override { _screen.fillRect(r, col); }
+	void fillScreen(const Common::Rect &r, uint32 col) override {
+		if (!_sh) { _screen.fillRect(r, col); return; }
+		Common::Rect h((r.left + 1) >> 1, (r.top + 1) >> 1, (r.right + 1) >> 1, (r.bottom + 1) >> 1);
+		h.clip(Common::Rect(_screen.w, _screen.h));
+		if (!h.isEmpty()) _screen.fillRect(h, col);
+	}
 	void setShakePos(int x, int y) override { _shakeX = x; _shakeY = y; }
 
 	bool showMouse(bool visible) override { bool old = _cursorVisible; _cursorVisible = visible; return old; }
@@ -511,21 +530,23 @@ public:
 		if (!_screen.getPixels()) return;
 		// the cursor goes into the frame for the platform: save what is under it, draw, present, restore
 		byte under[64 * 64];
-		int cx = _mouseX - _hotX, cy = _mouseY - _hotY;
+		// (at half size: every other pixel of the cursor too)
+		int cx = (_mouseX - _hotX) >> _sh, cy = (_mouseY - _hotY) >> _sh;
+		uint cw = _cw >> _sh, ch = _ch >> _sh;
 		bool drawCursor = _cursorVisible && _cursor && _cw <= 64 && _ch <= 64;
 		if (drawCursor) {
-			for (uint y = 0; y < _ch; y++) for (uint x = 0; x < _cw; x++) {
+			for (uint y = 0; y < ch; y++) for (uint x = 0; x < cw; x++) {
 				int sx = cx + x, sy = cy + y;
 				if (sx < 0 || sy < 0 || sx >= _screen.w || sy >= _screen.h) continue;
 				byte *p = (byte *)_screen.getBasePtr(sx, sy);
 				under[y * 64 + x] = *p;
-				byte c = _cursor[y * _cw + x];
+				byte c = _cursor[(y << _sh) * _cw + (x << _sh)];
 				if (c != _key) *p = c;
 			}
 		}
 		plat_present((const uint8_t *)_screen.getPixels(), _screen.pitch, _screen.w, _screen.h);
 		if (drawCursor) {
-			for (uint y = 0; y < _ch; y++) for (uint x = 0; x < _cw; x++) {
+			for (uint y = 0; y < ch; y++) for (uint x = 0; x < cw; x++) {
 				int sx = cx + x, sy = cy + y;
 				if (sx < 0 || sy < 0 || sx >= _screen.w || sy >= _screen.h) continue;
 				*(byte *)_screen.getBasePtr(sx, sy) = under[y * 64 + x];
@@ -533,6 +554,18 @@ public:
 		}
 	}
 };
+
+/* patches/scummvm-slim.patch (Broken Sword, screen.cpp): its room picture, already at half
+   size, into the half-size screen at (x, y) of that size */
+static GWGraphics *g_gwGfx;
+GWGraphics::GWGraphics() { memset(_pal, 0, sizeof _pal); g_gwGfx = this; }
+void gwCopyRectHalf(const byte *buf, int pitch, int x, int y, int w, int h)
+{
+	GWGraphics *g = g_gwGfx;
+	if (!g || !g->_screen.getPixels()) return;
+	if (!g->_sh) { g->copyRectToScreen(buf, pitch, x, y, w, h); return; }
+	g->_screen.copyRectToSurface(buf, pitch, x, y, w, h);
+}
 
 /* ================================================================ sound */
 
@@ -660,7 +693,8 @@ public:
 			int speed = 60 + (int)(held > 700 ? 180 : held * 180 / 700);    // px/s
 			int step = speed * 16 * (int)dt / 1000;                             // 1/16 px
 			if (step) _lastMove = now;          // else the time keeps adding up until it moves
-			int w = g->_screen.w ? g->_screen.w : 320, h = g->_screen.h ? g->_screen.h : 200;
+			step <<= g->_sh;                    // (a half-size screen: as fast across the panel)
+			int w = g->_screen.w ? g->_screen.w << g->_sh : 320, h = g->_screen.h ? g->_screen.h << g->_sh : 200;
 			_mx16 = CLIP(_mx16 + dx * step, 0, (w - 1) << 4);
 			_my16 = CLIP(_my16 + dy * step, 0, (h - 1) << 4);
 			if ((_mx16 >> 4) != g->_mouseX || (_my16 >> 4) != g->_mouseY) {

@@ -431,3 +431,6 @@ const void *plat_map_pack(const char *path)
 	packs[slot].head = (const pack_head_t *)packs[slot].at[0];
 	return packs[slot].head;
 }
+
+/* Broken Sword test: use resources at unaligned offsets of a cluster in place too */
+int gw_sword1_unaligned(void) { return getenv("GW_UNALIGNED") != NULL; }
