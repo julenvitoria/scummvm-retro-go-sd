@@ -436,7 +436,7 @@ void plat_fclose(void *f) { fclose((FILE *)f); }
    flash while it writes it, and most of ScummVM runs from there). */
 #define MAX_MAPPED 160                    /* Indiana Jones 3 VGA: ~95 files, one per room */
 #define MAX_CACHED_FILE (24u << 20)
-static struct { char name[28]; const uint8_t *data; uint32_t size; uint8_t key; } g_map[MAX_MAPPED];
+static struct { char name[28]; const uint8_t *data; uint32_t size; uint8_t key, fixed; } g_map[MAX_MAPPED];
 static int g_mapped, g_files;
 
 /* Called by the firmware with each 16 KB of a file on its way into flash (OSPI is unmapped
@@ -444,15 +444,15 @@ static int g_mapped, g_files;
    v4-v6 data files go in decrypted, so their resources can be used where they lie. */
 uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p, bool byte_swap,
                                                      void (*relocate_cb)(uint8_t *, uint32_t, uint32_t, uint8_t *, uint32_t));
-static uint8_t g_decrypting;
+static uint8_t g_decrypting, g_fixed_key;           /* g_fixed_key: svm_fixed_key() of the file going in */
 static void decrypt_chunk(uint8_t *buf, uint32_t len, uint32_t offset, uint8_t *addr, uint32_t size)
 {
 	(void)addr; (void)size;
-	if (offset == 0) g_decrypting = (uint8_t)svm_xor69_data(buf, len);
+	if (offset == 0) g_decrypting = g_fixed_key ? g_fixed_key : svm_xor69_data(buf, len) ? 0x69 : 0;
 	if (!g_decrypting) return;
-	uint32_t *w = (uint32_t *)buf, i = 0;             /* the buffer is the firmware's, word-aligned */
-	for (; i < len / 4; i++) w[i] ^= 0x69696969u;
-	for (i *= 4; i < len; i++) buf[i] ^= 0x69;
+	uint32_t *w = (uint32_t *)buf, i = 0, k = g_decrypting * 0x01010101u;   /* the buffer is the firmware's, word-aligned */
+	for (; i < len / 4; i++) w[i] ^= k;
+	for (i *= 4; i < len; i++) buf[i] ^= g_decrypting;
 }
 
 /* SCUMM v7 data files too big for the flash: their resource packs (src/pack.c), which are */
@@ -537,9 +537,15 @@ static void cache_rel(const char *name, uint32_t size)
 			snprintf(path, sizeof path, "%s//%s", g_game, name);
 		plat_fclose(f);
 	}
+	/* ...and so does a file kept XORed by name (Soltys' vol.dat), with three slashes */
+	g_fixed_key = svm_fixed_key(name);
+	if (g_fixed_key) snprintf(path, sizeof path, "%s///%s", g_game, name);
 	uint32_t got = 0;
 	uint8_t *p = odroid_overlay_cache_file_in_flash_relocate(path, &got, false, decrypt_chunk);
+	uint8_t fixed = g_fixed_key;
+	g_fixed_key = 0;
 	if (!p) return;                          /* no room: read from the SD card */
+	g_map[g_mapped].fixed = fixed;
 	strcpy(g_map[g_mapped].name, name);
 	g_map[g_mapped].data = p;
 	g_map[g_mapped].size = got;
@@ -596,6 +602,7 @@ static void find_keys(void)
 	int xor_index = 0, stale = 0;
 	for (int i = 0; i < g_mapped; i++) xor_index |= svm_xor69_index(g_map[i].data, g_map[i].size);
 	for (int i = 0; i < g_mapped; i++) {
+		if (g_map[i].fixed) { g_map[i].key = g_map[i].fixed; continue; }
 		g_map[i].key = svm_plain_data(g_map[i].data, g_map[i].size, xor_index) ? 0x69 : 0;
 		if (svm_xor69_data(g_map[i].data, g_map[i].size)) {
 			stale++;
