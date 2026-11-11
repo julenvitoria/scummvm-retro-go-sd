@@ -457,10 +457,10 @@ public:
 		    !ConfMan.get("engineid").equalsIgnoreCase("sky")) {
 			// Lure of the Temptress is the other way round: its AdLib music alone, scaled by
 			// the volume twice (driver and mixer), peaks at 2% of full scale. Full volume and
-			// four times the output gain for it.
+			// eight times the output gain for it (the loudest passage then peaks at 80%).
 			bool lure = ConfMan.get("engineid").equalsIgnoreCase("lure");
 			int v = lure ? 255 : GW_ENGINE_VOLUME;
-			if (lure) g_gwGain = 20;
+			if (lure) g_gwGain = 40;
 			static const char *const vol[] = { "music_volume", "sfx_volume", "speech_volume" };
 			for (const char *k : vol) ConfMan.setInt(k, v, Common::ConfigManager::kTransientDomain);
 			Audio::Mixer *m = g_system->getMixer();
