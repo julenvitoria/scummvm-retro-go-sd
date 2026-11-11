@@ -344,6 +344,976 @@ index 05a40b5e..a81823d2 100644
  }
  
  //--------------------------------------------------------------------------
+diff --git a/engines/lure/animseq.cpp b/engines/lure/animseq.cpp
+index cc1c4e47..8ebd4896 100644
+--- a/engines/lure/animseq.cpp
++++ b/engines/lure/animseq.cpp
+@@ -122,10 +122,18 @@ void AnimationSequence::vgaDecodeFrame(byte *&pPixels, byte *&pLines) {
+ 		}
+ 
+ 		// Move the splice over
+-		memcpy(screenData, pPixels, len);
++#ifdef GW_LURE_SLIM
++		if (_gwSrc) {
++			gwRead(screenData, _gwPos, len);
++			_gwPos += len;
++		} else
++#endif
++		{
++			memcpy(screenData, pPixels, len);
++			pPixels += len;
++		}
+ 		screenData += len;
+ 		screenPos += len;
+-		pPixels += len;
+ 
+ 		// Get the offset inc amount
+ 		len = (uint16) *pLines++;
+@@ -149,10 +157,21 @@ AnimationSequence::AnimationSequence(uint16 screenId, Palette &palette,  bool fa
+ 	// Get the data and decode it. Note that VGA decompression is used
+ 	// even if the decompressed contents is actually EGA data
+ 	MemoryBlock *data = d.getEntry(_screenId);
++	_isEGA = LureEngine::getReference().isEGA();
++#ifdef GW_LURE_SLIM
++	if (!_isEGA) {
++		_decodedData = nullptr;
++		_gwSrc = data;
++		_gwStream.start(data);
++		while (_gwStream.next() >= 0) {}
++		_gwSize = _gwStream.pos;
++		_gwStream.start(data);
++		data = nullptr;
++	} else
++#endif
+ 	_decodedData = decoder.vgaDecode(data, MAX_ANIM_DECODER_BUFFER_SIZE);
+ 	delete data;
+ 
+-	_isEGA = LureEngine::getReference().isEGA();
+ 	if (_isEGA) {
+ 		// Setup for EGA animation
+ 		_lineRefs = nullptr;
+@@ -184,16 +203,45 @@ AnimationSequence::AnimationSequence(uint16 screenId, Palette &palette,  bool fa
+ 		else screen.setPalette(&_palette, 0, _palette.numEntries());
+ 
+ 		// Set up frame pointers
++#ifdef GW_LURE_SLIM
++		// (the pixels' pointers are only compared: stand-ins that say "more to come")
++		_gwPos = SCREEN_SIZE;
++		static byte gwStandIn[2];
++		_pPixelsStart = _pPixels = gwStandIn;
++		_pPixelsEnd = gwStandIn + 1;
++#else
+ 		_pPixelsStart = _pPixels = _decodedData->data() + SCREEN_SIZE;
+ 		_pPixelsEnd = _decodedData->data() + _decodedData->size() - 1;
++#endif
+ 		_pLinesStart = _pLines = _lineRefs->data();
+ 		_pLinesEnd = _lineRefs->data() + _lineRefs->size() - 1;
+ 	}
+ }
+ 
++#ifdef GW_LURE_SLIM
++void AnimationSequence::gwRead(byte *dest, uint32 pos, uint32 len) {
++	if (pos + len > _gwSize)
++		len = pos < _gwSize ? _gwSize - pos : 0;
++	if (pos < _gwStream.pos)		// back to the start: a loop, or the first screen again
++		_gwStream.start(_gwSrc);
++	while (_gwStream.pos < pos)
++		if (_gwStream.next() < 0)
++			return;
++	while (len--) {
++		int v = _gwStream.next();
++		if (v < 0)
++			return;
++		*dest++ = (byte)v;
++	}
++}
++#endif
++
+ AnimationSequence::~AnimationSequence() {
+ 	delete _lineRefs;
+ 	delete _decodedData;
++#ifdef GW_LURE_SLIM
++	delete _gwSrc;
++#endif
+ 
+ 	// Renable GMM saving/loading now that the animation is done
+ 	LureEngine::getReference()._saveLoadAllowed = true;
+@@ -213,7 +261,11 @@ AnimAbortType AnimationSequence::show() {
+ 
+ 	// Loop through displaying the animations
+ 	while (_loops > 0) {
++#ifdef GW_LURE_SLIM
++		if (_gwSrc ? (_gwPos < _gwSize - 1 && _pLines < _pLinesEnd) : (_pPixels < _pPixelsEnd && (_isEGA || _pLines < _pLinesEnd))) {
++#else
+ 		if (_pPixels < _pPixelsEnd && (_isEGA || _pLines < _pLinesEnd)) {
++#endif
+ 			if ((soundFrame != nullptr) && (soundFrame->rolandSoundId != 0xFF) && (frameCtr == 0))
+ 				Sound.musicInterface_Play(
+ 					Sound.isRoland() ? soundFrame->rolandSoundId : soundFrame->adlibSoundId, soundFrame->music);
+@@ -234,6 +286,12 @@ AnimAbortType AnimationSequence::show() {
+ 				// and show the first frame again.
+ 				_pPixels = _pPixelsStart;
+ 				_pLines = _pLinesStart;
++#ifdef GW_LURE_SLIM
++				if (_gwSrc) {
++					_gwPos = SCREEN_SIZE;
++					showInitialScreen();
++				} else
++#endif
+ 				showInitialScreen(_decodedData->data());
+ 			}
+ 		}
+@@ -253,6 +311,9 @@ AnimAbortType AnimationSequence::show() {
+ 
+ bool AnimationSequence::step() {
+ 	Screen &screen = Screen::getReference();
++#ifdef GW_LURE_SLIM
++	if (_gwSrc && _gwPos >= _gwSize - 1) return false;
++#endif
+ 	if (_pPixels >= _pPixelsEnd) return false;
+ 
+ 	if (_isEGA)
+@@ -289,6 +350,11 @@ byte *AnimationSequence::showInitialScreen(byte *pSrc) {
+ 			}
+ 		}
+ 	} else {
++#ifdef GW_LURE_SLIM
++		if (_gwSrc)
++			gwRead(screen.screen().data().data(), 0, FULL_SCREEN_HEIGHT * FULL_SCREEN_WIDTH);
++		else
++#endif
+ 		screen.screen().data().copyFrom(_decodedData, 0, 0, FULL_SCREEN_HEIGHT * FULL_SCREEN_WIDTH);
+ 	}
+ 	screen.update();
+diff --git a/engines/lure/animseq.h b/engines/lure/animseq.h
+index 41c92f33..f3e18c5f 100644
+--- a/engines/lure/animseq.h
++++ b/engines/lure/animseq.h
+@@ -23,6 +23,7 @@
+ #define LURE_ANIMSEQ_H
+ 
+ #include "lure/screen.h"
++#include "lure/decode.h"
+ 
+ namespace Lure {
+ 
+@@ -53,6 +54,14 @@ private:
+ 	AnimAbortType delay(uint32 milliseconds);
+ 	void egaDecodeFrame(byte *&pPixels);
+ 	void vgaDecodeFrame(byte *&pPixels, byte *&pLines);
++#ifdef GW_LURE_SLIM
++	// Game & Watch: a VGA animation's pixels are unpacked as they are read (GwVgaStream),
++	// through a position, not a pointer
++	MemoryBlock *_gwSrc = nullptr;
++	GwVgaStream _gwStream;
++	uint32 _gwSize = 0, _gwPos = 0;
++	void gwRead(byte *dest, uint32 pos, uint32 len);
++#endif
+ public:
+ 	AnimationSequence(uint16 screenId, Palette &palette,  bool fadeIn, int frameDelay = 7,
+ 		const AnimSoundSequence *soundList = NULL, uint8 loops = 1);
+diff --git a/engines/lure/decode.cpp b/engines/lure/decode.cpp
+index cfbc1d5c..cd6cb6c0 100644
+--- a/engines/lure/decode.cpp
++++ b/engines/lure/decode.cpp
+@@ -37,6 +37,12 @@ namespace Lure {
+  * Write a single byte to the output buffer
+  */
+ void PictureDecoder::writeByte(MemoryBlock *dest, byte v) {
++#ifdef GW_LURE_SLIM
++	if (!dest) {		// gwVgaLoop(): only counted
++		outputOffset++;
++		return;
++	}
++#endif
+ 	if (outputOffset == dest->size())
+ 		error("Decoded data exceeded allocated output buffer size");
+ 	dest->data()[outputOffset++] = v;
+@@ -46,6 +52,13 @@ void PictureDecoder::writeByte(MemoryBlock *dest, byte v) {
+  * Writes out a specified byte a given number of times to the output
+  */
+ void PictureDecoder::writeBytes(MemoryBlock *dest, byte v, uint16 numBytes) {
++#ifdef GW_LURE_SLIM
++	if (!dest) {
++		while (numBytes--)
++			writeByte(dest, v);
++		return;
++	}
++#endif
+ 	if (outputOffset + numBytes > dest->size())
+ 		error("Decoded data exceeded allocated output buffer size");
+ 	dest->setBytes(v, outputOffset, numBytes);
+@@ -226,6 +239,161 @@ MemoryBlock *PictureDecoder::egaDecode(MemoryBlock *src, uint32 maxOutputSize) {
+ // vgaDecode
+ // Takes care of decoding a compressed vga screen
+ 
++#ifdef GW_LURE_SLIM
++// Game & Watch: vgaDecode()'s loop. With dest NULL the bytes are only counted
++// (writeByte, writeBytes)
++void PictureDecoder::gwVgaLoop(MemoryBlock *src, MemoryBlock *dest) {
++	// Set up initial states
++	dataIn = src;
++	outputOffset = 0;
++	dataPos = READ_LE_UINT32(dataIn->data() + 0x400);
++	dataPos2 = 0x404;
++
++	CH = ESBX();
++	CL = 9;
++
++	// Main decoding loop
++	bool loopFlag = true;
++	while (loopFlag) {
++		AL = DSSI();
++		writeByte(dest, AL);
++		BP = ((uint16) AL) << 2;
++
++		// Inner loop
++		for (;;) {
++			decrCtr();
++			if (shlCarry()) {
++				decrCtr();
++				if (shlCarry()) {
++					decrCtr();
++					if (shlCarry())
++						break;
++
++					AL = dataIn->data()[BP + 3];
++				} else {
++					decrCtr();
++					if (shlCarry())
++						AL = dataIn->data()[BP + 2];
++					else
++						AL = dataIn->data()[BP + 1];
++				}
++			} else {
++				decrCtr();
++				if (shlCarry()) {
++					AL = (byte) (BP >> 2);
++					AH = DSSI();
++					if (AH == 0) {
++						AL = DSSI();
++						if (AL == 0) {
++							// Finally done
++							loopFlag = false;
++							break;
++						} else {
++							// Keep going
++							continue;
++						}
++					} else {
++						// Write out byte sequence
++						writeBytes(dest, AL, AH);
++						continue;
++					}
++				} else {
++					AL = dataIn->data()[BP];
++				}
++			}
++
++			// Write out the next byte
++			writeByte(dest, AL);
++			BP = ((uint16) AL) << 2;
++		}
++	}
++
++}
++
++// An animation is unpacked into a buffer of 300000 bytes, later cut to what came out. Unpacked
++// twice instead: once to nowhere, to learn its size.
++MemoryBlock *PictureDecoder::vgaDecode(MemoryBlock *src, uint32 maxOutputSize) {
++	if (maxOutputSize > 70000) {
++		gwVgaLoop(src, nullptr);
++		if (outputOffset > maxOutputSize)
++			error("Decoded data exceeded allocated output buffer size");
++		maxOutputSize = outputOffset;
++	}
++	MemoryBlock *dest = Memory::allocate(maxOutputSize);
++	gwVgaLoop(src, dest);
++	if (outputOffset < dest->size()) dest->reallocate(outputOffset);
++	return dest;
++}
++
++void GwVgaStream::start(MemoryBlock *src) {
++	_d = src->data();
++	_size = src->size();
++	_p1 = READ_LE_UINT32(_d + 0x400);
++	_p2 = 0x404;
++	_ch = _p2 < _size ? _d[_p2++] : 0;
++	_cl = 9;
++	_bp = 0;
++	_run = 0;
++	_outer = true;
++	_done = _size < 0x405;
++	pos = 0;
++}
++
++bool GwVgaStream::bit() {
++	if (--_cl == 0) {
++		_ch = _p2 < _size ? _d[_p2++] : 0;
++		_cl = 8;
++	}
++	bool r = (_ch & 0x80) != 0;
++	_ch <<= 1;
++	return r;
++}
++
++// PictureDecoder::gwVgaLoop(), turned inside out
++int GwVgaStream::next() {
++	if (_run) {
++		_run--;
++		pos++;
++		return _runVal;
++	}
++	byte al;
++	for (;;) {
++		if (_done)
++			return -1;
++		if (_outer) {
++			al = in1();
++			_outer = false;
++			break;
++		}
++		if (bit()) {
++			if (bit()) {
++				if (bit()) {
++					_outer = true;
++					continue;
++				}
++				al = _d[_bp + 3];
++			} else
++				al = bit() ? _d[_bp + 2] : _d[_bp + 1];
++		} else if (bit()) {
++			byte n = in1();
++			if (n == 0) {
++				if (in1() == 0)
++					_done = true;
++				continue;
++			}
++			_runVal = (byte)(_bp >> 2);
++			_run = n - 1;
++			pos++;
++			return _runVal;
++		} else
++			al = _d[_bp];
++		break;
++	}
++	_bp = ((uint32)al) << 2;
++	pos++;
++	return al;
++}
++#else
+ MemoryBlock *PictureDecoder::vgaDecode(MemoryBlock *src, uint32 maxOutputSize) {
+ 	MemoryBlock *dest = Memory::allocate(maxOutputSize);
+ 
+@@ -298,6 +466,7 @@ MemoryBlock *PictureDecoder::vgaDecode(MemoryBlock *src, uint32 maxOutputSize) {
+ 	if (outputOffset < dest->size()) dest->reallocate(outputOffset);
+ 	return dest;
+ }
++#endif
+ 
+ /*--------------------------------------------------------------------------*/
+ /* AnimationDecoder class                                                   */
+diff --git a/engines/lure/decode.h b/engines/lure/decode.h
+index 69d7e7e7..0e7a1451 100644
+--- a/engines/lure/decode.h
++++ b/engines/lure/decode.h
+@@ -48,8 +48,29 @@ public:
+ 	MemoryBlock *decode(MemoryBlock *src, uint32 maxOutputSize  = SCREEN_SIZE + 1);
+ 	MemoryBlock *egaDecode(MemoryBlock *src, uint32 maxOutputSize);
+ 	MemoryBlock *vgaDecode(MemoryBlock *src, uint32 maxOutputSize);
++#ifdef GW_LURE_SLIM
++	void gwVgaLoop(MemoryBlock *src, MemoryBlock *dest);
++#endif
+ };
+ 
++#ifdef GW_LURE_SLIM
++// Game & Watch: the VGA unpacker one byte at a time. The packing has no back references, so
++// an animation (up to 190 KB unpacked) is unpacked as it is shown and never held
++class GwVgaStream {
++	const byte *_d = nullptr;
++	uint32 _size = 0, _p1 = 0, _p2 = 0, _bp = 0;
++	byte _ch = 0, _cl = 0, _runVal = 0;
++	uint16 _run = 0;
++	bool _outer = true, _done = true;
++	byte in1() { return _p1 < _size ? _d[_p1++] : 0; }
++	bool bit();
++public:
++	uint32 pos = 0;		// bytes handed out
++	void start(MemoryBlock *src);
++	int next();		// -1 at the end
++};
++#endif
++
+ class AnimationDecoder {
+ public:
+ 	static void rcl(uint16 &value, bool &carry);
+diff --git a/engines/lure/disk.cpp b/engines/lure/disk.cpp
+index 571cc439..d306b712 100644
+--- a/engines/lure/disk.cpp
++++ b/engines/lure/disk.cpp
+@@ -30,6 +30,11 @@
+ #include "lure/luredefs.h"
+ #include "lure/res.h"
+ 
++#ifdef GW_LURE_SLIM
++// src/gw_system.cpp: the next n bytes of a stream where they lie in the external flash, or NULL
++const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte enc);
++#endif
++
+ namespace Lure {
+ 
+ static Disk *int_disk = nullptr;
+@@ -188,12 +193,30 @@ MemoryBlock *Disk::getEntry(uint16 id) {
+ 	if (_entries[index].sizeExtension) size += 0x10000;
+ 	uint32 offset = (uint32) _entries[index].offset * 0x20 + _dataOffset;
+ 
++#ifdef GW_LURE_SLIM
++	// Game & Watch: the game's files are in the external flash; a resource is used there
++	// (most are unpacked or parsed and dropped at once, the rest only read). The callers that
++	// write into what they get ask getEntryRam()
++	if (!_gwRam) {
++		_fileHandle->seek(offset, SEEK_SET);
++		const byte *p = gwDirectResource(_fileHandle->gwStream(), size, 0);
++		if (p)
++			return new MemoryBlock(p, size);
++	}
++#endif
+ 	MemoryBlock *result = Memory::allocate(size);
+ 	_fileHandle->seek(offset, SEEK_SET);
+ 	_fileHandle->read(result->data(), size);
+ 	return result;
+ }
+ 
++MemoryBlock *Disk::getEntryRam(uint16 id) {
++	_gwRam = true;
++	MemoryBlock *result = getEntry(id);
++	_gwRam = false;
++	return result;
++}
++
+ bool Disk::exists(uint16 id) {
+ 	// Get the index of the resource, if necessary opening the correct file
+ 	uint8 index = indexOf(id, true);
+diff --git a/engines/lure/disk.h b/engines/lure/disk.h
+index b5ebf04d..8c545111 100644
+--- a/engines/lure/disk.h
++++ b/engines/lure/disk.h
+@@ -55,6 +55,8 @@ public:
+ 	void openFile(uint8 fileNum);
+ 	uint32 getEntrySize(uint16 id);
+ 	MemoryBlock *getEntry(uint16 id);
++	MemoryBlock *getEntryRam(uint16 id);	// always a copy in memory (see getEntry)
++	bool _gwRam = false;
+ 	bool exists(uint16 id);
+ 
+ 	uint8 numEntries();
+diff --git a/engines/lure/lure.cpp b/engines/lure/lure.cpp
+index 374f596c..cf525beb 100644
+--- a/engines/lure/lure.cpp
++++ b/engines/lure/lure.cpp
+@@ -35,6 +35,10 @@
+ #include "lure/game.h"
+ #include "lure/sound.h"
+ 
++#ifdef GW_LURE_SLIM
++extern "C" int heap_screen_spill;		// src/heap.c
++#endif
++
+ namespace Lure {
+ 
+ static LureEngine *int_engine = nullptr;
+@@ -44,6 +48,9 @@ LureEngine::LureEngine(OSystem *system, const LureGameDescription *gameDesc)
+ }
+ 
+ Common::Error LureEngine::init() {
++#ifdef GW_LURE_SLIM
++	heap_screen_spill = 1;	// Game & Watch: no SCUMM screens here, their heap is everyone's
++#endif
+ 	int_engine = this;
+ 	_initialized = false;
+ 	_saveLoadAllowed = false;
+@@ -242,6 +249,9 @@ bool LureEngine::loadGame(uint8 slotNumber) {
+ 		;
+ 
+ 	// Load in the data
++#ifdef GW_LURE_SLIM
++	Room::getReference().gwFreeLayers();
++#endif
+ 	Resources::getReference().loadFromStream(f);
+ 	Game::getReference().loadFromStream(f);
+ 	Sound.loadFromStream(f);
+diff --git a/engines/lure/memory.cpp b/engines/lure/memory.cpp
+index 09d969e2..21eb17e3 100644
+--- a/engines/lure/memory.cpp
++++ b/engines/lure/memory.cpp
+@@ -58,7 +58,19 @@ MemoryBlock::MemoryBlock(MemoryBlock *src) {
+ 	memcpy(_data, src->data(), _size);
+ }
+ 
++#ifdef GW_LURE_SLIM
++MemoryBlock::MemoryBlock(const byte *flash, uint32 size1) {
++	_data = const_cast<byte *>(flash);
++	_size = size1;
++	_gwFlash = true;
++}
++#endif
++
+ MemoryBlock::~MemoryBlock() {
++#ifdef GW_LURE_SLIM
++	if (_gwFlash)
++		return;
++#endif
+ 	free(_data);
+ }
+ 
+diff --git a/engines/lure/memory.h b/engines/lure/memory.h
+index a0b44d96..cb6b93d8 100644
+--- a/engines/lure/memory.h
++++ b/engines/lure/memory.h
+@@ -36,6 +36,11 @@ public:
+ 	MemoryBlock(uint32 size);
+ 	MemoryBlock(MemoryBlock *src);
+ 	~MemoryBlock();
++#ifdef GW_LURE_SLIM
++	// Game & Watch: a resource used where it lies in the external flash: READ-ONLY, not freed
++	MemoryBlock(const byte *flash, uint32 size);
++	bool _gwFlash = false;
++#endif
+ 
+ 	byte *data() { return _data; }
+ 	uint32 size() { return _size; }
+diff --git a/engines/lure/res.cpp b/engines/lure/res.cpp
+index 03d12318..bd9c1460 100644
+--- a/engines/lure/res.cpp
++++ b/engines/lure/res.cpp
+@@ -243,11 +243,15 @@ void Resources::reloadData() {
+ 			if (offsetVal != 0) {
+ 				MovementResource *moveRec = (MovementResource *)
+ 					(mb->data() + offsetVal);
++#ifdef GW_LURE_SLIM
++				dirEntries[dirCtr].list->load(moveRec);
++#else
+ 				while (READ_LE_UINT16(&moveRec->frameNumber) != 0xffff) {
+ 					MovementData *newMove = new MovementData(moveRec);
+ 					dirEntries[dirCtr].list->push_back(MovementDataList::value_type(newMove));
+ 					++moveRec;
+ 				}
++#endif
+ 			}
+ 		}
+ 
+diff --git a/engines/lure/res_struct.cpp b/engines/lure/res_struct.cpp
+index 87475e02..c0101c75 100644
+--- a/engines/lure/res_struct.cpp
++++ b/engines/lure/res_struct.cpp
+@@ -571,6 +571,37 @@ MovementData::MovementData(MovementResource *rec) {
+ 
+ // List of movement frames
+ 
++#ifdef GW_LURE_SLIM
++void MovementDataList::load(MovementResource *rec) {
++	uint16 n = 0;
++	while (READ_LE_UINT16(&rec[n].frameNumber) != 0xffff)
++		n++;
++	free(_items);
++	_items = n ? (MovementData *)malloc(n * sizeof(MovementData)) : nullptr;
++	_count = _items ? n : 0;
++	for (uint16 i = 0; i < _count; i++)
++		_items[i] = MovementData(&rec[i]);
++}
++
++bool MovementDataList::getFrame(uint16 currentFrame, int16 &xChange,
++							   int16 &yChange, uint16 &nextFrame) {
++	if (empty()) return false;
++	bool foundFlag = false;
++
++	for (uint16 i = 0; i < _count; i++) {
++		MovementData const &rec = _items[i];
++		if (foundFlag || (i == 0)) {
++			xChange = rec.xChange;
++			yChange = rec.yChange;
++			nextFrame = rec.frameNumber;
++			if (foundFlag) return true;
++		}
++		if (rec.frameNumber == currentFrame) foundFlag = true;
++	}
++
++	return true;
++}
++#else
+ bool MovementDataList::getFrame(uint16 currentFrame, int16 &xChange,
+ 							   int16 &yChange, uint16 &nextFrame) {
+ 	if (empty()) return false;
+@@ -591,6 +622,8 @@ bool MovementDataList::getFrame(uint16 currentFrame, int16 &xChange,
+ 	return true;
+ }
+ 
++#endif
++
+ // Hotspot animation data
+ 
+ HotspotAnimData::HotspotAnimData(HotspotAnimResource *rec) {
+diff --git a/engines/lure/res_struct.h b/engines/lure/res_struct.h
+index b6fcb863..f572fbf6 100644
+--- a/engines/lure/res_struct.h
++++ b/engines/lure/res_struct.h
+@@ -591,6 +591,7 @@ typedef Common::List<Common::SharedPtr<HotspotOverrideData> > HotspotOverrideLis
+ 
+ class MovementData {
+ public:
++	MovementData() : frameNumber(0), xChange(0), yChange(0) {}
+ 	MovementData(MovementResource *);
+ 
+ 	uint16 frameNumber;
+@@ -598,11 +599,27 @@ public:
+ 	int16 yChange;
+ };
+ 
++#ifdef GW_LURE_SLIM
++// Game & Watch: the 7400 movement frames of the game's animations as one array per list, not
++// as many list nodes, shared pointers and 6-byte objects (three heap blocks each)
++class MovementDataList {
++	MovementData *_items;
++	uint16 _count;
++public:
++	MovementDataList() : _items(nullptr), _count(0) {}
++	~MovementDataList() { free(_items); }
++	void load(MovementResource *rec);
++	bool empty() const { return _count == 0; }
++	bool getFrame(uint16 currentFrame, int16 &xChange, int16 &yChange,
++		uint16 &nextFrame);
++};
++#else
+ class MovementDataList: public Common::List<Common::SharedPtr<MovementData> > {
+ public:
+ 	bool getFrame(uint16 currentFrame, int16 &xChange, int16 &yChange,
+ 		uint16 &nextFrame);
+ };
++#endif
+ 
+ class HotspotAnimData {
+ public:
+diff --git a/engines/lure/room.cpp b/engines/lure/room.cpp
+index d51af5d0..6004a2d3 100644
+--- a/engines/lure/room.cpp
++++ b/engines/lure/room.cpp
+@@ -28,6 +28,7 @@
+ #include "lure/events.h"
+ #include "lure/strings.h"
+ #include "lure/scripts.h"
++#include "lure/decode.h"
+ #include "lure/sound.h"
+ 
+ namespace Lure {
+@@ -35,7 +36,13 @@ namespace Lure {
+ static Room *int_room;
+ 
+ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
++#ifdef GW_LURE_SLIM
++		// (only an EGA background has a screen of its own: see the end of this function)
++		Surface(backgroundLayer && LureEngine::getReference().isEGA() ? FULL_SCREEN_WIDTH : 2,
++		        backgroundLayer && LureEngine::getReference().isEGA() ? FULL_SCREEN_HEIGHT : 2) {
++#else
+ 		Surface(FULL_SCREEN_WIDTH, FULL_SCREEN_HEIGHT) {
++#endif
+ 	Disk &disk = Disk::getReference();
+ 	byte *screenData = data().data();
+ 	int cellY;
+@@ -46,10 +53,68 @@ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
+ 
+ 	// Load up the screen data
+ 	MemoryBlock *rawData = disk.getEntry(screenId);
+-	loadScreen(rawData);
+-
+ 	uint16 v = READ_BE_UINT16(rawData->data());
+ 	bool is5Bit = (v & 0xfffe) == 0x140;
++#ifdef GW_LURE_SLIM
++	MemoryBlock *gwTmp = nullptr;
++	bool gwStreamed = false;
++	_gwCells = nullptr;
++	// A VGA background is kept in cells too (all of them): its 64000 bytes in one piece are
++	// what a second load from the menu could not find (seen on the console)
++	bool gwBgScreen = backgroundLayer && width() == FULL_SCREEN_WIDTH && is5Bit;
++	if (gwBgScreen) {
++		loadScreen(rawData);
++	} else {
++		_gwCells = (byte **)calloc(NUM_HORIZ_RECTS * NUM_VERT_RECTS, sizeof(byte *));
++		if (!_gwCells)
++			error("Out of memory for a room layer");
++	}
++	if (!gwBgScreen && !is5Bit) {
++		// VGA: unpacked a row of cells at a time (GwVgaStream), never the whole picture
++		gwStreamed = true;
++		GwVgaStream st;
++		st.start(rawData);
++		byte *strip = (byte *)malloc(RECT_SIZE * FULL_SCREEN_WIDTH);
++		if (!strip)
++			error("Out of memory for a room layer");
++		bool ended = false;
++		for (cellY = 0; cellY < NUM_VERT_RECTS; ++cellY) {
++			for (int i = 0; i < RECT_SIZE * FULL_SCREEN_WIDTH; i++) {
++				int px = ended ? 0 : st.next();
++				if (px < 0) {
++					ended = true;
++					px = 0;
++				}
++				strip[i] = (byte)px;
++			}
++			for (int cellX = 0; cellX < NUM_HORIZ_RECTS; ++cellX) {
++				bool hasPixels = backgroundLayer;
++				for (int yP = 0; yP < RECT_SIZE && !hasPixels; ++yP) {
++					const byte *linePos = strip + yP * FULL_SCREEN_WIDTH + cellX * RECT_SIZE;
++					for (int xP = 0; xP < RECT_SIZE && !hasPixels; ++xP)
++						hasPixels = linePos[xP] != 0;
++				}
++				if (!hasPixels)
++					continue;
++				byte *dst = _gwCells[cellIndex] = (byte *)malloc(RECT_SIZE * RECT_SIZE);
++				if (!dst)
++					error("Out of memory for a room layer");
++				const byte *src = strip + cellX * RECT_SIZE;
++				for (int yP = 0; yP < RECT_SIZE; ++yP, src += FULL_SCREEN_WIDTH, dst += RECT_SIZE)
++					memcpy(dst, src, RECT_SIZE);
++				_cells[cellY + NUM_EDGE_RECTS][cellX + NUM_EDGE_RECTS] = cellIndex++;
++			}
++		}
++		free(strip);
++	} else if (!gwBgScreen) {
++		// unpacked as loadScreen() does: the picture, from the line below the menu bar on
++		PictureDecoder decoder;
++		gwTmp = decoder.egaDecode(rawData, FULL_SCREEN_HEIGHT * FULL_SCREEN_WIDTH + 1);
++		screenData = gwTmp->data() - MENUBAR_Y_SIZE * FULL_SCREEN_WIDTH;
++	}
++#else
++	loadScreen(rawData);
++#endif
+ 	delete rawData;
+ 
+ 	_paletteId = (screenId & 0xffe0) - 1;
+@@ -66,6 +131,9 @@ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
+ 	}
+ 
+ 	// Loop through each cell of the screen
++#ifdef GW_LURE_SLIM
++	if (!gwStreamed)
++#endif
+ 	for (cellY = 0; cellY < NUM_VERT_RECTS; ++cellY) {
+ 		for (int cellX = 0; cellX < NUM_HORIZ_RECTS; ++cellX) {
+ 			bool hasPixels = false;
+@@ -90,8 +158,43 @@ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
+ 				hasPixels ? cellIndex++ : 0xff;
+ 		}
+ 	}
++#ifdef GW_LURE_SLIM
++	if (!gwBgScreen && !gwStreamed) {
++		for (cellY = 0; cellY < NUM_VERT_RECTS; ++cellY) {
++			for (int cellX = 0; cellX < NUM_HORIZ_RECTS; ++cellX) {
++				byte idx = _cells[cellY + NUM_EDGE_RECTS][cellX + NUM_EDGE_RECTS];
++				if (idx == 0xff)
++					continue;
++				const byte *src = screenData + (cellY * RECT_SIZE + MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH + (cellX * RECT_SIZE);
++				byte *dst = _gwCells[idx] = (byte *)malloc(RECT_SIZE * RECT_SIZE);
++				if (!dst)
++					error("Out of memory for a room layer");
++				for (int yP = 0; yP < RECT_SIZE; ++yP, src += FULL_SCREEN_WIDTH, dst += RECT_SIZE)
++					memcpy(dst, src, RECT_SIZE);
++			}
++		}
++	}
++	delete gwTmp;
++#endif
+ }
+ 
++#ifdef GW_LURE_SLIM
++RoomLayer::~RoomLayer() {
++	for (int i = 0; _gwCells && i < NUM_HORIZ_RECTS * NUM_VERT_RECTS; i++)
++		free(_gwCells[i]);
++	free(_gwCells);
++}
++
++byte *RoomLayer::cellPixels(int cellX, int cellY, int &stride) {
++	if (_gwCells) {
++		stride = RECT_SIZE;
++		return _gwCells[_cells[cellY + NUM_EDGE_RECTS][cellX + NUM_EDGE_RECTS]];
++	}
++	stride = FULL_SCREEN_WIDTH;
++	return data().data() + (cellY * RECT_SIZE + MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH + (cellX * RECT_SIZE);
++}
++#endif
++
+ /*--------------------------------------------------------------------------*/
+ 
+ Room::Room(): _screen(Screen::getReference()) {
+@@ -342,7 +445,13 @@ void Room::addCell(int16 xp, int16 yp, int layerNum) {
+ 	RoomLayer *layer = _layers[layerNum];
+ 
+ 	int index = ((yp * RECT_SIZE + MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH) + (xp * RECT_SIZE);
++#ifdef GW_LURE_SLIM
++	int srcStride = FULL_SCREEN_WIDTH;
++	byte *srcPos = layer->cellPixels(xp, yp, srcStride);
++#else
++	const int srcStride = FULL_SCREEN_WIDTH;
+ 	byte *srcPos = layer->data().data() + index;
++#endif
+ 	byte *destPos = s.data().data() + index;
+ 
+ 	for (int yCtr = 0; yCtr < RECT_SIZE; ++yCtr) {
+@@ -352,7 +461,7 @@ void Room::addCell(int16 xp, int16 yp, int layerNum) {
+ 		}
+ 
+ 		// Move to start of next cell line
+-		srcPos += FULL_SCREEN_WIDTH - RECT_SIZE;
++		srcPos += srcStride - RECT_SIZE;
+ 		destPos += FULL_SCREEN_WIDTH - RECT_SIZE;
+ 	}
+ }
+@@ -370,15 +479,23 @@ void Room::blockMerge() {
+ 						_layers[layerNum2]->isOccupied(xp + NUM_EDGE_RECTS, yp + NUM_EDGE_RECTS)) {
+ 						// Copy the rect from the later layer onto the earlier layer
+ 						int offset = (yp * RECT_SIZE + MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH + (xp * RECT_SIZE);
++#ifdef GW_LURE_SLIM
++						int srcStride = FULL_SCREEN_WIDTH, destStride = FULL_SCREEN_WIDTH;
++						byte *src = _layers[layerNum2]->cellPixels(xp, yp, srcStride);
++						byte *dest = _layers[layerNum1]->cellPixels(xp, yp, destStride);
++						(void)offset;
++#else
++						const int srcStride = FULL_SCREEN_WIDTH, destStride = FULL_SCREEN_WIDTH;
+ 						byte *src = _layers[layerNum2]->data().data() + offset;
+ 						byte *dest = _layers[layerNum1]->data().data() + offset;
++#endif
+ 
+ 						for (int y = 0; y < RECT_SIZE; ++y) {
+ 							for (int x = 0; x < RECT_SIZE; ++x, ++src, ++dest) {
+ 								if (*src != 0) *dest = *src;
+ 							}
+-							src += FULL_SCREEN_WIDTH - RECT_SIZE;
+-							dest += FULL_SCREEN_WIDTH - RECT_SIZE;
++							src += srcStride - RECT_SIZE;
++							dest += destStride - RECT_SIZE;
+ 						}
+ 					}
+ 				}
+@@ -432,6 +549,20 @@ void Room::update() {
+ 	HotspotList::iterator i;
+ 
+ 	// Copy the background to the temporary screen surface
++#ifdef GW_LURE_SLIM
++	if (_layers[0]->_gwCells) {
++		memset(s.data().data(), 0, MENUBAR_Y_SIZE * FULL_SCREEN_WIDTH);
++		for (int cy = 0; cy < NUM_VERT_RECTS; ++cy) {
++			for (int cx = 0; cx < NUM_HORIZ_RECTS; ++cx) {
++				int stride = RECT_SIZE;
++				const byte *src = _layers[0]->cellPixels(cx, cy, stride);
++				byte *dst = s.data().data() + (cy * RECT_SIZE + MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH + cx * RECT_SIZE;
++				for (int y = 0; y < RECT_SIZE; ++y, src += stride, dst += FULL_SCREEN_WIDTH)
++					memcpy(dst, src, RECT_SIZE);
++			}
++		}
++	} else
++#endif
+ 	_layers[0]->copyTo(&s);
+ 
+ 	// Handle first layer (layer 3)
+@@ -772,6 +903,22 @@ void Room::saveToStream(Common::WriteStream *stream) {
+ 	stream->writeUint16LE(_cursorState);
+ }
+ 
++#ifdef GW_LURE_SLIM
++// Game & Watch: the room's pictures go before a saved game's hotspots are made, not after.
++// They are 170 blocks of 1 KB scattered over the heap, and with them in the way a character's
++// frames (55 KB in one piece) found no room: loading twice in the same room failed.
++void Room::gwFreeLayers() {
++	for (int layerNum = 0; layerNum < 4; ++layerNum) {
++		delete _layers[layerNum];
++		_layers[layerNum] = nullptr;
++	}
++	if (_talkDialog) {
++		delete _talkDialog;
++		_talkDialog = nullptr;
++	}
++}
++#endif
++
+ void Room::loadFromStream(Common::ReadStream *stream) {
+ 	uint8 saveVersion = LureEngine::getReference().saveVersion();
+ 
+diff --git a/engines/lure/room.h b/engines/lure/room.h
+index a0af1e16..2e7e4595 100644
+--- a/engines/lure/room.h
++++ b/engines/lure/room.h
+@@ -57,6 +57,16 @@ public:
+ 		_cells[cellY][cellX] = value;
+ 	}
+ 	uint16 paletteId() { return _paletteId; }
++#ifdef GW_LURE_SLIM
++	// Game & Watch: a foreground layer is mostly empty. Only its occupied cells are kept (32x32
++	// pixels each, in the order of their index in _cells), not a whole screen: 64 KB a layer.
++	// The pixels of the cell at (cellX, cellY) of the visible grid, and their line's length
++	// Each cell is a block of its own (1 KB): they fit the holes of a fragmented heap, where
++	// 60 KB in one piece did not (seen on the console, entering the first room after the intro)
++	byte **_gwCells;
++	~RoomLayer();
++	byte *cellPixels(int cellX, int cellY, int &stride);
++#endif
+ };
+ 
+ enum CursorState {CS_NONE, CS_ACTION, CS_SEQUENCE, CS_TALKING, CS_BUMPED};
+@@ -100,6 +110,9 @@ public:
+ 	void checkCursor();
+ 	uint16 roomNumber() { return _roomNumber; }
+ 	void setRoomNumber(uint16 newRoomNumber, bool showOverlay = false);
++#ifdef GW_LURE_SLIM
++	void gwFreeLayers();	// before a saved game is loaded: see lure.cpp
++#endif
+ 	void leaveRoom();
+ 	uint8 numLayers() { return _numLayers; }
+ 	uint16 hotspotId() { return _hotspotId; }
+diff --git a/engines/lure/surface.cpp b/engines/lure/surface.cpp
+index 8b664cbd..48a2b4fd 100644
+--- a/engines/lure/surface.cpp
++++ b/engines/lure/surface.cpp
+@@ -48,7 +48,7 @@ static const byte char95[8] = {0x40, 0x20, 0x00, 0x60, 0x90, 0x90, 0x60, 0x00};
+ 
+ void Surface::initialize() {
+ 	Disk &disk = Disk::getReference();
+-	int_font = disk.getEntry(FONT_RESOURCE_ID);
++	int_font = disk.getEntryRam(FONT_RESOURCE_ID);	// (patched below for Italian)
+ 	int_dialog_frame = disk.getEntry(DIALOG_RESOURCE_ID);
+ 
+ 	if (LureEngine::getReference().getLanguage() == Common::IT_ITA) {
+@@ -229,6 +229,23 @@ void Surface::loadScreen(MemoryBlock *rawData) {
+ 	bool is5Bit = (v & 0xfffe) == 0x140;
+ 	MemoryBlock *tmpScreen;
+ 
++#ifdef GW_LURE_SLIM
++	// Game & Watch: a VGA picture is unpacked straight onto the surface, not through a second
++	// screen (64 KB the console does not have in one piece once a room is loaded)
++	if (!is5Bit && _data->size() >= FULL_SCREEN_HEIGHT * FULL_SCREEN_WIDTH) {
++		GwVgaStream st;
++		st.start(rawData);
++		empty();
++		byte *d = _data->data() + MENUBAR_Y_SIZE * FULL_SCREEN_WIDTH;
++		for (uint32 n = (FULL_SCREEN_HEIGHT - MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH; n; n--) {
++			int v = st.next();
++			if (v < 0)
++				break;
++			*d++ = (byte)v;
++		}
++		return;
++	}
++#endif
+ 	if (is5Bit)
+ 		// 5-bit decompression
+ 		tmpScreen = decoder.egaDecode(rawData, FULL_SCREEN_HEIGHT * FULL_SCREEN_WIDTH + 1);
+@@ -1461,7 +1478,7 @@ AudioInitIcon::AudioInitIcon() : _visible(false) {
+ 		_iconSurface = nullptr;
+ 	} else {
+ 		// Load icon
+-		_iconSurface = new Surface(Disk::getReference().getEntry(AUDIO_INIT_ICON_RESOURCE_ID), 14, 14);
++		_iconSurface = new Surface(Disk::getReference().getEntryRam(AUDIO_INIT_ICON_RESOURCE_ID), 14, 14);
+ 
+ 		Screen &screen = Screen::getReference();
+ 
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea52..380eb1fa 100644
 --- a/engines/scumm/dialogs.cpp

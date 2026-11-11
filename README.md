@@ -79,15 +79,22 @@ these lines nothing changes: ScummVM picks what it finds in the folder.
 | Full Throttle | `ft` |
 | Beneath a Steel Sky | `sky` |
 | Sołtys | `soltys` |
+| Lure of the Temptress | `lure` |
 
 Every game's short name is in ScummVM's
 [compatibility list](https://www.scummvm.org/compatibility/), column "ScummVM ID", without
 the engine in front (`scumm:ft` → `game=ft`). The list covers every engine, not only
 LucasArts', but this core runs the games above for now: SCUMM (not The Dig nor The Curse of Monkey
-Island), Beneath a Steel Sky and Sołtys.
+Island), Beneath a Steel Sky, Sołtys and Lure of the Temptress.
 
 They do not fix an incomplete copy, nor the versions this core leaves out on purpose:
 Macintosh (its buffers are cut to save memory) and FM-Towns.
+
+### Lure of the Temptress
+
+Copy `DISK1.VGA` to `DISK4.VGA` into the game's folder, with ScummVM's `lure.dat` (it comes
+with ScummVM, not with the game). Everything goes to the flash; nothing is built on the
+first launch.
 
 ### Full Throttle
 
@@ -264,15 +271,22 @@ líneas no cambia nada: ScummVM elige lo que encuentra en la carpeta.
 | Full Throttle | `ft` |
 | Beneath a Steel Sky | `sky` |
 | Sołtys | `soltys` |
+| Lure of the Temptress | `lure` |
 
 El nombre corto de cada juego está en la
 [lista de compatibilidad](https://www.scummvm.org/compatibility/) de ScummVM, columna
 "ScummVM ID", sin el motor delante (`scumm:ft` → `game=ft`). La lista incluye todos los
 motores, no solo los de LucasArts, pero por ahora este core ejecuta los juegos de la
-tabla: SCUMM (The Dig y The Curse of Monkey Island no), Beneath a Steel Sky y Sołtys.
+tabla: SCUMM (The Dig y The Curse of Monkey Island no), Beneath a Steel Sky, Sołtys y Lure of the Temptress.
 
 No arreglan una copia incompleta ni las versiones que este core deja fuera a propósito:
 Macintosh (sus buffers están recortados para ahorrar memoria) y FM-Towns.
+
+### Lure of the Temptress
+
+Copia `DISK1.VGA` a `DISK4.VGA` en la carpeta del juego, junto con `lure.dat` de ScummVM
+(viene con ScummVM, no con el juego). Todo va a la flash; no se crea nada en el primer
+arranque.
 
 ### Full Throttle
 
