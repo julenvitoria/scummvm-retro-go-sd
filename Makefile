@@ -86,7 +86,10 @@ CROSS    := arm-none-eabi-
 endif
 AB       := build/arm
 OUT      := out/scummvm.bin
-BUILD_ID := 0x4C554341                    # "LUCA": tells this core's .bin apart in /cores
+# One id per build: boot.c looks in /cores for the .bin that carries the id it was compiled
+# with. With a fixed id, two builds of this core side by side in /cores (scummvm.bin and
+# scummvm-lure.bin) got the code of one run with the XIP image of the other: a hard fault.
+BUILD_ID := $(shell printf '0x%08x' $$(date +%s))
 MCU      := -mcpu=cortex-m7 -mtune=cortex-m7 -mthumb -mno-unaligned-access -mfpu=fpv5-d16 -mfloat-abi=hard
 OPT      := -Os -ffunction-sections -fdata-sections -fno-common
 ARM_CXX  := $(MCU) $(OPT) $(CXXSTD) -fno-threadsafe-statics $(WARN) $(DEFS) $(INCS)
@@ -137,6 +140,8 @@ $(AB)/boot.o $(AB)/platform_core.o: $(AB)/%.o: src/%.c src/platform.h src/pack.h
 	@mkdir -p $(dir $@)
 	$(CROSS)gcc -c $(ARM_C) $< -o $@
 	$(CROSS)objcopy --redefine-syms=$(REDEF) $@
+$(AB)/boot.o: FORCE
+FORCE:
 
 $(AB)/gw_core_i18n.o: sdk/src/gw_core_i18n.c sdk/src/gw_core_i18n.h
 	@mkdir -p $(dir $@)
