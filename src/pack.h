@@ -33,3 +33,18 @@ const pack_entry_t *svm_pack_find(const pack_head_t *h, uint32_t pos, uint32_t n
 #ifdef __cplusplus
 }
 #endif
+
+/* A file kept in the flash XORed with a fixed byte whatever its contents, by name: Soltys'
+   vol.dat (CGE, every byte ^ 0xA5), so that its sprites are drawn from the flash. 0: none. */
+static inline uint8_t svm_fixed_key(const char *name)
+{
+	const char *b = name;
+	for (const char *q = name; *q; q++) if (*q == '/' || *q == '\\') b = q + 1;
+	static const char want[] = "vol.dat";
+	for (int i = 0; ; i++) {
+		char c = b[i];
+		if (c >= 'A' && c <= 'Z') c += 32;
+		if (c != want[i]) return 0;
+		if (!c) return 0xA5;
+	}
+}
