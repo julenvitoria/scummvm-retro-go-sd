@@ -655,7 +655,7 @@ index b5ebf04d..8c545111 100644
  
  	uint8 numEntries();
 diff --git a/engines/lure/lure.cpp b/engines/lure/lure.cpp
-index 374f596c..3970e4b4 100644
+index 374f596c..cf525beb 100644
 --- a/engines/lure/lure.cpp
 +++ b/engines/lure/lure.cpp
 @@ -35,6 +35,10 @@
@@ -679,6 +679,16 @@ index 374f596c..3970e4b4 100644
  	int_engine = this;
  	_initialized = false;
  	_saveLoadAllowed = false;
+@@ -242,6 +249,9 @@ bool LureEngine::loadGame(uint8 slotNumber) {
+ 		;
+ 
+ 	// Load in the data
++#ifdef GW_LURE_SLIM
++	Room::getReference().gwFreeLayers();
++#endif
+ 	Resources::getReference().loadFromStream(f);
+ 	Game::getReference().loadFromStream(f);
+ 	Sound.loadFromStream(f);
 diff --git a/engines/lure/memory.cpp b/engines/lure/memory.cpp
 index 09d969e2..21eb17e3 100644
 --- a/engines/lure/memory.cpp
@@ -831,7 +841,7 @@ index b6fcb863..f572fbf6 100644
  class HotspotAnimData {
  public:
 diff --git a/engines/lure/room.cpp b/engines/lure/room.cpp
-index d51af5d0..95d97b6d 100644
+index d51af5d0..6004a2d3 100644
 --- a/engines/lure/room.cpp
 +++ b/engines/lure/room.cpp
 @@ -28,6 +28,7 @@
@@ -959,15 +969,15 @@ index d51af5d0..95d97b6d 100644
 +	}
 +	delete gwTmp;
 +#endif
-+}
-+
+ }
+ 
 +#ifdef GW_LURE_SLIM
 +RoomLayer::~RoomLayer() {
 +	for (int i = 0; _gwCells && i < NUM_HORIZ_RECTS * NUM_VERT_RECTS; i++)
 +		free(_gwCells[i]);
 +	free(_gwCells);
- }
- 
++}
++
 +byte *RoomLayer::cellPixels(int cellX, int cellY, int &stride) {
 +	if (_gwCells) {
 +		stride = RECT_SIZE;
@@ -1051,8 +1061,31 @@ index d51af5d0..95d97b6d 100644
  	_layers[0]->copyTo(&s);
  
  	// Handle first layer (layer 3)
+@@ -772,6 +903,22 @@ void Room::saveToStream(Common::WriteStream *stream) {
+ 	stream->writeUint16LE(_cursorState);
+ }
+ 
++#ifdef GW_LURE_SLIM
++// Game & Watch: the room's pictures go before a saved game's hotspots are made, not after.
++// They are 170 blocks of 1 KB scattered over the heap, and with them in the way a character's
++// frames (55 KB in one piece) found no room: loading twice in the same room failed.
++void Room::gwFreeLayers() {
++	for (int layerNum = 0; layerNum < 4; ++layerNum) {
++		delete _layers[layerNum];
++		_layers[layerNum] = nullptr;
++	}
++	if (_talkDialog) {
++		delete _talkDialog;
++		_talkDialog = nullptr;
++	}
++}
++#endif
++
+ void Room::loadFromStream(Common::ReadStream *stream) {
+ 	uint8 saveVersion = LureEngine::getReference().saveVersion();
+ 
 diff --git a/engines/lure/room.h b/engines/lure/room.h
-index a0af1e16..f2023d51 100644
+index a0af1e16..2e7e4595 100644
 --- a/engines/lure/room.h
 +++ b/engines/lure/room.h
 @@ -57,6 +57,16 @@ public:
@@ -1072,6 +1105,16 @@ index a0af1e16..f2023d51 100644
  };
  
  enum CursorState {CS_NONE, CS_ACTION, CS_SEQUENCE, CS_TALKING, CS_BUMPED};
+@@ -100,6 +110,9 @@ public:
+ 	void checkCursor();
+ 	uint16 roomNumber() { return _roomNumber; }
+ 	void setRoomNumber(uint16 newRoomNumber, bool showOverlay = false);
++#ifdef GW_LURE_SLIM
++	void gwFreeLayers();	// before a saved game is loaded: see lure.cpp
++#endif
+ 	void leaveRoom();
+ 	uint8 numLayers() { return _numLayers; }
+ 	uint16 hotspotId() { return _hotspotId; }
 diff --git a/engines/lure/surface.cpp b/engines/lure/surface.cpp
 index 8b664cbd..48a2b4fd 100644
 --- a/engines/lure/surface.cpp
