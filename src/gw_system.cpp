@@ -440,59 +440,52 @@ public:
 	GWGraphics() { memset(_pal, 0, sizeof _pal); _the = this; }
 	~GWGraphics() override { dropScreen(); free(_cursor); }
 
-	// gwAdoptScreen(): the engine's own front buffer used as the screen, when it has the
-	// screen's size, instead of a copy of it (Ween at 640x200: 128 KB)
-	byte *_adopt = nullptr;
-	int _adoptW = 0, _adoptH = 0;
+	// gwAdoptScreen(): a window of the engine's own front buffer used as the screen, instead
+	// of a copy of it. The window has the screen's size; the buffer may be wider (its pitch).
+	const byte *_adopt = nullptr;
 	bool adopted() const { return _adopt && _screen.getPixels() == _adopt; }
 	void dropScreen() {
+		int w = _screen.w, h = _screen.h;
 		if (adopted()) _screen = Graphics::Surface();
 		else _screen.free();
+		_screen.w = w; _screen.h = h;          // the size stays known: ensureScreen()
+		_adopt = nullptr;
 	}
 	void makeScreen(int w, int h) {
 		dropScreen();
-		if (_adopt && _adoptW == w && _adoptH == h)
-			_screen.init(w, h, w, _adopt, Graphics::PixelFormat::createFormatCLUT8());
-		else
-			_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+		_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
 	}
-	void adopt(byte *p, int w, int h) {
-		int sw = _screen.w, sh = _screen.h;
-		if (!p) {                              // the engine is about to free it
-			// no copy is made here: the engine is usually about to make a new front buffer and
-			// adopt() it, and two screens at once is what this is avoiding. ensureScreen()
-			// makes one when something draws before that.
-			if (adopted()) { _screen = Graphics::Surface(); _screen.w = sw; _screen.h = sh; }
-			_adopt = nullptr;
-			return;
+	// true: the window is the screen now. false (another size, or p NULL: the engine is about
+	// to free the buffer): it is not, and the screen is the backend's own again -- made when
+	// something next draws on it, not here, where the engine may be changing buffers
+	bool adopt(byte *p, int pitch, int w, int h) {
+		if (p && _adopt == p && adopted() && _screen.pitch == pitch) return true;
+		if (!p || w != _screen.w || h != _screen.h || w <= 0 || h <= 0) {
+			if (adopted()) dropScreen();
+			return false;
 		}
-		_adopt = p; _adoptW = w; _adoptH = h;
-		if (sw == w && sh == h) makeScreen(w, h);
+		dropScreen();
+		_screen.init(w, h, pitch, p, Graphics::PixelFormat::createFormatCLUT8());
+		_adopt = p;
+		return true;
 	}
-	// Is there a screen to draw on? While the engine has a front buffer of another size waiting
-	// to be adopted (it is about to change the screen's size: Ween going to 640x200), a few
-	// frames are skipped rather than given a screen of their own, which would be the third one
-	// in memory at the worst moment. Not for ever: an engine whose front buffer is never the
-	// screen's size gets its copy.
-	int _skipped = 0;
-	bool drawable() {
-		if (_screen.getPixels()) { _skipped = 0; return true; }
-		if (_adopt && ++_skipped < 30) return false;
-		return ensureScreen();
-	}
+	bool drawable() { return ensureScreen(); }
 	bool ensureScreen() {
-		// an adopted buffer of another size is waiting for its initSize(): the engine is
-		// between two video modes, and what it draws now is not shown. No screen is made
-		// for it (Ween going to 640x200: 64 KB at the worst moment)
-		if (!_screen.getPixels() && _adopt) return false;
-		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0) makeScreen(_screen.w, _screen.h);
+		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0) {
+			int w = _screen.w, h = _screen.h;
+			_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+		}
 		return _screen.getPixels() != nullptr;
 	}
 
 	void initSize(uint w, uint h, const Graphics::PixelFormat *format) override {
 		NullGraphicsManager::initSize(w, h, format);
-		if (_screen.w != (int)w || _screen.h != (int)h || !_screen.getPixels())
-			makeScreen(w, h);
+		// (the screen itself is made when something first draws on it, ensureScreen(): an
+		// engine whose front buffer is adopted never needs it)
+		if (_screen.w != (int)w || _screen.h != (int)h) {
+			dropScreen();
+			_screen.w = w; _screen.h = h;
+		}
 		// SCUMM keeps its screens in a heap of their own; no other engine has such screens
 		if (!ConfMan.get("engineid").equalsIgnoreCase("scumm")) heap_screen_spill = 1;
 		// The core runs ScummVM at full volume (the console has its own control), which suits
@@ -523,8 +516,9 @@ public:
 	void copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) override {
 		if (!drawable()) return;
 		const byte *src = (const byte *)buf;
-		if (adopted() && src >= _adopt && src < _adopt + _adoptW * _adoptH) {
-			// from the adopted buffer itself: nothing to do when it is the same place
+		if (adopted()) {
+			// (from the engine's front buffer, which the screen is a window of: nothing to do
+			// when it is the same place; memmove() otherwise, the two may overlap)
 			if (x < 0 || y < 0 || x + w > _screen.w || y + h > _screen.h) return;
 			byte *dst = (byte *)_screen.getBasePtr(x, y);
 			if (dst == src && pitch == _screen.pitch) return;
@@ -580,11 +574,12 @@ public:
 
 GWGraphics *GWGraphics::_the;
 
-/* patches/scummvm-slim.patch (Gob::Surface): the engine's front buffer, w x h bytes, is the
-   screen from now on when the screen has that size; NULL before the engine frees it */
-void gwAdoptScreen(byte *pixels, int w, int h)
+/* patches/scummvm-slim.patch (Gob::Video::retrace): a window of w x h bytes of the engine's
+   front buffer, whose lines are pitch bytes apart, is the screen from now on if the screen
+   has that size (returns whether it is); NULL before the engine frees the buffer */
+bool gwAdoptScreen(byte *pixels, int pitch, int w, int h)
 {
-	if (GWGraphics::_the) GWGraphics::_the->adopt(pixels, w, h);
+	return GWGraphics::_the && GWGraphics::_the->adopt(pixels, pitch, w, h);
 }
 
 /* ...and has the backend a screen to draw on right now? */

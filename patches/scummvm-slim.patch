@@ -224,14 +224,14 @@ index 42e39380..6fe92a3c 100644
  
  	case kGameTypeAdibou1:
 diff --git a/engines/gob/surface.cpp b/engines/gob/surface.cpp
-index 452492a6..f6167987 100644
+index 452492a6..310df873 100644
 --- a/engines/gob/surface.cpp
 +++ b/engines/gob/surface.cpp
 @@ -45,6 +45,8 @@
  #include "image/jpeg.h"
  #include "image/tga.h"
  
-+void gwAdoptScreen(byte *pixels, int w, int h);   // src/gw_system.cpp
++bool gwAdoptScreen(byte *pixels, int pitch, int w, int h);   // src/gw_system.cpp
 +
  namespace Gob {
  
@@ -244,25 +244,28 @@ index 452492a6..f6167987 100644
  	if (_ownVidMem)
  		delete[] _vidMem;
  
-@@ -256,9 +259,28 @@ uint8 Surface::getBPP() const {
+@@ -256,9 +259,31 @@ uint8 Surface::getBPP() const {
  	return _bpp;
  }
  
-+// Game & Watch: the primary surface is the backend's screen too (src/gw_system.cpp), not
-+// copied to one: 128 KB with Ween's 640x200
-+static const byte *gwAdopted;
++// Game & Watch: a window of the primary surface is the backend's screen too (Video::retrace(),
++// src/gw_system.cpp), not copied to one. Before the surface's memory goes, the backend is told.
++static const byte *gwAdoptedBase;
 +
-+void Surface::gwAdopt() {
-+	if (_bpp != 1 || !_ownVidMem || gwAdopted == _vidMem)
-+		return;
-+	gwAdopted = _vidMem;
-+	gwAdoptScreen(_vidMem, _width, _height);
++bool Surface::gwAdopt(int x, int y, int w, int h) {
++	if (_bpp != 1 || x < 0 || y < 0 || x + w > _width || y + h > _height) {
++		gwUnadopt();
++		return false;
++	}
++	bool ok = gwAdoptScreen(_vidMem + y * _width + x, _width, w, h);
++	gwAdoptedBase = ok ? _vidMem : (gwAdoptedBase == _vidMem ? nullptr : gwAdoptedBase);
++	return ok;
 +}
 +
 +void Surface::gwUnadopt() {
-+	if (gwAdopted && gwAdopted == _vidMem) {
-+		gwAdoptScreen(nullptr, 0, 0);
-+		gwAdopted = nullptr;
++	if (gwAdoptedBase && gwAdoptedBase == _vidMem) {
++		gwAdoptScreen(nullptr, 0, 0, 0);
++		gwAdoptedBase = nullptr;
 +	}
 +}
 +
@@ -273,7 +276,7 @@ index 452492a6..f6167987 100644
  	if (_ownVidMem)
  		delete[] _vidMem;
  
-@@ -273,6 +295,8 @@ void Surface::setBPP(uint8 bpp) {
+@@ -273,6 +298,8 @@ void Surface::setBPP(uint8 bpp) {
  	if (_bpp == bpp)
  		return;
  
@@ -283,20 +286,20 @@ index 452492a6..f6167987 100644
  		delete[] _vidMem;
  
 diff --git a/engines/gob/surface.h b/engines/gob/surface.h
-index 0cc05382..7929faa8 100644
+index 0cc05382..b619a878 100644
 --- a/engines/gob/surface.h
 +++ b/engines/gob/surface.h
 @@ -117,6 +117,8 @@ public:
  	const byte *getData(uint16 x = 0, uint16 y = 0) const;
  
  	void resize(uint16 width, uint16 height);
-+	void gwAdopt();		// Game & Watch: this surface's memory is the backend's screen too
++	bool gwAdopt(int x, int y, int w, int h);	// Game & Watch: this window of the surface is the backend's screen too
 +	void gwUnadopt();
  
  	void setBPP(uint8 bpp);
  
 diff --git a/engines/gob/video.cpp b/engines/gob/video.cpp
-index 9f637fbf..4ac64f0c 100644
+index 9f637fbf..a5cbbd35 100644
 --- a/engines/gob/video.cpp
 +++ b/engines/gob/video.cpp
 @@ -40,6 +40,8 @@
@@ -308,27 +311,29 @@ index 9f637fbf..4ac64f0c 100644
  namespace Gob {
  
  Font::Font(const byte *data) : _dataPtr(data) {
-@@ -244,6 +246,7 @@ SurfacePtr Video::initSurfDesc(int16 width, int16 height, int16 flags, byte bpp)
- 
- 		descPtr = _vm->_global->_primarySurfDesc;
- 		descPtr->resize(width, height);
-+		descPtr->gwAdopt();
- 	} else {
- 		assert(!(flags & DISABLE_SPR_ALLOC));
- 
-@@ -278,6 +281,12 @@ void Video::retrace(bool mouse) {
- 		CursorMan.showMouse((_vm->_draw->_showCursor & 6) != 0);
- 
- 	if (_vm->_global->_primarySurfDesc) {
-+		// Game & Watch: the front buffer is the screen itself when it can be (surface.cpp).
-+		// While the backend has no screen (between two front buffers), or has just made
-+		// one of its own, everything is drawn again.
-+		_vm->_global->_primarySurfDesc->gwAdopt();
-+		if (!gwScreenReady())
-+			dirtyRectsAll();
- 		int screenX = _screenDeltaX;
- 		int screenY = _screenDeltaY;
+@@ -283,8 +285,20 @@ void Video::retrace(bool mouse) {
  		int screenWidth = MIN<int>(_surfWidth - _scrollOffsetX, _vm->_width);
+ 		int screenHeight = MIN<int>(_surfHeight - _splitHeight2 - _scrollOffsetY, _vm->_height - _splitHeight2);
+ 
+-		dirtyRectsApply(_scrollOffsetX, _scrollOffsetY, screenWidth, screenHeight,
+-				screenX, screenY);
++		// Game & Watch: when what is shown is one whole window of the front buffer, that
++		// window is the screen itself (surface.cpp) and nothing is copied. Otherwise the
++		// backend keeps a screen of its own; when it has just made one, everything is
++		// drawn onto it again.
++		bool gwDirect = !_splitSurf && _splitHeight2 <= 0 && screenX == 0 && screenY == 0 &&
++			screenWidth == _vm->_width && screenHeight == _vm->_height &&
++			_vm->_global->_primarySurfDesc->gwAdopt(_scrollOffsetX, _scrollOffsetY, screenWidth, screenHeight);
++		if (!gwDirect) {
++			_vm->_global->_primarySurfDesc->gwUnadopt();
++			if (!gwScreenReady())
++				dirtyRectsAll();
++			dirtyRectsApply(_scrollOffsetX, _scrollOffsetY, screenWidth, screenHeight,
++					screenX, screenY);
++		}
+ 
+ 		if (_splitSurf) {
+ 
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea52..380eb1fa 100644
 --- a/engines/scumm/dialogs.cpp
