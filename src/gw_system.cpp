@@ -458,19 +458,20 @@ public:
 	}
 	void adopt(byte *p, int w, int h) {
 		int sw = _screen.w, sh = _screen.h;
-		if (!p) {                              // the engine is about to free it: back to a copy
-			bool was = adopted();
-			const byte *old = _adopt;
-			if (was) _screen = Graphics::Surface();
+		if (!p) {                              // the engine is about to free it
+			// no copy is made here: the engine is usually about to make a new front buffer and
+			// adopt() it, and two screens at once is what this is avoiding. ensureScreen()
+			// makes one when something draws before that.
+			if (adopted()) { _screen = Graphics::Surface(); _screen.w = sw; _screen.h = sh; }
 			_adopt = nullptr;
-			if (was) {
-				_screen.create(sw, sh, Graphics::PixelFormat::createFormatCLUT8());
-				if (_screen.getPixels()) memcpy(_screen.getPixels(), old, sw * sh);
-			}
 			return;
 		}
 		_adopt = p; _adoptW = w; _adoptH = h;
-		if (sw == w && sh == h && _screen.getPixels()) makeScreen(w, h);
+		if (sw == w && sh == h) makeScreen(w, h);
+	}
+	bool ensureScreen() {
+		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0) makeScreen(_screen.w, _screen.h);
+		return _screen.getPixels() != nullptr;
 	}
 
 	void initSize(uint w, uint h, const Graphics::PixelFormat *format) override {
@@ -505,7 +506,7 @@ public:
 	}
 	void grabPalette(byte *c, uint start, uint num) const override { memcpy(c, _pal + start * 3, num * 3); }
 	void copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) override {
-		if (!_screen.getPixels()) return;
+		if (!ensureScreen()) return;
 		const byte *src = (const byte *)buf;
 		if (adopted() && src >= _adopt && src < _adopt + _adoptW * _adoptH) {
 			// from the adopted buffer itself: nothing to do when it is the same place
@@ -517,9 +518,9 @@ public:
 		}
 		_screen.copyRectToSurface(buf, pitch, x, y, w, h);
 	}
-	Graphics::Surface *lockScreen() override { return &_screen; }
-	void fillScreen(uint32 col) override { if (_screen.getPixels()) _screen.fillRect(Common::Rect(_screen.w, _screen.h), col); }
-	void fillScreen(const Common::Rect &r, uint32 col) override { if (_screen.getPixels()) _screen.fillRect(r, col); }
+	Graphics::Surface *lockScreen() override { ensureScreen(); return &_screen; }
+	void fillScreen(uint32 col) override { if (ensureScreen()) _screen.fillRect(Common::Rect(_screen.w, _screen.h), col); }
+	void fillScreen(const Common::Rect &r, uint32 col) override { if (ensureScreen()) _screen.fillRect(r, col); }
 	void setShakePos(int x, int y) override { _shakeX = x; _shakeY = y; }
 
 	bool showMouse(bool visible) override { bool old = _cursorVisible; _cursorVisible = visible; return old; }
