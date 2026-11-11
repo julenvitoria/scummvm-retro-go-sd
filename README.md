@@ -11,14 +11,32 @@ sylverb's Retro-Go SD firmware (`external_cores` branch).
 
 No games are included, nor will they be: bring your own.
 
-| Engine | Games |
-|---|---|
-| SCUMM (LucasArts) | Maniac Mansion, Zak McKracken, Indiana Jones and the Last Crusade, Loom, Monkey Island 1 and 2, Indiana Jones and the Fate of Atlantis, Day of the Tentacle, Sam & Max, Full Throttle |
-| Sky | Beneath a Steel Sky |
-| CGE | Sołtys |
-| Lure | Lure of the Temptress |
+### Compatibility
 
-Not supported: The Dig and The Curse of Monkey Island (too big), Macintosh and FM-Towns versions.
+✅ tested on the console · 🟡 should work, not tested on the console yet · ❌ not supported
+
+| Game | Engine | Status | Notes |
+|---|---|:-:|---|
+| Maniac Mansion (PC) | SCUMM | ✅ | |
+| Maniac Mansion (NES) | SCUMM | ✅ | |
+| Zak McKracken and the Alien Mindbenders | SCUMM | 🟡 | FM-Towns version not supported |
+| Indiana Jones and the Last Crusade | SCUMM | 🟡 | |
+| Loom | SCUMM | 🟡 | |
+| The Secret of Monkey Island (EGA, VGA, talkie) | SCUMM | ✅ | |
+| Monkey Island 2: LeChuck's Revenge | SCUMM | ✅ | |
+| Indiana Jones and the Fate of Atlantis | SCUMM | ✅ | |
+| Day of the Tentacle | SCUMM | ✅ | |
+| Sam & Max Hit the Road | SCUMM | ✅ | |
+| Full Throttle | SCUMM | ✅ | first launch prepares the game (a few minutes) |
+| Beneath a Steel Sky | Sky | ✅ | first launch prepares the game (a few minutes) |
+| Sołtys | CGE | ✅ | |
+| Lure of the Temptress | Lure | ✅ | |
+| The Dig | SCUMM | ❌ | too big for the flash |
+| The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
+| Macintosh versions | — | ❌ | |
+
+In development, not in this core yet: Ween: The Prophecy and Gobliiins (no saving from the
+Retro-Go menu in these two: their engine has none), Cruise for a Corpse, Operation Stealth.
 
 Open a section:
 
@@ -233,14 +251,33 @@ Retro-Go SD de sylverb (rama `external_cores`).
 
 No incluye juegos ni los incluirá: usa los tuyos.
 
-| Motor | Juegos |
-|---|---|
-| SCUMM (LucasArts) | Maniac Mansion, Zak McKracken, Indiana Jones y la Última Cruzada, Loom, Monkey Island 1 y 2, Indiana Jones and the Fate of Atlantis, Day of the Tentacle, Sam & Max, Full Throttle |
-| Sky | Beneath a Steel Sky |
-| CGE | Sołtys |
-| Lure | Lure of the Temptress |
+### Compatibilidad
 
-No soportados: The Dig y The Curse of Monkey Island (demasiado grandes), versiones Macintosh y FM-Towns.
+✅ probado en la consola · 🟡 debería funcionar, aún sin probar en la consola · ❌ no soportado
+
+| Juego | Motor | Estado | Notas |
+|---|---|:-:|---|
+| Maniac Mansion (PC) | SCUMM | ✅ | |
+| Maniac Mansion (NES) | SCUMM | ✅ | |
+| Zak McKracken and the Alien Mindbenders | SCUMM | 🟡 | la versión FM-Towns no |
+| Indiana Jones y la Última Cruzada | SCUMM | 🟡 | |
+| Loom | SCUMM | 🟡 | |
+| The Secret of Monkey Island (EGA, VGA, hablada) | SCUMM | ✅ | |
+| Monkey Island 2: LeChuck's Revenge | SCUMM | ✅ | |
+| Indiana Jones and the Fate of Atlantis | SCUMM | ✅ | |
+| Day of the Tentacle | SCUMM | ✅ | |
+| Sam & Max Hit the Road | SCUMM | ✅ | |
+| Full Throttle | SCUMM | ✅ | el primer arranque prepara el juego (unos minutos) |
+| Beneath a Steel Sky | Sky | ✅ | el primer arranque prepara el juego (unos minutos) |
+| Sołtys | CGE | ✅ | |
+| Lure of the Temptress | Lure | ✅ | |
+| The Dig | SCUMM | ❌ | no cabe en la flash |
+| The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
+| Versiones de Macintosh | — | ❌ | |
+
+En desarrollo, todavía no en este core: Ween: The Prophecy y Gobliiins (en estos dos no se
+puede guardar desde el menú de Retro-Go: su motor no lo permite), Cruise for a Corpse,
+Operation Stealth.
 
 Abre una sección:
 
