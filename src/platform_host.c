@@ -139,7 +139,8 @@ void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 }
 
 /* the Retro-Go menu's save and load (src/gw_system.cpp), as the console's firmware calls them:
-   GW_RGSAVE=<ms> saves to <saves>/rg.sav at that time, GW_RGLOAD=<ms> loads it (0: at start) */
+   GW_RGSAVE=<ms> saves to <saves>/rg.sav at that time, GW_RGLOAD=<ms> loads it (0: at start),
+   GW_RGLOAD_EVERY=<ms> loads it again and again */
 int gw_rg_save(const char *path);
 int gw_rg_load(const char *path);
 int gw_rg_load_at_start(void);
@@ -157,6 +158,17 @@ uint32_t plat_buttons(void)
 	if (!loaded && getenv("GW_RGLOAD") && atoi(getenv("GW_RGLOAD")) && now >= (uint32_t)atoi(getenv("GW_RGLOAD"))) {
 		loaded = 1;
 		fprintf(stderr, "rg load at %u: %d\n", now, gw_rg_load(rg_path()));
+	}
+	/* GW_RGLOAD_EVERY=<ms>: ...and again every so often, with the heap in use before each
+	   (a leak, or a heap that fragments, shows as a load that fails after a few) */
+	static uint32_t again;
+	if (loaded && getenv("GW_RGLOAD_EVERY")) {
+		extern uint32_t heap_used(void) __attribute__((weak));
+		if (!again) again = now + atoi(getenv("GW_RGLOAD_EVERY"));
+		if (now >= again) {
+			again = now + atoi(getenv("GW_RGLOAD_EVERY"));
+			fprintf(stderr, "rg load at %u (heap %u KB): %d\n", now, heap_used ? heap_used() / 1024 : 0, gw_rg_load(rg_path()));
+		}
 	}
 	while (p && *p) {
 		unsigned t, len; char keys[16];
