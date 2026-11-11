@@ -13,27 +13,15 @@ No games are included, nor will they be: bring your own.
 
 ### Compatibility
 
-✅ tested on the console · 🟡 should work, not tested on the console yet · ❌ not supported
+| Engine | ✅ Works | ❌ Does not work |
+|---|---|---|
+| **SCUMM** (LucasArts) | Maniac Mansion (PC)<br>Maniac Mansion (NES)<br>Indiana Jones and the Last Crusade<br>Loom<br>The Secret of Monkey Island (EGA, VGA, talkie)<br>Monkey Island 2: LeChuck's Revenge<br>Indiana Jones and the Fate of Atlantis<br>Day of the Tentacle<br>Sam & Max Hit the Road<br>Full Throttle ¹<br>Zak McKracken ² | The Dig (too big for the flash)<br>The Curse of Monkey Island (too big for the memory)<br>Macintosh versions<br>FM-Towns versions |
+| **Sky** | Beneath a Steel Sky ¹ | |
+| **CGE** | Sołtys | |
+| **Lure** | Lure of the Temptress | |
 
-| Game | Engine | Status | Notes |
-|---|---|:-:|---|
-| Maniac Mansion (PC) | SCUMM | ✅ | |
-| Maniac Mansion (NES) | SCUMM | ✅ | |
-| Zak McKracken and the Alien Mindbenders | SCUMM | 🟡 | FM-Towns version not supported |
-| Indiana Jones and the Last Crusade | SCUMM | 🟡 | |
-| Loom | SCUMM | 🟡 | |
-| The Secret of Monkey Island (EGA, VGA, talkie) | SCUMM | ✅ | |
-| Monkey Island 2: LeChuck's Revenge | SCUMM | ✅ | |
-| Indiana Jones and the Fate of Atlantis | SCUMM | ✅ | |
-| Day of the Tentacle | SCUMM | ✅ | |
-| Sam & Max Hit the Road | SCUMM | ✅ | |
-| Full Throttle | SCUMM | ✅ | first launch prepares the game (a few minutes) |
-| Beneath a Steel Sky | Sky | ✅ | first launch prepares the game (a few minutes) |
-| Sołtys | CGE | ✅ | |
-| Lure of the Temptress | Lure | ✅ | |
-| The Dig | SCUMM | ❌ | too big for the flash |
-| The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
-| Macintosh versions | — | ❌ | |
+¹ The first launch prepares the game: a few minutes, once.
+² Should work; not tested on the console yet.
 
 In development, not in this core yet: Ween: The Prophecy and Gobliiins (no saving from the
 Retro-Go menu in these two: their engine has none), Cruise for a Corpse, Operation Stealth.
@@ -253,27 +241,15 @@ No incluye juegos ni los incluirá: usa los tuyos.
 
 ### Compatibilidad
 
-✅ probado en la consola · 🟡 debería funcionar, aún sin probar en la consola · ❌ no soportado
+| Motor | ✅ Funciona | ❌ No funciona |
+|---|---|---|
+| **SCUMM** (LucasArts) | Maniac Mansion (PC)<br>Maniac Mansion (NES)<br>Indiana Jones y la Última Cruzada<br>Loom<br>The Secret of Monkey Island (EGA, VGA, hablada)<br>Monkey Island 2: LeChuck's Revenge<br>Indiana Jones and the Fate of Atlantis<br>Day of the Tentacle<br>Sam & Max Hit the Road<br>Full Throttle ¹<br>Zak McKracken ² | The Dig (no cabe en la flash)<br>The Curse of Monkey Island (no cabe en la memoria)<br>Versiones de Macintosh<br>Versiones de FM-Towns |
+| **Sky** | Beneath a Steel Sky ¹ | |
+| **CGE** | Sołtys | |
+| **Lure** | Lure of the Temptress | |
 
-| Juego | Motor | Estado | Notas |
-|---|---|:-:|---|
-| Maniac Mansion (PC) | SCUMM | ✅ | |
-| Maniac Mansion (NES) | SCUMM | ✅ | |
-| Zak McKracken and the Alien Mindbenders | SCUMM | 🟡 | la versión FM-Towns no |
-| Indiana Jones y la Última Cruzada | SCUMM | 🟡 | |
-| Loom | SCUMM | 🟡 | |
-| The Secret of Monkey Island (EGA, VGA, hablada) | SCUMM | ✅ | |
-| Monkey Island 2: LeChuck's Revenge | SCUMM | ✅ | |
-| Indiana Jones and the Fate of Atlantis | SCUMM | ✅ | |
-| Day of the Tentacle | SCUMM | ✅ | |
-| Sam & Max Hit the Road | SCUMM | ✅ | |
-| Full Throttle | SCUMM | ✅ | el primer arranque prepara el juego (unos minutos) |
-| Beneath a Steel Sky | Sky | ✅ | el primer arranque prepara el juego (unos minutos) |
-| Sołtys | CGE | ✅ | |
-| Lure of the Temptress | Lure | ✅ | |
-| The Dig | SCUMM | ❌ | no cabe en la flash |
-| The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
-| Versiones de Macintosh | — | ❌ | |
+¹ El primer arranque prepara el juego: unos minutos, una sola vez.
+² Debería funcionar; aún sin probar en la consola.
 
 En desarrollo, todavía no en este core: Ween: The Prophecy y Gobliiins (en estos dos no se
 puede guardar desde el menú de Retro-Go: su motor no lo permite), Cruise for a Corpse,
