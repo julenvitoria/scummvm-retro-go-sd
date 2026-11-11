@@ -422,6 +422,8 @@ extern "C" int heap_screen_spill;       /* src/heap.c: may everything use the SC
 #define GW_ENGINE_VOLUME 160
 #endif
 
+static int g_gwGain = 5;                /* output gain in eighths (GWMixer::pump) */
+
 class GWGraphics : public NullGraphicsManager {
 public:
 	Graphics::Surface _screen;
@@ -453,13 +455,19 @@ public:
 		// Sky sets its own (patches/scummvm-slim.patch, sky.cpp).
 		if (!_mouseSet && !ConfMan.get("engineid").equalsIgnoreCase("scumm") &&
 		    !ConfMan.get("engineid").equalsIgnoreCase("sky")) {
+			// Lure of the Temptress is the other way round: its AdLib music alone, scaled by
+			// the volume twice (driver and mixer), peaks at 2% of full scale. Full volume and
+			// four times the output gain for it.
+			bool lure = ConfMan.get("engineid").equalsIgnoreCase("lure");
+			int v = lure ? 255 : GW_ENGINE_VOLUME;
+			if (lure) g_gwGain = 20;
 			static const char *const vol[] = { "music_volume", "sfx_volume", "speech_volume" };
-			for (const char *k : vol) ConfMan.setInt(k, GW_ENGINE_VOLUME, Common::ConfigManager::kTransientDomain);
+			for (const char *k : vol) ConfMan.setInt(k, v, Common::ConfigManager::kTransientDomain);
 			Audio::Mixer *m = g_system->getMixer();
-			m->setVolumeForSoundType(Audio::Mixer::kMusicSoundType, GW_ENGINE_VOLUME);
-			m->setVolumeForSoundType(Audio::Mixer::kSFXSoundType, GW_ENGINE_VOLUME);
-			m->setVolumeForSoundType(Audio::Mixer::kSpeechSoundType, GW_ENGINE_VOLUME);
-			m->setVolumeForSoundType(Audio::Mixer::kPlainSoundType, GW_ENGINE_VOLUME);
+			m->setVolumeForSoundType(Audio::Mixer::kMusicSoundType, v);
+			m->setVolumeForSoundType(Audio::Mixer::kSFXSoundType, v);
+			m->setVolumeForSoundType(Audio::Mixer::kSpeechSoundType, v);
+			m->setVolumeForSoundType(Audio::Mixer::kPlainSoundType, v);
 		}
 		if (!_mouseSet) {
 			_mouseSet = _mouseTell = true;       // pollEvent() tells the game where it is
@@ -545,7 +553,7 @@ public:
 			_mixer->mixCallback((byte *)_stereo, sizeof _stereo);
 			// to mono, a quarter louder than the plain average (the console's speaker is quiet)
 			for (int i = 0; i < CHUNK; i++) {
-				int v = (((int)_stereo[2 * i] + _stereo[2 * i + 1]) * 5) >> 3;
+				int v = (((int)_stereo[2 * i] + _stereo[2 * i + 1]) * g_gwGain) >> 3;
 				_mono[i] = (int16)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
 			}
 			plat_audio_write(_mono, CHUNK);

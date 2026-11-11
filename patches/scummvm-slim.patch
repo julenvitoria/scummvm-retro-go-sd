@@ -192,7 +192,7 @@ index 70081d8f..d24a71a4 100644
  	// cache management
  	void cacheDirectoryRecursive(FSNode node, int depth, const Path& prefix) const;
 diff --git a/engines/lure/animseq.cpp b/engines/lure/animseq.cpp
-index cc1c4e47..337de8c0 100644
+index cc1c4e47..8ebd4896 100644
 --- a/engines/lure/animseq.cpp
 +++ b/engines/lure/animseq.cpp
 @@ -122,10 +122,18 @@ void AnimationSequence::vgaDecodeFrame(byte *&pPixels, byte *&pLines) {
@@ -201,7 +201,7 @@ index cc1c4e47..337de8c0 100644
  		// Move the splice over
 -		memcpy(screenData, pPixels, len);
 +#ifdef GW_LURE_SLIM
-+		if (_gwChunks) {
++		if (_gwSrc) {
 +			gwRead(screenData, _gwPos, len);
 +			_gwPos += len;
 +		} else
@@ -216,7 +216,7 @@ index cc1c4e47..337de8c0 100644
  
  		// Get the offset inc amount
  		len = (uint16) *pLines++;
-@@ -149,10 +157,16 @@ AnimationSequence::AnimationSequence(uint16 screenId, Palette &palette,  bool fa
+@@ -149,10 +157,21 @@ AnimationSequence::AnimationSequence(uint16 screenId, Palette &palette,  bool fa
  	// Get the data and decode it. Note that VGA decompression is used
  	// even if the decompressed contents is actually EGA data
  	MemoryBlock *data = d.getEntry(_screenId);
@@ -224,7 +224,12 @@ index cc1c4e47..337de8c0 100644
 +#ifdef GW_LURE_SLIM
 +	if (!_isEGA) {
 +		_decodedData = nullptr;
-+		_gwSize = decoder.vgaDecodeChunks(data, _gwChunks);
++		_gwSrc = data;
++		_gwStream.start(data);
++		while (_gwStream.next() >= 0) {}
++		_gwSize = _gwStream.pos;
++		_gwStream.start(data);
++		data = nullptr;
 +	} else
 +#endif
  	_decodedData = decoder.vgaDecode(data, MAX_ANIM_DECODER_BUFFER_SIZE);
@@ -234,7 +239,7 @@ index cc1c4e47..337de8c0 100644
  	if (_isEGA) {
  		// Setup for EGA animation
  		_lineRefs = nullptr;
-@@ -184,16 +198,44 @@ AnimationSequence::AnimationSequence(uint16 screenId, Palette &palette,  bool fa
+@@ -184,16 +203,45 @@ AnimationSequence::AnimationSequence(uint16 screenId, Palette &palette,  bool fa
  		else screen.setPalette(&_palette, 0, _palette.numEntries());
  
  		// Set up frame pointers
@@ -257,13 +262,16 @@ index cc1c4e47..337de8c0 100644
 +void AnimationSequence::gwRead(byte *dest, uint32 pos, uint32 len) {
 +	if (pos + len > _gwSize)
 +		len = pos < _gwSize ? _gwSize - pos : 0;
-+	while (len) {
-+		uint32 at = pos % PictureDecoder::GW_ANIM_CHUNK;
-+		uint32 n = MIN<uint32>(len, PictureDecoder::GW_ANIM_CHUNK - at);
-+		memcpy(dest, _gwChunks[pos / PictureDecoder::GW_ANIM_CHUNK]->data() + at, n);
-+		dest += n;
-+		pos += n;
-+		len -= n;
++	if (pos < _gwStream.pos)		// back to the start: a loop, or the first screen again
++		_gwStream.start(_gwSrc);
++	while (_gwStream.pos < pos)
++		if (_gwStream.next() < 0)
++			return;
++	while (len--) {
++		int v = _gwStream.next();
++		if (v < 0)
++			return;
++		*dest++ = (byte)v;
 +	}
 +}
 +#endif
@@ -272,31 +280,29 @@ index cc1c4e47..337de8c0 100644
  	delete _lineRefs;
  	delete _decodedData;
 +#ifdef GW_LURE_SLIM
-+	for (int c = 0; _gwChunks && _gwChunks[c]; c++)
-+		delete _gwChunks[c];
-+	free(_gwChunks);
++	delete _gwSrc;
 +#endif
  
  	// Renable GMM saving/loading now that the animation is done
  	LureEngine::getReference()._saveLoadAllowed = true;
-@@ -213,7 +255,11 @@ AnimAbortType AnimationSequence::show() {
+@@ -213,7 +261,11 @@ AnimAbortType AnimationSequence::show() {
  
  	// Loop through displaying the animations
  	while (_loops > 0) {
 +#ifdef GW_LURE_SLIM
-+		if (_gwChunks ? (_gwPos < _gwSize - 1 && _pLines < _pLinesEnd) : (_pPixels < _pPixelsEnd && (_isEGA || _pLines < _pLinesEnd))) {
++		if (_gwSrc ? (_gwPos < _gwSize - 1 && _pLines < _pLinesEnd) : (_pPixels < _pPixelsEnd && (_isEGA || _pLines < _pLinesEnd))) {
 +#else
  		if (_pPixels < _pPixelsEnd && (_isEGA || _pLines < _pLinesEnd)) {
 +#endif
  			if ((soundFrame != nullptr) && (soundFrame->rolandSoundId != 0xFF) && (frameCtr == 0))
  				Sound.musicInterface_Play(
  					Sound.isRoland() ? soundFrame->rolandSoundId : soundFrame->adlibSoundId, soundFrame->music);
-@@ -234,6 +280,12 @@ AnimAbortType AnimationSequence::show() {
+@@ -234,6 +286,12 @@ AnimAbortType AnimationSequence::show() {
  				// and show the first frame again.
  				_pPixels = _pPixelsStart;
  				_pLines = _pLinesStart;
 +#ifdef GW_LURE_SLIM
-+				if (_gwChunks) {
++				if (_gwSrc) {
 +					_gwPos = SCREEN_SIZE;
 +					showInitialScreen();
 +				} else
@@ -304,22 +310,22 @@ index cc1c4e47..337de8c0 100644
  				showInitialScreen(_decodedData->data());
  			}
  		}
-@@ -253,6 +305,9 @@ AnimAbortType AnimationSequence::show() {
+@@ -253,6 +311,9 @@ AnimAbortType AnimationSequence::show() {
  
  bool AnimationSequence::step() {
  	Screen &screen = Screen::getReference();
 +#ifdef GW_LURE_SLIM
-+	if (_gwChunks && _gwPos >= _gwSize - 1) return false;
++	if (_gwSrc && _gwPos >= _gwSize - 1) return false;
 +#endif
  	if (_pPixels >= _pPixelsEnd) return false;
  
  	if (_isEGA)
-@@ -289,6 +344,11 @@ byte *AnimationSequence::showInitialScreen(byte *pSrc) {
+@@ -289,6 +350,11 @@ byte *AnimationSequence::showInitialScreen(byte *pSrc) {
  			}
  		}
  	} else {
 +#ifdef GW_LURE_SLIM
-+		if (_gwChunks)
++		if (_gwSrc)
 +			gwRead(screen.screen().data().data(), 0, FULL_SCREEN_HEIGHT * FULL_SCREEN_WIDTH);
 +		else
 +#endif
@@ -327,17 +333,26 @@ index cc1c4e47..337de8c0 100644
  	}
  	screen.update();
 diff --git a/engines/lure/animseq.h b/engines/lure/animseq.h
-index 41c92f33..bb205bc1 100644
+index 41c92f33..f3e18c5f 100644
 --- a/engines/lure/animseq.h
 +++ b/engines/lure/animseq.h
-@@ -53,6 +53,13 @@ private:
+@@ -23,6 +23,7 @@
+ #define LURE_ANIMSEQ_H
+ 
+ #include "lure/screen.h"
++#include "lure/decode.h"
+ 
+ namespace Lure {
+ 
+@@ -53,6 +54,14 @@ private:
  	AnimAbortType delay(uint32 milliseconds);
  	void egaDecodeFrame(byte *&pPixels);
  	void vgaDecodeFrame(byte *&pPixels, byte *&pLines);
 +#ifdef GW_LURE_SLIM
-+	// Game & Watch: a VGA animation's pixels in pieces (PictureDecoder::vgaDecodeChunks),
-+	// read through a position, not a pointer
-+	MemoryBlock **_gwChunks = nullptr;
++	// Game & Watch: a VGA animation's pixels are unpacked as they are read (GwVgaStream),
++	// through a position, not a pointer
++	MemoryBlock *_gwSrc = nullptr;
++	GwVgaStream _gwStream;
 +	uint32 _gwSize = 0, _gwPos = 0;
 +	void gwRead(byte *dest, uint32 pos, uint32 len);
 +#endif
@@ -345,17 +360,15 @@ index 41c92f33..bb205bc1 100644
  	AnimationSequence(uint16 screenId, Palette &palette,  bool fadeIn, int frameDelay = 7,
  		const AnimSoundSequence *soundList = NULL, uint8 loops = 1);
 diff --git a/engines/lure/decode.cpp b/engines/lure/decode.cpp
-index cfbc1d5c..1206f97a 100644
+index cfbc1d5c..cd6cb6c0 100644
 --- a/engines/lure/decode.cpp
 +++ b/engines/lure/decode.cpp
-@@ -37,6 +37,14 @@ namespace Lure {
+@@ -37,6 +37,12 @@ namespace Lure {
   * Write a single byte to the output buffer
   */
  void PictureDecoder::writeByte(MemoryBlock *dest, byte v) {
 +#ifdef GW_LURE_SLIM
-+	if (!dest) {		// gwVgaLoop(): to the pieces, or only counted
-+		if (gwChunks)
-+			gwChunks[outputOffset / GW_ANIM_CHUNK]->data()[outputOffset % GW_ANIM_CHUNK] = v;
++	if (!dest) {		// gwVgaLoop(): only counted
 +		outputOffset++;
 +		return;
 +	}
@@ -363,7 +376,7 @@ index cfbc1d5c..1206f97a 100644
  	if (outputOffset == dest->size())
  		error("Decoded data exceeded allocated output buffer size");
  	dest->data()[outputOffset++] = v;
-@@ -46,6 +54,13 @@ void PictureDecoder::writeByte(MemoryBlock *dest, byte v) {
+@@ -46,6 +52,13 @@ void PictureDecoder::writeByte(MemoryBlock *dest, byte v) {
   * Writes out a specified byte a given number of times to the output
   */
  void PictureDecoder::writeBytes(MemoryBlock *dest, byte v, uint16 numBytes) {
@@ -377,13 +390,13 @@ index cfbc1d5c..1206f97a 100644
  	if (outputOffset + numBytes > dest->size())
  		error("Decoded data exceeded allocated output buffer size");
  	dest->setBytes(v, outputOffset, numBytes);
-@@ -226,6 +241,110 @@ MemoryBlock *PictureDecoder::egaDecode(MemoryBlock *src, uint32 maxOutputSize) {
+@@ -226,6 +239,161 @@ MemoryBlock *PictureDecoder::egaDecode(MemoryBlock *src, uint32 maxOutputSize) {
  // vgaDecode
  // Takes care of decoding a compressed vga screen
  
 +#ifdef GW_LURE_SLIM
-+// Game & Watch: vgaDecode()'s loop. With dest NULL the bytes go to gwChunks if set, and are
-+// only counted otherwise (writeByte, writeBytes)
++// Game & Watch: vgaDecode()'s loop. With dest NULL the bytes are only counted
++// (writeByte, writeBytes)
 +void PictureDecoder::gwVgaLoop(MemoryBlock *src, MemoryBlock *dest) {
 +	// Set up initial states
 +	dataIn = src;
@@ -467,28 +480,79 @@ index cfbc1d5c..1206f97a 100644
 +	return dest;
 +}
 +
-+// ...or into pieces of GW_ANIM_CHUNK bytes (animseq.cpp): 190 KB in one block, or in 16 KB ones, is more than the
-+// console's heap has free in one place. Returns the size; chunks is an array of that many
-+// pieces, rounded up
-+uint32 PictureDecoder::vgaDecodeChunks(MemoryBlock *src, MemoryBlock **&chunks) {
-+	gwVgaLoop(src, nullptr);
-+	uint32 size = outputOffset, n = (size + GW_ANIM_CHUNK - 1) / GW_ANIM_CHUNK;
-+	chunks = (MemoryBlock **)malloc((n + 1) * sizeof(MemoryBlock *));
-+	if (!chunks)
-+		error("Out of memory for an animation");
-+	for (uint32 c = 0; c < n; c++)
-+		chunks[c] = Memory::allocate(GW_ANIM_CHUNK);
-+	chunks[n] = nullptr;
-+	gwChunks = chunks;
-+	gwVgaLoop(src, nullptr);
-+	gwChunks = nullptr;
-+	return size;
++void GwVgaStream::start(MemoryBlock *src) {
++	_d = src->data();
++	_size = src->size();
++	_p1 = READ_LE_UINT32(_d + 0x400);
++	_p2 = 0x404;
++	_ch = _p2 < _size ? _d[_p2++] : 0;
++	_cl = 9;
++	_bp = 0;
++	_run = 0;
++	_outer = true;
++	_done = _size < 0x405;
++	pos = 0;
++}
++
++bool GwVgaStream::bit() {
++	if (--_cl == 0) {
++		_ch = _p2 < _size ? _d[_p2++] : 0;
++		_cl = 8;
++	}
++	bool r = (_ch & 0x80) != 0;
++	_ch <<= 1;
++	return r;
++}
++
++// PictureDecoder::gwVgaLoop(), turned inside out
++int GwVgaStream::next() {
++	if (_run) {
++		_run--;
++		pos++;
++		return _runVal;
++	}
++	byte al;
++	for (;;) {
++		if (_done)
++			return -1;
++		if (_outer) {
++			al = in1();
++			_outer = false;
++			break;
++		}
++		if (bit()) {
++			if (bit()) {
++				if (bit()) {
++					_outer = true;
++					continue;
++				}
++				al = _d[_bp + 3];
++			} else
++				al = bit() ? _d[_bp + 2] : _d[_bp + 1];
++		} else if (bit()) {
++			byte n = in1();
++			if (n == 0) {
++				if (in1() == 0)
++					_done = true;
++				continue;
++			}
++			_runVal = (byte)(_bp >> 2);
++			_run = n - 1;
++			pos++;
++			return _runVal;
++		} else
++			al = _d[_bp];
++		break;
++	}
++	_bp = ((uint32)al) << 2;
++	pos++;
++	return al;
 +}
 +#else
  MemoryBlock *PictureDecoder::vgaDecode(MemoryBlock *src, uint32 maxOutputSize) {
  	MemoryBlock *dest = Memory::allocate(maxOutputSize);
  
-@@ -298,6 +417,7 @@ MemoryBlock *PictureDecoder::vgaDecode(MemoryBlock *src, uint32 maxOutputSize) {
+@@ -298,6 +466,7 @@ MemoryBlock *PictureDecoder::vgaDecode(MemoryBlock *src, uint32 maxOutputSize) {
  	if (outputOffset < dest->size()) dest->reallocate(outputOffset);
  	return dest;
  }
@@ -497,22 +561,39 @@ index cfbc1d5c..1206f97a 100644
  /*--------------------------------------------------------------------------*/
  /* AnimationDecoder class                                                   */
 diff --git a/engines/lure/decode.h b/engines/lure/decode.h
-index 69d7e7e7..a8f93d49 100644
+index 69d7e7e7..0e7a1451 100644
 --- a/engines/lure/decode.h
 +++ b/engines/lure/decode.h
-@@ -48,6 +48,12 @@ public:
+@@ -48,8 +48,29 @@ public:
  	MemoryBlock *decode(MemoryBlock *src, uint32 maxOutputSize  = SCREEN_SIZE + 1);
  	MemoryBlock *egaDecode(MemoryBlock *src, uint32 maxOutputSize);
  	MemoryBlock *vgaDecode(MemoryBlock *src, uint32 maxOutputSize);
 +#ifdef GW_LURE_SLIM
-+	enum { GW_ANIM_CHUNK = 2048 };	// small enough for the holes the small heaps are left with
-+	MemoryBlock **gwChunks = nullptr;
 +	void gwVgaLoop(MemoryBlock *src, MemoryBlock *dest);
-+	uint32 vgaDecodeChunks(MemoryBlock *src, MemoryBlock **&chunks);
 +#endif
  };
  
++#ifdef GW_LURE_SLIM
++// Game & Watch: the VGA unpacker one byte at a time. The packing has no back references, so
++// an animation (up to 190 KB unpacked) is unpacked as it is shown and never held
++class GwVgaStream {
++	const byte *_d = nullptr;
++	uint32 _size = 0, _p1 = 0, _p2 = 0, _bp = 0;
++	byte _ch = 0, _cl = 0, _runVal = 0;
++	uint16 _run = 0;
++	bool _outer = true, _done = true;
++	byte in1() { return _p1 < _size ? _d[_p1++] : 0; }
++	bool bit();
++public:
++	uint32 pos = 0;		// bytes handed out
++	void start(MemoryBlock *src);
++	int next();		// -1 at the end
++};
++#endif
++
  class AnimationDecoder {
+ public:
+ 	static void rcl(uint16 &value, bool &carry);
 diff --git a/engines/lure/disk.cpp b/engines/lure/disk.cpp
 index 571cc439..d306b712 100644
 --- a/engines/lure/disk.cpp
