@@ -1464,7 +1464,7 @@ index ba1ee651165..d1849dbcd84 100644
   * This file contains all file reading classes requiring a ScummEngine object.
   */
 diff --git a/engines/scumm/gfx.cpp b/engines/scumm/gfx.cpp
-index bf85f13c3ab..c857f8d32ce 100644
+index bf85f13c3ab..7151e3c3001 100644
 --- a/engines/scumm/gfx.cpp
 +++ b/engines/scumm/gfx.cpp
 @@ -343,6 +343,11 @@ void ScummEngine::initScreens(int b, int h) {
@@ -1541,6 +1541,94 @@ index bf85f13c3ab..c857f8d32ce 100644
  	if (_macScreen && _game.version <= 3) {
  		mac_drawStripToScreen(vs, top, x, y, width, height);
  		return;
+@@ -4649,6 +4695,30 @@ void ScummEngine::dissolveEffect(int width, int height) {
+ 	if (vs->h % height)
+ 		h++;
+ 
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: no table of four bytes a cell -- 256 KB for the pixel dissolve, which
++	// stopped Atlantis. That one's order comes from a 16-bit shift register (every number
++	// from 1 to 65535 once), the others' from a table of two bytes a cell.
++	offsets = nullptr;
++	const uint32 gwCells = w * h;
++	uint32 gwLfsr = 0;
++	uint16 *gwOrder = nullptr;
++	if (is1x1Pattern && gwCells < 65535) {
++		gwLfsr = _rnd.getRandomNumber(65534) + 1;
++	} else {
++		gwOrder = gwCells <= 65536 ? (uint16 *)malloc(gwCells * sizeof(uint16)) : nullptr;
++		if (!gwOrder) {		// no memory: the screen is shown at once
++			vs->setDirtyRange(0, vs->h);
++			return;
++		}
++		gwOrder[0] = 0;
++		for (uint32 k = 1; k < gwCells; k++) {
++			uint32 j = _rnd.getRandomNumber(k - 1);
++			gwOrder[k] = gwOrder[j];
++			gwOrder[j] = (uint16)k;
++		}
++	}
++#else
+ 	offsets = (int *) malloc(w * h * sizeof(int));
+ 	if (offsets == nullptr)
+ 		error("dissolveEffect: out of memory");
+@@ -4692,6 +4762,8 @@ void ScummEngine::dissolveEffect(int width, int height) {
+ 		free(offsets2);
+ 	}
+ 
++#endif
++
+ 	// The whole effect has a variable duration, depending on
+ 	// the host machine speed. We want to be accurate, but we
+ 	// also want to actually *see* the effect, given that in modern
+@@ -4719,8 +4791,25 @@ void ScummEngine::dissolveEffect(int width, int height) {
+ 	blitsBeforeRefresh = (w * h) / (blitsToFreeze == 0 ? 18 : blitsToFreeze);
+ 
+ 	for (i = 0; i < w * h; i++) {
++#ifdef GW_SCUMM_SLIM
++		if (gwLfsr) {
++			uint32 k;
++			do {
++				k = gwLfsr - 1;
++				gwLfsr = (gwLfsr >> 1) ^ ((0u - (gwLfsr & 1u)) & 0xB400u);
++			} while (k >= gwCells);
++			x = k % vs->w;
++			y = k / vs->w;
++		} else {
++			// (the cells in the order the table was filled: columns, top to bottom)
++			x = (is1x1Pattern ? gwOrder[i] % vs->w : (gwOrder[i] / h) * width);
++			y = (is1x1Pattern ? gwOrder[i] / vs->w : (gwOrder[i] % h) * height);
++		}
++		const bool gwLowOffset = y * vs->pitch + x < vs->h;
++#else
+ 		x = offsets[i] % vs->pitch;
+ 		y = offsets[i] / vs->pitch;
++#endif
+ 
+ #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
+ 		if (_game.platform == Common::kPlatformFMTowns)
+@@ -4761,7 +4850,11 @@ void ScummEngine::dissolveEffect(int width, int height) {
+ 		}
+ 
+ 		// Test for NxM pattern...
++#ifdef GW_SCUMM_SLIM
++		canHalt |= !is1x1Pattern && gwLowOffset;
++#else
+ 		canHalt |= !is1x1Pattern && (offsets[i] < vs->h);
++#endif
+ 
+ 		// Halt rendering for a quarter frame (or a whole frame in case of Amiga)...
+ 		if (canHalt) {
+@@ -4774,6 +4867,9 @@ void ScummEngine::dissolveEffect(int width, int height) {
+ 		}
+ 	}
+ 
++#ifdef GW_SCUMM_SLIM
++	free(gwOrder);
++#endif
+ 	free(offsets);
+ }
+ 
 diff --git a/engines/scumm/gfx_gui.cpp b/engines/scumm/gfx_gui.cpp
 index 133f6ec0ad6..37155b7beb1 100644
 --- a/engines/scumm/gfx_gui.cpp
