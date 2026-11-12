@@ -739,6 +739,7 @@ static int bs_zone_order(char order[][12])
 	return n;
 }
 
+static bool bs_zone_save_pending(void);
 static void cache_sword1(void)
 {
 	/* what the flash keeps for the game: all of it but the firmware's own reserve and this
@@ -746,6 +747,24 @@ static void cache_sword1(void)
 	   of a 64 MB one: the common part and Paris 1 and 2 (52.3 MB) went in. */
 	uint32_t budget = flash_bytes() - (10u << 20), used = 0;
 	char rel[28], path[340];
+	char order[9][12];
+	int n = bs_zone_order(order), first = 0;
+	if (bs_zone_save_pending()) {
+		/* the game is waiting for this zone (gw_sword1_zone): it goes in before anything
+		   else. After the common part it found no room clear of the files in use (the
+		   ones already in the flash are, from the moment they are looked up), and the
+		   game asked for it again on every start. */
+		snprintf(rel, sizeof rel, "%s%s.clu", g_bs_dir, order[0]);
+		snprintf(path, sizeof path, "%s/%s", g_game, rel);
+		plat_stat_t st = plat_stat(path);
+		if (st.exists) {
+			int had = g_mapped;
+			cache_rel(rel, st.size);
+			if (g_mapped != had) used += st.size;
+			logf_("ScummVM: Broken Sword: %s first: %s\n", order[0], g_mapped != had ? "in the flash" : "NO ROOM");
+		}
+		first = 1;
+	}
 	for (unsigned i = 0; i < sizeof bs_fixed / sizeof bs_fixed[0]; i++) {
 		snprintf(rel, sizeof rel, "%s%s", g_bs_dir, bs_fixed[i]);
 		snprintf(path, sizeof path, "%s/%s", g_game, rel);
@@ -754,17 +773,15 @@ static void cache_sword1(void)
 		used += st.size;
 		cache_rel(rel, st.size);
 	}
-	char order[9][12];
-	int n = bs_zone_order(order);
-	for (int i = 0; i < n; i++) {
+	for (int i = first; i < n; i++) {
 		snprintf(rel, sizeof rel, "%s%s.clu", g_bs_dir, order[i]);
 		snprintf(path, sizeof path, "%s/%s", g_game, rel);
 		plat_stat_t st = plat_stat(path);
 		if (!st.exists || used + st.size > budget) continue;
-		used += st.size;
 		int had = g_mapped;
 		cache_rel(rel, st.size);
-		if (g_mapped == had) break;             /* the flash is full after all */
+		if (g_mapped != had) used += st.size;
+		else logf_("ScummVM: Broken Sword: no room in the flash for %s\n", order[i]);  /* a smaller one may fit */
 	}
 	logf_("ScummVM: Broken Sword: %lu KB of clusters for the flash (of %lu; the flash: %lu MB)\n",
 	      (unsigned long)(used / 1024), (unsigned long)(budget / 1024), (unsigned long)(flash_bytes() >> 20));
