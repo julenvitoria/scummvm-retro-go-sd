@@ -17,7 +17,9 @@
 #define _GNU_SOURCE
 #include "platform.h"
 #include "pack.h"
+#include <ctype.h>
 #include <dirent.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -177,6 +179,13 @@ uint32_t plat_buttons(void)
 	const char *p = getenv("GW_INPUT");
 	uint32_t now = plat_millis(), held = 0;
 	static int saved, loaded;
+	/* GW_HEAP_LOG=ms: the heap's free bytes every so often (leaks over a long run) */
+	static uint32_t heap_next;
+	if (getenv("GW_HEAP_LOG") && now >= heap_next) {
+		extern uint32_t heap_free_bytes(void);
+		heap_next = now + atoi(getenv("GW_HEAP_LOG"));
+		fprintf(stderr, "heap: t=%u s, %u KB free\n", now / 1000, heap_free_bytes() / 1024);
+	}
 	if (!saved && getenv("GW_RGSAVE") && now >= (uint32_t)atoi(getenv("GW_RGSAVE"))) {
 		saved = 1;
 		fprintf(stderr, "rg save at %u: %d\n", now, gw_rg_save(rg_path()));
@@ -287,6 +296,20 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size, uint8_t *key)
 	   resource pack is mapped instead, plat_map_pack) */
 	plat_stat_t st0 = plat_stat(path);
 	if (!getenv("GW_MAP_ALL") && st0.size > (24u << 20)) return NULL;
+	/* GW_BS_ONLY=paris1,maps,...: Broken Sword's .clu files not listed are "not in the flash",
+	   as on a console whose flash holds those zones only (platform_core.c, cache_sword1) */
+	if (getenv("GW_BS_ONLY") && strlen(path) > 4 && !strcasecmp(path + strlen(path) - 4, ".clu")) {
+		const char *b = strrchr(path, '/');
+		char name[32];
+		snprintf(name, sizeof name, "%s", b ? b + 1 : path);
+		name[strlen(name) - 4] = 0;
+		char list[256];
+		snprintf(list, sizeof list, ",%s,", getenv("GW_BS_ONLY"));
+		char key[40];
+		snprintf(key, sizeof key, ",%s,", name);
+		for (char *c = key; *c; c++) *c = tolower((unsigned char)*c);
+		if (!strstr(list, key)) return NULL;
+	}
 	if (!g_game || strncmp(path, g_game, strlen(g_game)) != 0) return NULL;   /* only the game's own files */
 	for (int i = 0; i < 64; i++) {
 		if (map[i].data && !strcmp(map[i].path, path)) { *size = map[i].size; if (key) *key = map[i].key; return map[i].data; }
@@ -346,7 +369,11 @@ int main(int argc, char **argv)
 	args[n++] = g_game;
 	for (int i = 2; i < argc && n < 30; i++) args[n++] = argv[i];
 	if (argc == 2) args[n++] = "--auto-detect";   /* as on the console */
-	if (getenv("GW_RGLOAD") && !atoi(getenv("GW_RGLOAD"))) {
+	char zone[512];
+	snprintf(zone, sizeof zone, "%s/sword1_zone.sav", g_saves);
+	struct stat zst;
+	if (stat(zone, &zst) == 0 && zst.st_size > 0) { args[n++] = "-x"; args[n++] = "98"; }   /* as the console */
+	else if (getenv("GW_RGLOAD") && !atoi(getenv("GW_RGLOAD"))) {
 		gw_rg_load(rg_path());
 		if (gw_rg_load_at_start()) { args[n++] = "-x"; args[n++] = "99"; }
 	}
@@ -430,4 +457,16 @@ const void *plat_map_pack(const char *path)
 	packs[slot].pieces = n;
 	packs[slot].head = (const pack_head_t *)packs[slot].at[0];
 	return packs[slot].head;
+}
+
+/* patches/scummvm-slim.patch (SwordEngine::gwZoneCheck): on the console, back to the launcher
+   to put that cluster in the flash (platform_core.c); here, the list and the end of the run */
+void gw_sword1_zone(const char *cluster)
+{
+	char p[512];
+	snprintf(p, sizeof p, "%s/sword1_zones.txt", g_saves);
+	FILE *f = fopen(p, "w");
+	if (f) { fprintf(f, "%s\n", cluster); fclose(f); }
+	fprintf(stderr, "ScummVM: Broken Sword: %s is not in the flash; saved, for the next start\n", cluster);
+	exit(0);
 }

@@ -677,8 +677,159 @@ static void cache_sub(const char *name, bool is_dir, uint32_t size, void *arg)
 	cache_rel(rel, size);
 }
 
+/* ---- Broken Sword: its clusters (150 MB) do not all fit in the flash ----
+   The ones every part of the game uses go in, then the "zones" (one cluster per part of the
+   world) as many as fit, the most recently needed first (SAVE_DIR/sword1_zones.txt). The game
+   reaching a room whose zone is not in the flash saves itself between the two rooms and comes
+   back here (gw_sword1_zone): the next start puts that zone in and goes on from that save. */
+#define BS_ZONES_FILE SAVE_DIR "/sword1_zones.txt"
+#define BS_ZONE_SAVE SAVE_DIR "/sword1_zone.sav"
+static const char *const bs_fixed[] = { "swordres.rif", "scripts.clu", "compacts.clu", "text.clu", "general.clu", "maps.clu" };
+static const char *const bs_zones[] = { "paris1", "paris2", "paris3", "paris4", "ireland", "syria", "spain", "scotland", "train" };
+static char g_bs_dir[12];                 /* the clusters' folder under the game's ("clusters/" or "") */
+static bool g_bs;
+
+static bool bs_detect(void)
+{
+	char p[340];
+	snprintf(p, sizeof p, "%s/clusters/swordres.rif", g_game);
+	if (plat_stat(p).exists) { strcpy(g_bs_dir, "clusters/"); return g_bs = true; }
+	snprintf(p, sizeof p, "%s/swordres.rif", g_game);
+	if (plat_stat(p).exists) { g_bs_dir[0] = 0; return g_bs = true; }
+	return false;
+}
+
+/* the external flash's size. The OCTOSPI's DEVSIZE is no help (256 MB on a 64 MB console: the
+   firmware sets it larger than the chip, and its own probe is not exported), but a chip read
+   past its end wraps around: the smallest n at which this core's code (in the flash) shows
+   up again n bytes further on is the size (64 MB when it does not show up). */
+int scummvm_main(int argc, const char *const argv[]);
+static uint32_t flash_bytes(void)
+{
+	uint32_t devsize = (*(volatile uint32_t *)0x52005008 >> 16) & 31;   /* OCTOSPI1->DCR1 */
+	uint32_t window = devsize >= 23 && devsize <= 28 ? 2u << devsize : 64u << 20;
+	const uint8_t *p = (const uint8_t *)((uintptr_t)scummvm_main & ~(uintptr_t)1);
+	if ((uintptr_t)p < 0x90000000u || (uintptr_t)p >= 0x90000000u + window) return 64u << 20;
+	for (uint32_t n = 16u << 20; n < window; n <<= 1) {
+		if ((uintptr_t)p + n + 4096 > 0x90000000u + window) break;
+		if (!memcmp(p, p + n, 4096)) return n;
+	}
+	return 64u << 20;                         /* no wrap seen: the usual size, to be safe */
+}
+
+/* the zones in the order they go in: the file's (most recent first), then the rest */
+static int bs_zone_order(char order[][12])
+{
+	int n = 0;
+	char buf[160] = "";
+	void *f = plat_fopen(BS_ZONES_FILE, "rb");
+	if (f) { buf[plat_fread(buf, sizeof buf - 1, f)] = 0; plat_fclose(f); }
+	for (char *t = strtok(buf, " \r\n,"); t && n < 9; t = strtok(NULL, " \r\n,"))
+		for (unsigned i = 0; i < 9; i++)
+			if (!strcasecmp(t, bs_zones[i])) {
+				int dup = 0;
+				for (int j = 0; j < n; j++) dup |= !strcmp(order[j], bs_zones[i]);
+				if (!dup) strcpy(order[n++], bs_zones[i]);
+			}
+	for (unsigned i = 0; i < 9; i++) {
+		int dup = 0;
+		for (int j = 0; j < n; j++) dup |= !strcmp(order[j], bs_zones[i]);
+		if (!dup) strcpy(order[n++], bs_zones[i]);
+	}
+	return n;
+}
+
+static bool bs_zone_save_pending(void);
+static void cache_sword1(void)
+{
+	/* what the flash keeps for the game: all of it but the firmware's own reserve and this
+	   core (3.8 MB) -- more than really fits would copy a zone on every start in vain. 54 MB
+	   of a 64 MB one: the common part and Paris 1 and 2 (52.3 MB) went in. */
+	uint32_t budget = flash_bytes() - (10u << 20), used = 0;
+	char rel[28], path[340];
+	char order[9][12];
+	int n = bs_zone_order(order), first = 0;
+	if (bs_zone_save_pending()) {
+		/* the game is waiting for this zone (gw_sword1_zone): it goes in before anything
+		   else. After the common part it found no room clear of the files in use (the
+		   ones already in the flash are, from the moment they are looked up), and the
+		   game asked for it again on every start. */
+		snprintf(rel, sizeof rel, "%s%s.clu", g_bs_dir, order[0]);
+		snprintf(path, sizeof path, "%s/%s", g_game, rel);
+		plat_stat_t st = plat_stat(path);
+		if (st.exists) {
+			int had = g_mapped;
+			cache_rel(rel, st.size);
+			if (g_mapped != had) used += st.size;
+			logf_("ScummVM: Broken Sword: %s first: %s\n", order[0], g_mapped != had ? "in the flash" : "NO ROOM");
+		}
+		first = 1;
+	}
+	for (unsigned i = 0; i < sizeof bs_fixed / sizeof bs_fixed[0]; i++) {
+		snprintf(rel, sizeof rel, "%s%s", g_bs_dir, bs_fixed[i]);
+		snprintf(path, sizeof path, "%s/%s", g_game, rel);
+		plat_stat_t st = plat_stat(path);
+		if (!st.exists) continue;
+		used += st.size;
+		cache_rel(rel, st.size);
+	}
+	for (int i = first; i < n; i++) {
+		snprintf(rel, sizeof rel, "%s%s.clu", g_bs_dir, order[i]);
+		snprintf(path, sizeof path, "%s/%s", g_game, rel);
+		plat_stat_t st = plat_stat(path);
+		if (!st.exists || used + st.size > budget) continue;
+		int had = g_mapped;
+		cache_rel(rel, st.size);
+		if (g_mapped != had) used += st.size;
+		else logf_("ScummVM: Broken Sword: no room in the flash for %s\n", order[i]);  /* a smaller one may fit */
+	}
+	logf_("ScummVM: Broken Sword: %lu KB of clusters for the flash (of %lu; the flash: %lu MB)\n",
+	      (unsigned long)(used / 1024), (unsigned long)(budget / 1024), (unsigned long)(flash_bytes() >> 20));
+}
+
+/* patches/scummvm-slim.patch (SwordEngine::gwZoneCheck): the game saved itself (slot 98,
+   BS_ZONE_SAVE) on its way into a room of 'cluster', which is not in the flash */
+static const gw_i18n_entry_t i18n_bs_zone1[] = {
+	{ "en", "Broken Sword: a new part of the game." }, { "es", "Broken Sword: una zona nueva del juego." },
+	{ "fr", "Broken Sword : une nouvelle partie du jeu." }, { "de", "Baphomets Fluch: ein neuer Spielabschnitt." },
+	{ "it", "Broken Sword: una nuova parte del gioco." }, { "pt", "Broken Sword: uma nova parte do jogo." }, GW_I18N_END };
+static const gw_i18n_entry_t i18n_bs_zone2[] = {
+	{ "en", "Start the game again: it goes into" }, { "es", "Vuelve a entrar en el juego: se copia" },
+	{ "fr", "Relancez le jeu : elle est copiee" }, { "de", "Spiel neu starten: er wird in den" },
+	{ "it", "Riavvia il gioco: viene copiata" }, { "pt", "Volta a entrar no jogo: e copiada" }, GW_I18N_END };
+static const gw_i18n_entry_t i18n_bs_zone3[] = {
+	{ "en", "the flash and you go on from here." }, { "es", "a la flash y sigues desde aqui." },
+	{ "fr", "dans la flash, la partie continue ici." }, { "de", "Flash kopiert, es geht hier weiter." },
+	{ "it", "nella flash e si continua da qui." }, { "pt", "para a flash e continuas daqui." }, GW_I18N_END };
+
+static void message3(const char *a, const char *b, const char *c);
+void gw_sword1_zone(const char *cluster)
+{
+	char buf[160];
+	snprintf(buf, sizeof buf, "%s\n", cluster);    /* first, then the others as they were */
+	void *f = plat_fopen(BS_ZONES_FILE, "rb");
+	char old[160] = "";
+	if (f) { old[plat_fread(old, sizeof old - 1, f)] = 0; plat_fclose(f); }
+	for (char *t = strtok(old, " \r\n,"); t; t = strtok(NULL, " \r\n,"))
+		if (strcasecmp(t, cluster) && strlen(buf) + strlen(t) + 2 < sizeof buf) { strcat(buf, t); strcat(buf, "\n"); }
+	if ((f = plat_fopen(BS_ZONES_FILE, "wb"))) { plat_fwrite(buf, strlen(buf), f); plat_fclose(f); }
+	logf_("ScummVM: Broken Sword: %s is not in the flash; saved, for the next start\n", cluster);
+	audio_stop();
+	log_save();
+	message3(gw_i18n(i18n_bs_zone1), gw_i18n(i18n_bs_zone2), gw_i18n(i18n_bs_zone3));
+	odroid_system_switch_app(0);
+	for (;;) {}
+}
+
+static bool bs_zone_save_pending(void)
+{
+	plat_stat_t st = plat_stat(BS_ZONE_SAVE);
+	return st.exists && st.size > 0;
+}
+
 static void cache_game(void)
 {
+	if (bs_detect()) { cache_sword1(); return; }
 	plat_list_dir(g_game, cache_one, NULL);
 	for (int i = 0; i < g_nsubdirs; i++) {
 		char path[320];
@@ -981,10 +1132,16 @@ int svm_main(void)
 	}
 	extern uint8_t svm_load_state;
 	extern int8_t svm_save_slot;
-	if (svm_load_state) odroid_system_emu_load_state(svm_save_slot);   /* -> rg_load() */
-	/* "resume" in the launcher: the firmware's load callback ran already (svm_main's caller
-	   asked for it), ScummVM loads that file as its slot 99 as soon as the game starts */
-	if (gw_rg_load_at_start()) { argv[argc++] = "-x"; argv[argc++] = "99"; }
+	if (g_bs && bs_zone_save_pending()) {
+		/* Broken Sword saved itself on its way into a zone that is in the flash now
+		   (gw_sword1_zone): that save, newer than any other, whatever was chosen */
+		argv[argc++] = "-x"; argv[argc++] = "98";
+	} else {
+		if (svm_load_state) odroid_system_emu_load_state(svm_save_slot);   /* -> rg_load() */
+		/* "resume" in the launcher: the firmware's load callback ran already (svm_main's caller
+		   asked for it), ScummVM loads that file as its slot 99 as soon as the game starts */
+		if (gw_rg_load_at_start()) { argv[argc++] = "-x"; argv[argc++] = "99"; }
+	}
 	argv[argc++] = g_opt_game[0] ? g_opt_game : "--auto-detect";
 	argv[argc] = NULL;
 	for (uint32_t i = 0; i < STACK_SIZE / 4; i++) g_stack[i] = STACK_PAINT;
