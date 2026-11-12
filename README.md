@@ -19,7 +19,7 @@ No games are included, nor will they be: bring your own.
 |---|---|:-:|---|
 | Maniac Mansion (PC) | SCUMM | ✅ | |
 | Maniac Mansion (NES) | SCUMM | ✅ | |
-| Zak McKracken and the Alien Mindbenders | SCUMM | 🟡 | |
+| Zak McKracken and the Alien Mindbenders | SCUMM | ✅ | |
 | Indiana Jones and the Last Crusade | SCUMM | ✅ | |
 | Loom | SCUMM | ✅ | |
 | The Secret of Monkey Island (EGA, VGA, talkie) | SCUMM | ✅ | |
@@ -260,7 +260,7 @@ No incluye juegos ni los incluirá: usa los tuyos.
 |---|---|:-:|---|
 | Maniac Mansion (PC) | SCUMM | ✅ | |
 | Maniac Mansion (NES) | SCUMM | ✅ | |
-| Zak McKracken and the Alien Mindbenders | SCUMM | 🟡 | |
+| Zak McKracken and the Alien Mindbenders | SCUMM | ✅ | |
 | Indiana Jones y la Última Cruzada | SCUMM | ✅ | |
 | Loom | SCUMM | ✅ | |
 | The Secret of Monkey Island (EGA, VGA, hablada) | SCUMM | ✅ | |
