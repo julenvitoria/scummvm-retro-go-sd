@@ -179,6 +179,13 @@ uint32_t plat_buttons(void)
 	const char *p = getenv("GW_INPUT");
 	uint32_t now = plat_millis(), held = 0;
 	static int saved, loaded;
+	/* GW_HEAP_LOG=ms: the heap's free bytes every so often (leaks over a long run) */
+	static uint32_t heap_next;
+	if (getenv("GW_HEAP_LOG") && now >= heap_next) {
+		extern uint32_t heap_free_bytes(void);
+		heap_next = now + atoi(getenv("GW_HEAP_LOG"));
+		fprintf(stderr, "heap: t=%u s, %u KB free\n", now / 1000, heap_free_bytes() / 1024);
+	}
 	if (!saved && getenv("GW_RGSAVE") && now >= (uint32_t)atoi(getenv("GW_RGSAVE"))) {
 		saved = 1;
 		fprintf(stderr, "rg save at %u: %d\n", now, gw_rg_save(rg_path()));
