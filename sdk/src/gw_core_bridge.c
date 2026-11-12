@@ -102,8 +102,11 @@ int *__errno(void) { return &core_errno_storage; }
  * dropping it, --gc-sections is a *linker* decision that needs KEEP(). */
 __attribute__((used, section(".gw_core_bridge_probe")))
 const uint32_t GW_CORE_BUILT_ABI_VERSION = GW_FIRMWARE_ABI_VERSION;
+/* (up to rg_storage_rename, the v2 append after Retro-Go SD 2.0.0-rc1: this core does not
+   call it, nor rg_storage_free_space -- both are checked with CORE_ABI_HAS -- and asking for
+   the whole struct made 2.0.0-rc1 refuse the core: no ScummVM tab in its menu) */
 __attribute__((used, section(".gw_core_bridge_probe")))
-const uint32_t GW_CORE_BUILT_ABI_SIZE = sizeof(gw_firmware_abi_t);
+const uint32_t GW_CORE_BUILT_ABI_SIZE = offsetof(gw_firmware_abi_t, rg_storage_rename);
 
 /* ====================================================================
  * libc: string.h
