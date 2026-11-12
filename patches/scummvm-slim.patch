@@ -5162,10 +5162,10 @@ index fd004607df5..9ff556eecc2 100644
  	int32 _gamesSaved = 0;
  	int32 _textCursor;
 diff --git a/engines/sword1/logic.cpp b/engines/sword1/logic.cpp
-index dbc9282a3fb..609f5d88cfb 100644
+index dbc9282a3fb..94b3d0233ff 100644
 --- a/engines/sword1/logic.cpp
 +++ b/engines/sword1/logic.cpp
-@@ -124,6 +124,12 @@ void Logic::newScreen(uint32 screen) {
+@@ -124,6 +124,15 @@ void Logic::newScreen(uint32 screen) {
  	if (screen == 33)
  		_scriptVars[SAM_RETURNING] = 0;
  
@@ -5173,12 +5173,15 @@ index dbc9282a3fb..609f5d88cfb 100644
 +	if (SwordEngine::_systemVars.justRestoredGame == 2) {   // (restored between two rooms: as below)
 +		SwordEngine::_systemVars.justRestoredGame = 0;
 +		_sound->streamMusicFile(_scriptVars[CURRENT_MUSIC], 1);
++		// the pointer is not in the save: George had control, so it is the usual one
++		if (_scriptVars[MOUSE_STATUS] & 1)
++			_mouse->setPointer(MSE_POINTER, 0);
 +	}
 +#endif
  	if (SwordEngine::_systemVars.justRestoredGame) { // if we've just restored a game - we want George to be exactly as saved
  		fnAddHuman(NULL, 0, 0, 0, 0, 0, 0, 0);
  		if (_scriptVars[GEORGE_WALKING]) { // except that if George was walking when we saveed the game
-@@ -1013,7 +1019,13 @@ int Logic::fnPlaySequence(Object *cpt, int32 id, int32 sequenceId, int32 d, int3
+@@ -1013,7 +1022,13 @@ int Logic::fnPlaySequence(Object *cpt, int32 id, int32 sequenceId, int32 d, int3
  	if (SwordEngine::isPsx() && sequenceId == 19) {
  		_control->psxEndCredits();
  	} else {
@@ -5192,7 +5195,7 @@ index dbc9282a3fb..609f5d88cfb 100644
  		if (player) {
  			Common::Error err;
  
-@@ -1237,7 +1249,12 @@ int Logic::fnISpeak(Object *cpt, int32 id, int32 cdt, int32 textNo, int32 spr, i
+@@ -1237,7 +1252,12 @@ int Logic::fnISpeak(Object *cpt, int32 id, int32 cdt, int32 textNo, int32 spr, i
  
  		char *text = _objMan->lockText(textNo);
  		cpt->o_speech_time = strlen(text) + 5;
@@ -5231,6 +5234,21 @@ index 83d27f5b0c3..8223b750eba 100644
  private:
  	void addToFreeList(MemHandle *bsMem);
  	void removeFromFreeList(MemHandle *bsMem);
+diff --git a/engines/sword1/mouse.cpp b/engines/sword1/mouse.cpp
+index 994c7a2c5a7..35a2d552115 100644
+--- a/engines/sword1/mouse.cpp
++++ b/engines/sword1/mouse.cpp
+@@ -319,6 +319,10 @@ void Mouse::setLuggage(uint32 resId, uint32 rate) {
+ }
+ 
+ void Mouse::animate() {
++#ifdef GW_SWORD1_SLIM
++	if (!_currentPtr)     // (no pointer made yet: nothing to animate)
++		return;
++#endif
+ 	if ((Logic::_scriptVars[MOUSE_STATUS] == 1) || (_mouseOverride && _currentPtr)) {
+ 		_frame = (_frame + 1) % _currentPtr->numFrames;
+ 
 diff --git a/engines/sword1/resman.cpp b/engines/sword1/resman.cpp
 index b2aa6712651..028e92e362e 100644
 --- a/engines/sword1/resman.cpp
