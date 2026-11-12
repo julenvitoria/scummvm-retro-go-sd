@@ -5501,7 +5501,7 @@ index 999ed4da7c5..cb4d90b7b34 100644
  	MemHandle *resHandle(uint32 id);
  	uint32     resOffset(uint32 id);
 diff --git a/engines/sword1/screen.cpp b/engines/sword1/screen.cpp
-index 67158526c6a..33391f2beb7 100644
+index 67158526c6a..5f1b7ca9c7d 100644
 --- a/engines/sword1/screen.cpp
 +++ b/engines/sword1/screen.cpp
 @@ -36,6 +36,10 @@
@@ -5515,7 +5515,7 @@ index 67158526c6a..33391f2beb7 100644
  namespace Sword1 {
  
  #define SCROLL_FRACTION      16
-@@ -95,10 +99,106 @@ Screen::~Screen() {
+@@ -95,10 +99,113 @@ Screen::~Screen() {
  		quitScreen();
  }
  
@@ -5588,22 +5588,29 @@ index 67158526c6a..33391f2beb7 100644
 +#ifdef GW_SWORD1_SLIM
 +// A text (subtitles, what is said): at 3/4 of its size in the half-size view, 1.5 times the
 +// size of everything else, where every other pixel of it would be barely readable -- around
-+// the same centre and on the same bottom line it had, kept inside the view. Each pixel is the
-+// text's at 4/3 of its place, or the next one when that is clear (thin strokes stay).
++// the same centre and on the same bottom line it had, kept inside the view. Each pixel stands
++// for the text's 4/3 x 4/3 under it: letter if any of them is, else outline if any is (thin
++// strokes stay whole).
 +void Screen::gwDrawText(const uint8 *src, int w, int h, int x, int y) {
 +	int dw = (w * 3 + 3) / 4, dh = (h * 3 + 3) / 4;
 +	int cx = (x + w / 2 - _gwVx) / 2, bottom = (y + h - _gwVy) / 2;
 +	int left = CLIP<int>(cx - dw / 2, 0, MAX(0, GW_VIEW_W - dw));
 +	int top = CLIP<int>(bottom - dh, 0, MAX(0, GW_VIEW_H - dh));
 +	for (int j = 0; j < dh && top + j < GW_VIEW_H; j++) {
-+		int sy = j * 4 / 3;
-+		const uint8 *r0 = src + sy * w, *r1 = sy + 1 < h ? r0 + w : r0;
++		int y0 = j * 4 / 3, y1 = MIN(h, MAX(y0 + 1, (j + 1) * 4 / 3));
 +		uint8 *d = _screenBuf + (top + j) * GW_VIEW_W + left;
 +		for (int i = 0; i < dw && left + i < GW_VIEW_W; i++) {
-+			int sx = i * 4 / 3, sx1 = sx + 1 < w ? sx + 1 : sx;
-+			uint8 c = r0[sx];
-+			if (!c) c = r0[sx1];
-+			if (!c) c = r1[sx];
++			int x0 = i * 4 / 3, x1 = MIN(w, MAX(x0 + 1, (i + 1) * 4 / 3));
++			uint8 letter = 0, outline = 0;
++			for (int sy = y0; sy < y1; sy++)
++				for (int sx = x0; sx < x1; sx++) {
++					uint8 c = src[sy * w + sx];
++					if (c == BORDER_COL || c == BORDER_COL_PSX)
++						outline = c;
++					else if (c)
++						letter = c;
++				}
++			uint8 c = letter ? letter : outline;
 +			if (c)
 +				d[i] = c;
 +		}
@@ -5622,7 +5629,7 @@ index 67158526c6a..33391f2beb7 100644
  		_system->fillScreen(0);
  	}
  }
-@@ -326,6 +426,9 @@ void Screen::fadePalette() {
+@@ -326,6 +433,9 @@ void Screen::fadePalette() {
  }
  
  bool Screen::showScrollFrame() {
@@ -5632,7 +5639,7 @@ index 67158526c6a..33391f2beb7 100644
  	if ((!_fullRefresh) || Logic::_scriptVars[NEW_PALETTE] || _updatePalette)
  		return false; // don't draw an additional frame if we aren't scrolling or have to change the palette
  	if ((_oldScrollX == Logic::_scriptVars[SCROLL_OFFSET_X]) &&
-@@ -361,6 +464,15 @@ void Screen::updateScreen() {
+@@ -361,6 +471,15 @@ void Screen::updateScreen() {
  		_updatePalette = false;
  	}
  
@@ -5648,7 +5655,7 @@ index 67158526c6a..33391f2beb7 100644
  	uint16 scrlX = (uint16)Logic::_scriptVars[SCROLL_OFFSET_X];
  	uint16 scrlY = (uint16)Logic::_scriptVars[SCROLL_OFFSET_Y];
  	if (_fullRefresh) {
-@@ -508,7 +620,12 @@ void Screen::newScreen(uint32 screen) {
+@@ -508,7 +627,12 @@ void Screen::newScreen(uint32 screen) {
  	if (SwordEngine::isPsx())
  		flushPsxCache();
  
@@ -5661,7 +5668,7 @@ index 67158526c6a..33391f2beb7 100644
  	_screenGrid = (uint8 *)malloc(_gridSizeX * _gridSizeY);
  	memset(_screenGrid, 0, _gridSizeX * _gridSizeY);
  	for (cnt = 0; cnt < _roomDefTable[_currentScreen].totalLayers; cnt++) {
-@@ -552,6 +669,23 @@ void Screen::draw() {
+@@ -552,6 +676,23 @@ void Screen::draw() {
  
  	debug(8, "Screen::draw() -> _currentScreen %u", _currentScreen);
  
@@ -5685,7 +5692,7 @@ index 67158526c6a..33391f2beb7 100644
  	if (_currentScreen == 54) {
  		// rm54 has a BACKGROUND parallax layer in parallax[0]
  		if (_parallax[0] && !SwordEngine::isPsx()) //Avoid drawing this parallax on PSX edition, it gets occluded by background
-@@ -676,6 +810,9 @@ void Screen::processImage(uint32 id) {
+@@ -676,6 +817,9 @@ void Screen::processImage(uint32 id) {
  
  	uint8 *tonyBuf = nullptr;
  	uint8 *hifBuf = nullptr;
@@ -5695,7 +5702,7 @@ index 67158526c6a..33391f2beb7 100644
  	if (SwordEngine::isPsx() && compact->o_type != TYPE_TEXT) { // PSX sprites are compressed with HIF
  		hifBuf = (uint8 *)malloc(_resMan->readUint16(&frameHead->width) * _resMan->readUint16(&frameHead->height) / 2);
  		memset(hifBuf, 0x00, (_resMan->readUint16(&frameHead->width) * _resMan->readUint16(&frameHead->height) / 2));
-@@ -688,9 +825,18 @@ void Screen::processImage(uint32 id) {
+@@ -688,9 +832,18 @@ void Screen::processImage(uint32 id) {
  		decompressRLE0(sprData, _resMan->readUint32(&frameHead->compSize), _rleBuffer);
  		sprData = _rleBuffer;
  	} else if (frameHead->runTimeComp[1] == 'I') { // new type
@@ -5714,7 +5721,7 @@ index 67158526c6a..33391f2beb7 100644
  	}
  
  	uint16 sprSizeX, sprSizeY;
-@@ -737,9 +883,22 @@ void Screen::processImage(uint32 id) {
+@@ -737,9 +890,22 @@ void Screen::processImage(uint32 id) {
  
  	uint16 sprPitch = sprSizeX;
  	uint16 incr;
@@ -5737,7 +5744,7 @@ index 67158526c6a..33391f2beb7 100644
  		if ((!(SwordEngine::isPsx()) || (compact->o_type == TYPE_TEXT)
  		        || (compact->o_resource == LVSFLY) || (!(compact->o_resource == GEORGE_MEGA) && (sprSizeX < 260))))
  			drawSprite(sprData + incr, spriteX, spriteY, sprSizeX, sprSizeY, sprPitch);
-@@ -809,6 +968,13 @@ void Screen::verticalMask(uint16 x, uint16 y, uint16 bWidth, uint16 bHeight) {
+@@ -809,6 +975,13 @@ void Screen::verticalMask(uint16 x, uint16 y, uint16 bWidth, uint16 bHeight) {
  }
  
  void Screen::blitBlockClear(uint16 x, uint16 y, uint8 *data) {
@@ -5751,7 +5758,7 @@ index 67158526c6a..33391f2beb7 100644
  	uint8 *dest = _screenBuf + (y * SCRNGRID_Y) * _scrnSizeX + (x * SCRNGRID_X);
  
  	for (uint8 cnty = 0; cnty < (SwordEngine::isPsx() ? SCRNGRID_Y / 2 : SCRNGRID_Y); cnty++) {
-@@ -868,6 +1034,58 @@ void Screen::renderParallax(uint8 *data) {
+@@ -868,6 +1041,58 @@ void Screen::renderParallax(uint8 *data) {
  
  	if (SwordEngine::isPsx())
  		drawPsxParallax(data, paraScrlX, scrnScrlX, scrnWidth);
@@ -5810,7 +5817,7 @@ index 67158526c6a..33391f2beb7 100644
  	else
  		for (uint16 cnty = 0; cnty < scrnHeight; cnty++) {
  			uint8 *src = data + _resMan->readUint32(lineIndexes + cnty + paraScrlY);
-@@ -913,9 +1131,17 @@ void Screen::renderParallax(uint8 *data) {
+@@ -913,9 +1138,17 @@ void Screen::renderParallax(uint8 *data) {
  				}
  			}
  		}
@@ -5828,7 +5835,7 @@ index 67158526c6a..33391f2beb7 100644
  	uint8 *dest = _screenBuf + (sprY * _scrnSizeX) + sprX;
  
  	for (uint16 cnty = 0; cnty < sprHeight; cnty++) {
-@@ -1508,6 +1734,9 @@ void Screen::showFrame(uint16 x, uint16 y, uint32 resId, uint32 frameNo, const b
+@@ -1508,6 +1741,9 @@ void Screen::showFrame(uint16 x, uint16 y, uint32 resId, uint32 frameNo, const b
  // ------------------- Router debugging code --------------------------------
  
  void Screen::bresenhamLine(int32 x1, int32 y1, int32 x2, int32 y2, uint8 color) {
@@ -5838,7 +5845,7 @@ index 67158526c6a..33391f2beb7 100644
  	int32 tmpX, tmpY;
  	uint8 *dstPt1, *dstPt2;
  	int32 dx, dy;
-@@ -1567,6 +1796,10 @@ void Screen::bresenhamLine(int32 x1, int32 y1, int32 x2, int32 y2, uint8 color)
+@@ -1567,6 +1803,10 @@ void Screen::bresenhamLine(int32 x1, int32 y1, int32 x2, int32 y2, uint8 color)
  }
  
  void Screen::plotPoint(int32 x, int32 y, uint8 color) {
