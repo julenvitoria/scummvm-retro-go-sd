@@ -699,13 +699,9 @@ static bool bs_detect(void)
 	return false;
 }
 
-/* the external flash's size, from the OCTOSPI's DEVSIZE (bytes = 2^(DEVSIZE+1)) */
-static uint32_t flash_bytes(void)
-{
-	uint32_t devsize = (*(volatile uint32_t *)0x52005008 >> 16) & 31;   /* OCTOSPI1->DCR1 */
-	uint32_t n = devsize >= 23 && devsize <= 28 ? 2u << devsize : 64u << 20;   /* 16..512 MB */
-	return n;
-}
+/* the external flash's size: 64 MB, the console's. (The OCTOSPI's DEVSIZE says 256 MB on a
+   64 MB console: the firmware sets it larger than the chip; its own probe is not exported.) */
+static uint32_t flash_bytes(void) { return 64u << 20; }
 
 /* the zones in the order they go in: the file's (most recent first), then the rest */
 static int bs_zone_order(char order[][12])
@@ -731,9 +727,10 @@ static int bs_zone_order(char order[][12])
 
 static void cache_sword1(void)
 {
-	/* what the flash keeps for the game: all of it but the firmware's own reserve, this core
-	   (3.6 MB) and a margin -- more than really fits would copy zones again on every start */
-	uint32_t budget = flash_bytes() - (20u << 20), used = 0;
+	/* what the flash keeps for the game: all of it but the firmware's own reserve and this
+	   core (3.8 MB) -- more than really fits would copy a zone on every start in vain. 54 MB:
+	   the common part and Paris 1 and 2 (52.3 MB) went in on a 64 MB console. */
+	uint32_t budget = flash_bytes() - (10u << 20), used = 0;
 	char rel[28], path[340];
 	for (unsigned i = 0; i < sizeof bs_fixed / sizeof bs_fixed[0]; i++) {
 		snprintf(rel, sizeof rel, "%s%s", g_bs_dir, bs_fixed[i]);
