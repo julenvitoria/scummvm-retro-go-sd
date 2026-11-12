@@ -470,11 +470,14 @@ public:
 		return true;
 	}
 	bool drawable() { return ensureScreen(); }
+	int _fill = -1;                             // the whole screen filled before it was made
 	bool ensureScreen() {
 		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0) {
 			int w = _screen.w, h = _screen.h;
 			_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+			if (_fill >= 0 && _screen.getPixels()) memset(_screen.getPixels(), _fill, _screen.pitch * _screen.h);
 		}
+		_fill = -1;
 		return _screen.getPixels() != nullptr;
 	}
 
@@ -531,8 +534,16 @@ public:
 		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0) makeScreen(_screen.w, _screen.h);   // the caller writes to it
 		return &_screen;
 	}
-	void fillScreen(uint32 col) override { if (drawable()) _screen.fillRect(Common::Rect(_screen.w, _screen.h), col); }
-	void fillScreen(const Common::Rect &r, uint32 col) override { if (drawable()) _screen.fillRect(r, col); }
+	// (a screen not made yet is not made to be cleared: ScummVM clears it before every game,
+	// Gob at each o2_initScreen, before its front buffer is adopted -- 64 KB for nothing)
+	void fillScreen(uint32 col) override {
+		if (!_screen.getPixels()) { _fill = col & 0xff; return; }
+		_screen.fillRect(Common::Rect(_screen.w, _screen.h), col);
+	}
+	void fillScreen(const Common::Rect &r, uint32 col) override {
+		if (!_screen.getPixels() && r.contains(Common::Rect(_screen.w, _screen.h))) { _fill = col & 0xff; return; }
+		if (drawable()) _screen.fillRect(r, col);
+	}
 	void setShakePos(int x, int y) override { _shakeX = x; _shakeY = y; }
 
 	bool showMouse(bool visible) override { bool old = _cursorVisible; _cursorVisible = visible; return old; }
