@@ -702,7 +702,7 @@ static bool bs_detect(void)
 /* the external flash's size. The OCTOSPI's DEVSIZE is no help (256 MB on a 64 MB console: the
    firmware sets it larger than the chip, and its own probe is not exported), but a chip read
    past its end wraps around: the smallest n at which this core's code (in the flash) shows
-   up again n bytes further on is the size. */
+   up again n bytes further on is the size (64 MB when it does not show up). */
 int scummvm_main(int argc, const char *const argv[]);
 static uint32_t flash_bytes(void)
 {
@@ -714,7 +714,7 @@ static uint32_t flash_bytes(void)
 		if ((uintptr_t)p + n + 4096 > 0x90000000u + window) break;
 		if (!memcmp(p, p + n, 4096)) return n;
 	}
-	return window;
+	return 64u << 20;                         /* no wrap seen: the usual size, to be safe */
 }
 
 /* the zones in the order they go in: the file's (most recent first), then the rest */
