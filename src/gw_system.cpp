@@ -558,7 +558,11 @@ public:
 	void pump() {
 		if (!_mixer || _busy || _audioSuspended || !plat_audio_rate()) return;
 		_busy = true;                      // the mixer's own callbacks may end up waiting
-		while (plat_audio_free() >= CHUNK) {
+		// What is free now, no more: a mix slower than the playback (Ween's AdLib, emulated)
+		// made room as fast as it filled it, and "while there is room" never ended -- a
+		// watchdog reset on the console. Slow music stutters instead; the watchdog is fed.
+		for (int n = plat_audio_free() / CHUNK; n > 0; n--) {
+			plat_millis();                 // (feeds the watchdog)
 			_mixer->mixCallback((byte *)_stereo, sizeof _stereo);
 			// to mono, a quarter louder than the plain average (the console's speaker is quiet)
 			for (int i = 0; i < CHUNK; i++) {
