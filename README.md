@@ -111,11 +111,18 @@ first launch.
   recognises the game by `smackshi/intro.smk`: that one file is enough.
 - Add `language=` to the `.scummvm` file (`language=es`…), or the subtitles are in English.
 - The game is 150 MB and does not fit in the flash whole: the flash holds the common part
-  and one or two **zones** (Paris, Ireland, Syria…). The first launch copies some 44 MB:
-  it takes a while.
+  and one or two **zones** (Paris 1, Paris 2, Ireland, Syria…). The first launch copies
+  some 50 MB: it takes a while.
 - When you travel to a zone that is not in the flash, the game **saves itself and goes back
-  to the menu** with a notice. Start it again: that zone is copied and you go on exactly
-  where you were.
+  to the menu** with a notice (in the Retro-Go menu's language). Start it again: that zone
+  is copied (progress bar) and you go on exactly where you were. That next start always
+  goes on from there, whether you pick resume or new game; after it, the menus work as usual.
+- The progress bar only shows when something has to be copied: loading a save from a zone
+  already in the flash starts straight away. Loading one from a zone that was dropped to
+  make room for another copies it again, once.
+- To start over: *New game* in Retro-Go opens the game's panel when there are saves —
+  *Start* begins the game from the beginning, *Restore* loads a save, *Quit* goes back to
+  the menu. *Restart* in the in-game panel does the same.
 - The game is drawn at half size, as the screen shows it, so nothing is lost.
 
 </details>
