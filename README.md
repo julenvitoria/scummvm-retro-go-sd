@@ -112,8 +112,8 @@ first launch.
   recognises the game by `smackshi/intro.smk`: that one file is enough.
 - Add `language=` to the `.scummvm` file (`language=es`…), or the subtitles are in English.
 - The game is 150 MB and does not fit in the flash whole: the flash holds the common part
-  and one or two **zones** (Paris 1, Paris 2, Ireland, Syria…). The first launch copies
-  some 50 MB: it takes a while.
+  and the **zones** (Paris 1, Paris 2, Ireland, Syria…) you have been in lately, as many as
+  fit. The first launch copies some 28 MB: it takes a while.
 - When you travel to a zone that is not in the flash, the game **saves itself and goes back
   to the menu** with a notice (in the Retro-Go menu's language). Start it again: that zone
   is copied (progress bar) and you go on exactly where you were. That next start always
