@@ -717,8 +717,9 @@ static uint32_t flash_bytes(void)
 	return 64u << 20;                         /* no wrap seen: the usual size, to be safe */
 }
 
-/* the zones in the order they go in: the file's (most recent first), then the rest */
-static int bs_zone_order(char order[][12])
+/* the zones in the order they go in: the file's (most recent first), then the rest;
+   *listed: how many came from the file (Paris 1 when there is none: the game's start) */
+static int bs_zone_order(char order[][12], int *listed)
 {
 	int n = 0;
 	char buf[160] = "";
@@ -731,6 +732,7 @@ static int bs_zone_order(char order[][12])
 				for (int j = 0; j < n; j++) dup |= !strcmp(order[j], bs_zones[i]);
 				if (!dup) strcpy(order[n++], bs_zones[i]);
 			}
+	*listed = n ? n : 1;
 	for (unsigned i = 0; i < 9; i++) {
 		int dup = 0;
 		for (int j = 0; j < n; j++) dup |= !strcmp(order[j], bs_zones[i]);
@@ -748,12 +750,13 @@ static void cache_sword1(void)
 	uint32_t budget = flash_bytes() - (10u << 20), used = 0;
 	char rel[28], path[340];
 	char order[9][12];
-	int n = bs_zone_order(order), first = 0;
-	if (bs_zone_save_pending()) {
-		/* the game is waiting for this zone (gw_sword1_zone): it goes in before anything
-		   else. After the common part it found no room clear of the files in use (the
-		   ones already in the flash are, from the moment they are looked up), and the
-		   game asked for it again on every start. */
+	int listed, n = bs_zone_order(order, &listed);
+	(void)n;
+	/* The zone needed last goes in before anything else, then the common part, then the
+	   other zones the game has needed, most recent first -- never one it has not: those
+	   only took the room of the ones it had (Paris 2, 23 MB, found no room clear of the
+	   common part and Paris 1, and Paris 4 and Spain went in in its place). */
+	{
 		snprintf(rel, sizeof rel, "%s%s.clu", g_bs_dir, order[0]);
 		snprintf(path, sizeof path, "%s/%s", g_game, rel);
 		plat_stat_t st = plat_stat(path);
@@ -763,7 +766,6 @@ static void cache_sword1(void)
 			if (g_mapped != had) used += st.size;
 			logf_("ScummVM: Broken Sword: %s first: %s\n", order[0], g_mapped != had ? "in the flash" : "NO ROOM");
 		}
-		first = 1;
 	}
 	for (unsigned i = 0; i < sizeof bs_fixed / sizeof bs_fixed[0]; i++) {
 		snprintf(rel, sizeof rel, "%s%s", g_bs_dir, bs_fixed[i]);
@@ -773,7 +775,7 @@ static void cache_sword1(void)
 		used += st.size;
 		cache_rel(rel, st.size);
 	}
-	for (int i = first; i < n; i++) {
+	for (int i = 1; i < listed; i++) {
 		snprintf(rel, sizeof rel, "%s%s.clu", g_bs_dir, order[i]);
 		snprintf(path, sizeof path, "%s/%s", g_game, rel);
 		plat_stat_t st = plat_stat(path);

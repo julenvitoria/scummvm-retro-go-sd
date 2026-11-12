@@ -522,7 +522,20 @@ public:
 	}
 	void grabPalette(byte *c, uint start, uint num) const override { memcpy(c, _pal + start * 3, num * 3); }
 	void copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) override {
-		if (!_sh) { _screen.copyRectToSurface(buf, pitch, x, y, w, h); return; }
+		if (!_sh) {
+			// clipped to the screen (ScummVM asserts on a rect outside it, and stops): a
+			// warning instead, with the sizes, to find who asked for it
+			if (x < 0 || y < 0 || x + w > _screen.w || y + h > _screen.h) {
+				warning("copyRectToScreen: %d,%d %dx%d outside the %dx%d screen", x, y, w, h, _screen.w, _screen.h);
+				Common::Rect r(x, y, x + w, y + h);
+				r.clip(Common::Rect(_screen.w, _screen.h));
+				if (r.isEmpty()) return;
+				buf = (const byte *)buf + (r.top - y) * pitch + (r.left - x);
+				x = r.left; y = r.top; w = r.width(); h = r.height();
+			}
+			_screen.copyRectToSurface(buf, pitch, x, y, w, h);
+			return;
+		}
 		// the pixels at even coordinates of the game's screen
 		const byte *src = (const byte *)buf + (y & 1) * pitch + (x & 1);
 		int x2 = (x + 1) >> 1, y2 = (y + 1) >> 1, w2 = (x + w + 1) / 2 - x2, h2 = (y + h + 1) / 2 - y2;
