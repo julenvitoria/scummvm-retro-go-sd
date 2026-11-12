@@ -699,9 +699,23 @@ static bool bs_detect(void)
 	return false;
 }
 
-/* the external flash's size: 64 MB, the console's. (The OCTOSPI's DEVSIZE says 256 MB on a
-   64 MB console: the firmware sets it larger than the chip; its own probe is not exported.) */
-static uint32_t flash_bytes(void) { return 64u << 20; }
+/* the external flash's size. The OCTOSPI's DEVSIZE is no help (256 MB on a 64 MB console: the
+   firmware sets it larger than the chip, and its own probe is not exported), but a chip read
+   past its end wraps around: the smallest n at which this core's code (in the flash) shows
+   up again n bytes further on is the size. */
+int scummvm_main(int argc, const char *const argv[]);
+static uint32_t flash_bytes(void)
+{
+	uint32_t devsize = (*(volatile uint32_t *)0x52005008 >> 16) & 31;   /* OCTOSPI1->DCR1 */
+	uint32_t window = devsize >= 23 && devsize <= 28 ? 2u << devsize : 64u << 20;
+	const uint8_t *p = (const uint8_t *)((uintptr_t)scummvm_main & ~(uintptr_t)1);
+	if ((uintptr_t)p < 0x90000000u || (uintptr_t)p >= 0x90000000u + window) return 64u << 20;
+	for (uint32_t n = 16u << 20; n < window; n <<= 1) {
+		if ((uintptr_t)p + n + 4096 > 0x90000000u + window) break;
+		if (!memcmp(p, p + n, 4096)) return n;
+	}
+	return window;
+}
 
 /* the zones in the order they go in: the file's (most recent first), then the rest */
 static int bs_zone_order(char order[][12])
@@ -728,8 +742,8 @@ static int bs_zone_order(char order[][12])
 static void cache_sword1(void)
 {
 	/* what the flash keeps for the game: all of it but the firmware's own reserve and this
-	   core (3.8 MB) -- more than really fits would copy a zone on every start in vain. 54 MB:
-	   the common part and Paris 1 and 2 (52.3 MB) went in on a 64 MB console. */
+	   core (3.8 MB) -- more than really fits would copy a zone on every start in vain. 54 MB
+	   of a 64 MB one: the common part and Paris 1 and 2 (52.3 MB) went in. */
 	uint32_t budget = flash_bytes() - (10u << 20), used = 0;
 	char rel[28], path[340];
 	for (unsigned i = 0; i < sizeof bs_fixed / sizeof bs_fixed[0]; i++) {
@@ -752,8 +766,8 @@ static void cache_sword1(void)
 		cache_rel(rel, st.size);
 		if (g_mapped == had) break;             /* the flash is full after all */
 	}
-	logf_("ScummVM: Broken Sword: %lu KB of clusters for the flash (of %lu)\n", (unsigned long)(used / 1024),
-	      (unsigned long)(budget / 1024));
+	logf_("ScummVM: Broken Sword: %lu KB of clusters for the flash (of %lu; the flash: %lu MB)\n",
+	      (unsigned long)(used / 1024), (unsigned long)(budget / 1024), (unsigned long)(flash_bytes() >> 20));
 }
 
 /* patches/scummvm-slim.patch (SwordEngine::gwZoneCheck): the game saved itself (slot 98,
