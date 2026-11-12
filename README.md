@@ -7,7 +7,8 @@
 ## English
 
 A [ScummVM](https://github.com/scummvm/scummvm) core for the Nintendo Game & Watch running
-sylverb's Retro-Go SD firmware (`external_cores` branch).
+sylverb's Retro-Go SD firmware, version 2.0.0-rc1 or later (or its `external_cores` branch).
+Version 1.4.1 and earlier cannot load cores from `/cores/`.
 
 No games are included, nor will they be: bring your own.
 
@@ -248,7 +249,8 @@ make host-gwheap  # the same with the console's heap, to find out-of-memory spot
 ## Español
 
 Core de [ScummVM](https://github.com/scummvm/scummvm) para la Game & Watch con el firmware
-Retro-Go SD de sylverb (rama `external_cores`).
+Retro-Go SD de sylverb, versión 2.0.0-rc1 o posterior (o su rama `external_cores`).
+La 1.4.1 y anteriores no pueden cargar cores desde `/cores/`.
 
 No incluye juegos ni los incluirá: usa los tuyos.
 
