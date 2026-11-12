@@ -800,11 +800,16 @@ static const gw_i18n_entry_t i18n_bs_zone2[] = {
 	{ "fr", "Relancez le jeu : elle est copiee" }, { "de", "Spiel neu starten: er wird in den" },
 	{ "it", "Riavvia il gioco: viene copiata" }, { "pt", "Volta a entrar no jogo: e copiada" }, GW_I18N_END };
 static const gw_i18n_entry_t i18n_bs_zone3[] = {
-	{ "en", "the flash and you go on from here." }, { "es", "a la flash y sigues desde aqui." },
-	{ "fr", "dans la flash, la partie continue ici." }, { "de", "Flash kopiert, es geht hier weiter." },
-	{ "it", "nella flash e si continua da qui." }, { "pt", "para a flash e continuas daqui." }, GW_I18N_END };
+	{ "en", "the flash and you go on from here," }, { "es", "a la flash y sigues desde aqui," },
+	{ "fr", "dans la flash, la partie continue ici," }, { "de", "Flash kopiert, es geht hier weiter," },
+	{ "it", "nella flash e si continua da qui," }, { "pt", "para a flash e continuas daqui," }, GW_I18N_END };
+/* whatever is picked in Retro-Go (resume or new game) the next start goes on from the zone save */
+static const gw_i18n_entry_t i18n_bs_zone4[] = {
+	{ "en", "whatever you pick when you start it." }, { "es", "elijas lo que elijas al entrar." },
+	{ "fr", "quel que soit votre choix au lancement." }, { "de", "egal, was du beim Start waehlst." },
+	{ "it", "qualunque cosa tu scelga all'avvio." }, { "pt", "escolhas o que escolheres ao entrar." }, GW_I18N_END };
 
-static void message3(const char *a, const char *b, const char *c);
+static void message4(const char *a, const char *b, const char *c, const char *d);
 void gw_sword1_zone(const char *cluster)
 {
 	char buf[160];
@@ -818,7 +823,7 @@ void gw_sword1_zone(const char *cluster)
 	logf_("ScummVM: Broken Sword: %s is not in the flash; saved, for the next start\n", cluster);
 	audio_stop();
 	log_save();
-	message3(gw_i18n(i18n_bs_zone1), gw_i18n(i18n_bs_zone2), gw_i18n(i18n_bs_zone3));
+	message4(gw_i18n(i18n_bs_zone1), gw_i18n(i18n_bs_zone2), gw_i18n(i18n_bs_zone3), gw_i18n(i18n_bs_zone4));
 	odroid_system_switch_app(0);
 	for (;;) {}
 }
@@ -1033,24 +1038,25 @@ void plat_quit(void)
 	odroid_system_switch_app(0);
 }
 
-static void message3(const char *a, const char *b, const char *c)
+static void message4(const char *a, const char *b, const char *c, const char *d)
 {
-	static char line[3][64];
-	static odroid_dialog_choice_t opts[] = { { 0, line[0], "", 1, NULL }, { 1, line[1], "", 1, NULL },
-	                                         { 2, line[2], "", 1, NULL }, ODROID_DIALOG_CHOICE_LAST };
-	const char *t[3] = { a, b, c };
+	static char line[4][64];
+	static odroid_dialog_choice_t opts[5];
+	const char *t[4] = { a, b, c, d };
 	int n = 0;
-	for (int i = 0; i < 3; i++) {                /* strncpy: may run before the XIP image is mapped */
+	for (int i = 0; i < 4; i++) {                /* strncpy: may run before the XIP image is mapped */
 		if (!t[i]) continue;
 		strncpy(line[n], t[i], sizeof line[0] - 1);
 		line[n][sizeof line[0] - 1] = 0;
-		opts[n].enabled = 1;
+		odroid_dialog_choice_t o = { n, line[n], "", 1, NULL };
+		opts[n] = o;                             /* whole: a shorter message ended the list here */
 		n++;
 	}
 	odroid_dialog_choice_t last = ODROID_DIALOG_CHOICE_LAST;
-	if (n < 3) opts[n] = last;
+	opts[n] = last;
 	odroid_overlay_dialog("ScummVM", opts, 0, &repaint, 0);
 }
+static void message3(const char *a, const char *b, const char *c) { message4(a, b, c, NULL); }
 static void message(const char *text) { message3(text, NULL, NULL); }
 
 int svm_main(void)
