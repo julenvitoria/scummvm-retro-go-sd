@@ -7,6 +7,7 @@
  *   GW_EVERY=ms    ...at most every ms milliseconds (default 1000)
  *   GW_INPUT="t:buttons:ms;..."  hold buttons (letters u d l r a b g t s p) at t ms for ms
  *   GW_QUIT=ms     exit after ms milliseconds
+ *   GW_NOMAP=a,b   files with one of these in their path are read from the "card", not mapped
  *   GW_SAVES=dir   saves and scummvm.ini (default ./saves)
  *   GW_WDOG=ms     the console's watchdog, roughly: a backtrace on stderr whenever the program
  *                  computes for ms of CPU time without asking the time or reading a file (the
@@ -309,6 +310,14 @@ const uint8_t *plat_map_file(const char *path, uint32_t *size, uint8_t *key)
 		snprintf(key, sizeof key, ",%s,", name);
 		for (char *c = key; *c; c++) *c = tolower((unsigned char)*c);
 		if (!strstr(list, key)) return NULL;
+	}
+	/* GW_NOMAP=ks_v.san,intro4: files with one of these in their path stay on the "card" too
+	   (the console's flash does not hold all of Full Throttle's videos) */
+	if (getenv("GW_NOMAP")) {
+		char list[256];
+		snprintf(list, sizeof list, "%s", getenv("GW_NOMAP"));
+		for (char *t = strtok(list, ","); t; t = strtok(NULL, ","))
+			if (strcasestr(path, t)) return NULL;
 	}
 	if (!g_game || strncmp(path, g_game, strlen(g_game)) != 0) return NULL;   /* only the game's own files */
 	for (int i = 0; i < 64; i++) {
