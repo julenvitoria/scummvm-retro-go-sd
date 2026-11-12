@@ -67,7 +67,7 @@ index d8ee41aca0c..73bdddd1ae0 100644
  class MidiDriver_BASE;
  
 diff --git a/audio/softsynth/opl/dbopl.cpp b/audio/softsynth/opl/dbopl.cpp
-index dcda5a170ce..6464462fab1 100644
+index dcda5a170ce..cb07974b75f 100644
 --- a/audio/softsynth/opl/dbopl.cpp
 +++ b/audio/softsynth/opl/dbopl.cpp
 @@ -1259,6 +1259,8 @@ void Chip::GenerateBlock3( Bitu total, Bit32s* output  ) {
@@ -79,7 +79,23 @@ index dcda5a170ce..6464462fab1 100644
  void Chip::Setup( Bit32u rate ) {
  	double scale = OPLRATE / (double)rate;
  
-@@ -1304,6 +1306,10 @@ void Chip::Setup( Bit32u rate ) {
+@@ -1294,6 +1296,15 @@ void Chip::Setup( Bit32u rate ) {
+ 		linearRates[i] = (Bit32u)( scale * (EnvelopeIncreaseTable[ index ] << ( RATE_SH + ENV_EXTRA - shift - 3 )));
+ 	}
+ 	//Generate the best matching attack rate
++	// Game & Watch: worked out once per rate (Ween makes a new AdLib for each tune), with the
++	// watchdog kicked in the simulation itself -- one pass of a slow rate alone is millions of
++	// steps, longer than the console's watchdog allows
++	static Bit32u gwRate = 0;
++	static Bit32s gwAttack[62];
++	if ( gwRate == rate ) {
++		for ( Bit8u i = 0; i < 62; i++ )
++			attackRates[i] = gwAttack[i];
++	} else
+ 	for ( Bit8u i = 0; i < 62; i++ ) {
+ 		Bit8u index, shift;
+ 		EnvelopeSelect( i, index, shift );
+@@ -1304,10 +1315,16 @@ void Chip::Setup( Bit32u rate ) {
  		Bit32s bestAdd = guessAdd;
  		Bit32u bestDiff = 1 << 30;
  		for( Bit32u passes = 0; passes < 16; passes ++ ) {
@@ -90,6 +106,22 @@ index dcda5a170ce..6464462fab1 100644
  			Bit32s volume = ENV_MAX;
  			Bit32s samples = 0;
  			Bit32u count = 0;
+ 			while ( volume > 0 && samples < original * 2 ) {
++				if ( !( samples & 0xffff ) && gw_wdog_kick )
++					gw_wdog_kick();
+ 				count += guessAdd;
+ 				Bit32s change = count >> RATE_SH;
+ 				count &= RATE_MASK;
+@@ -1339,6 +1356,9 @@ void Chip::Setup( Bit32u rate ) {
+ 			}
+ 		}
+ 		attackRates[i] = bestAdd;
++		gwAttack[i] = bestAdd;
++		if ( i == 61 )
++			gwRate = rate;
+ 	}
+ 	for ( Bit8u i = 62; i < 76; i++ ) {
+ 		//This should provide instant volume maximizing
 diff --git a/base/commandLine.cpp b/base/commandLine.cpp
 index 87b0fafe9f2..060b338d170 100644
 --- a/base/commandLine.cpp
