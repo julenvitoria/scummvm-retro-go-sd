@@ -31,6 +31,7 @@ No games are included, nor will they be: bring your own.
 | Beneath a Steel Sky | Sky | ✅ | first launch prepares the game (a few minutes) |
 | Sołtys | CGE | ✅ | |
 | Lure of the Temptress | Lure | ✅ | |
+| Broken Sword: The Shadow of the Templars | Sword1 | 🟡 | no cutscene videos; see the notes |
 | The Dig | SCUMM | ❌ | too big for the flash |
 | The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
 | Macintosh versions | — | ❌ | |
@@ -103,6 +104,19 @@ Copy `DISK1.VGA` to `DISK4.VGA` into the game's folder, with ScummVM's `lure.dat
 with ScummVM, not with the game). Everything goes to the flash; nothing is built on the
 first launch.
 
+**Broken Sword: The Shadow of the Templars** (PC CD)
+
+- Copy the CD's `clusters`, `music` and `speech` folders into the game's folder. `smackshi`
+  is not needed: **the cutscene videos are skipped** (each needs over 1.5 MB of memory).
+- Add `language=` to the `.scummvm` file (`language=es`…), or the subtitles are in English.
+- The game is 150 MB and does not fit in the flash whole: the flash holds the common part
+  and one or two **zones** (Paris, Ireland, Syria…). The first launch copies some 44 MB:
+  it takes a while.
+- When you travel to a zone that is not in the flash, the game **saves itself and goes back
+  to the menu** with a notice. Start it again: that zone is copied and you go on exactly
+  where you were.
+- The game is drawn at half size, as the screen shows it, so nothing is lost.
+
 </details>
 
 <details>
@@ -145,12 +159,13 @@ these lines nothing changes: ScummVM picks what it finds in the folder.
 | Beneath a Steel Sky | `sky` |
 | Sołtys | `soltys` |
 | Lure of the Temptress | `lure` |
+| Broken Sword | `sword1` |
 
 Every game's short name is in ScummVM's
 [compatibility list](https://www.scummvm.org/compatibility/), column "ScummVM ID", without
 the engine in front (`scumm:ft` → `game=ft`). The list covers every engine, not only
 LucasArts', but this core runs the games above for now: SCUMM (not The Dig nor The Curse of Monkey
-Island), Beneath a Steel Sky, Sołtys and Lure of the Temptress.
+Island), Beneath a Steel Sky, Sołtys, Lure of the Temptress and Broken Sword.
 
 They do not fix an incomplete copy, nor the versions this core leaves out on purpose:
 Macintosh (its buffers are cut to save memory) and FM-Towns.
@@ -272,6 +287,7 @@ No incluye juegos ni los incluirá: usa los tuyos.
 | Beneath a Steel Sky | Sky | ✅ | el primer arranque prepara el juego (unos minutos) |
 | Sołtys | CGE | ✅ | |
 | Lure of the Temptress | Lure | ✅ | |
+| Broken Sword: La leyenda de los templarios | Sword1 | 🟡 | sin vídeos; mira las notas |
 | The Dig | SCUMM | ❌ | no cabe en la flash |
 | The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
 | Versiones de Macintosh | — | ❌ | |
@@ -345,6 +361,18 @@ Copia `DISK1.VGA` a `DISK4.VGA` en la carpeta del juego, junto con `lure.dat` de
 (viene con ScummVM, no con el juego). Todo va a la flash; no se crea nada en el primer
 arranque.
 
+**Broken Sword: La leyenda de los templarios** (PC CD)
+
+- Copia las carpetas `clusters`, `music` y `speech` del CD en la carpeta del juego.
+  `smackshi` no hace falta: **los vídeos se saltan** (cada uno necesita más de 1,5 MB de
+  memoria).
+- Añade `language=` al fichero `.scummvm` (`language=es`…), o los subtítulos salen en inglés.
+- El juego ocupa 150 MB y no cabe entero en la flash: en ella van la parte común y una o dos
+  **zonas** (París, Irlanda, Siria…). El primer arranque copia unos 44 MB: tarda un rato.
+- Al viajar a una zona que no está en la flash, el juego **se guarda solo y vuelve al menú**
+  con un aviso. Vuelve a entrar: se copia esa zona y sigues justo donde estabas.
+- El juego se dibuja a la mitad de tamaño, como lo muestra la pantalla, así que no se pierde nada.
+
 </details>
 
 <details>
@@ -388,12 +416,13 @@ líneas no cambia nada: ScummVM elige lo que encuentra en la carpeta.
 | Beneath a Steel Sky | `sky` |
 | Sołtys | `soltys` |
 | Lure of the Temptress | `lure` |
+| Broken Sword | `sword1` |
 
 El nombre corto de cada juego está en la
 [lista de compatibilidad](https://www.scummvm.org/compatibility/) de ScummVM, columna
 "ScummVM ID", sin el motor delante (`scumm:ft` → `game=ft`). La lista incluye todos los
 motores, no solo los de LucasArts, pero por ahora este core ejecuta los juegos de la
-tabla: SCUMM (The Dig y The Curse of Monkey Island no), Beneath a Steel Sky, Sołtys y Lure of the Temptress.
+tabla: SCUMM (The Dig y The Curse of Monkey Island no), Beneath a Steel Sky, Sołtys, Lure of the Temptress y Broken Sword.
 
 No arreglan una copia incompleta ni las versiones que este core deja fuera a propósito:
 Macintosh (sus buffers están recortados para ahorrar memoria) y FM-Towns.
