@@ -246,10 +246,18 @@ kept for every game.
 If a game goes back to the Retro-Go menu, the reason is shown on screen and written to
 `/saves/scummvm/scummvm.log`.
 
-- *Engine file missing or from another version*: `/cores/scummvm.bin` and the files in
+- *Game folder not found or empty*: the folder named in the `.scummvm` file is not in
+  `/scummvm/`, or has nothing in it.
+- *No known game in this folder*: none of its files is one the core knows a game by.
+- *This game's engine is not in this version of the core*: the game is recognised, but
+  there is no engine file for it in `/cores/scummvm/` (the notice names it).
+- *This version of the game is not supported*: the engine is there, but it does not know
+  this edition of the game.
+- *Core files missing or from another release*: `/cores/scummvm.bin` and the files in
   `/cores/scummvm/` are not from the same release. Copy them all again.
-- The loader picks the engine from the game's files. To choose it yourself, add a line
-  `engine=sky` (or `scumm`, `cge`, `lure`, `sword1`) to the game's `.scummvm` file.
+- The loader picks the engine from the game's files, with the table
+  `/cores/scummvm/engines.txt`. To choose it yourself, add a line `engine=sky` (or `scumm`,
+  `cge`, `lure`, `sword1`, `gob`) to the game's `.scummvm` file.
 - Which files are on the card: the PAUSE menu inside a game has a *ScummVM* line such as
   `scumm 3364D11A L2` — the engine, the id of that engine file and the loader's version.
   The log's first lines say the same. Each release lists its ids.
@@ -540,10 +548,19 @@ La elección se guarda para todos los juegos.
 Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escrito en
 `/saves/scummvm/scummvm.log`.
 
-- *Engine file missing or from another version*: `/cores/scummvm.bin` y los ficheros de
+- *Carpeta del juego vacía o no encontrada*: la carpeta que dice el fichero `.scummvm` no
+  está en `/scummvm/`, o no tiene nada dentro.
+- *Ningún juego conocido en esta carpeta*: ninguno de sus ficheros es de los que el core
+  usa para reconocer un juego.
+- *El motor de este juego no está en esta versión del core*: el juego se reconoce, pero no
+  hay fichero de motor para él en `/cores/scummvm/` (el aviso dice cuál).
+- *Esta versión del juego no está soportada*: el motor está, pero no conoce esa edición del
+  juego.
+- *Faltan ficheros del core o son de otra versión*: `/cores/scummvm.bin` y los ficheros de
   `/cores/scummvm/` no son de la misma versión. Cópialos todos otra vez.
-- El cargador elige el motor por los ficheros del juego. Para elegirlo a mano, añade una
-  línea `engine=sky` (o `scumm`, `cge`, `lure`, `sword1`) al fichero `.scummvm` del juego.
+- El cargador elige el motor por los ficheros del juego, con la tabla
+  `/cores/scummvm/engines.txt`. Para elegirlo a mano, añade una línea `engine=sky` (o
+  `scumm`, `cge`, `lure`, `sword1`, `gob`) al fichero `.scummvm` del juego.
 - Qué ficheros hay en la tarjeta: el menú de PAUSE dentro de un juego tiene una línea
   *ScummVM* como `scumm 3364D11A L2` — el motor, el identificador de ese fichero de motor y
   la versión del cargador. Las primeras líneas del log dicen lo mismo. Cada versión publica

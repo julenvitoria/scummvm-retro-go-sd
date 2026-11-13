@@ -5,7 +5,8 @@
                                   id of every engine file (the CRC-32 in its footer), which is
                                   what the PAUSE menu shows on the console
   versions.py OUT --zip FILE      also writes the zip to unpack at the root of the SD card:
-                                  cores/scummvm.bin and cores/scummvm/<engine>.svm
+                                  cores/scummvm.bin, cores/scummvm/<engine>.svm and
+                                  cores/scummvm/engines.txt (the loader's table of engines)
 
 OUT is the build's out/ directory. The zip is the same for the same files (fixed dates, sorted).
 """
@@ -26,6 +27,8 @@ def main():
         name = os.path.basename(path)
         files.append((path, 'cores/scummvm/' + name))
         rows.append(('`/cores/scummvm/%s`' % name, name[:-4], '%08X' % image_id, len(data)))
+    table = os.path.join(out, 'scummvm', 'engines.txt')
+    files.append((table, 'cores/scummvm/engines.txt'))
     print('| File | Engine | Version / id | Size |')
     print('|---|---|---|---|')
     for f, e, i, n in rows:

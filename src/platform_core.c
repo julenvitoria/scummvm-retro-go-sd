@@ -1300,7 +1300,13 @@ int svm_main(void)
 		/* ScummVM gave up (no game detected...): say so instead of just leaving */
 		char last[64];
 		last_log_line(last, sizeof last);
-		message3("ScummVM could not start the game:", last, g_game);
+		/* an engine and files of its games, but no game it knows (--auto-detect) */
+		static const gw_i18n_entry_t unsupported[] = {
+			{ "en", "This version of the game is not supported:" }, { "es", "Esta version del juego no esta soportada:" },
+			{ "fr", "Cette version du jeu n'est pas geree :" }, { "de", "Diese Spielversion wird nicht unterstuetzt:" },
+			{ "it", "Versione del gioco non supportata:" }, { "pt", "Esta versao do jogo nao e suportada:" }, GW_I18N_END };
+		if (strstr(last, "Game data not found")) message3(gw_i18n(unsupported), g_game, NULL);
+		else message3("ScummVM could not start the game:", last, g_game);
 	}
 	plat_quit();
 	return 0;
