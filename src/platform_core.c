@@ -56,9 +56,6 @@ static uint32_t g_clut[256];           /* the game's palette */
    that to the nearest colour, through g_lut. */
 static uint32_t g_hw[256];
 static uint8_t g_lut[256];
-static uint8_t g_clut_pending;         /* g_hw is newer than what the LCD has */
-static uint32_t g_clut_since;
-static void clut_flush(int now);
 #define OV0 LCD_OVERLAY_CLUT_BASE
 #define OV1 (LCD_OVERLAY_CLUT_BASE + LCD_OVERLAY_CLUT_MAX)
 static inline int in_ov(int i) { return i >= OV0 && i < OV1; }
@@ -236,12 +233,15 @@ void plat_set_palette(const uint8_t *rgb, int start, int count)
 	for (int i = 0; i < count && start + i < 256; i++)
 		g_clut[start + i] = ((uint32_t)rgb[3 * i] << 16) | ((uint32_t)rgb[3 * i + 1] << 8) | rgb[3 * i + 2];
 	build_hw_clut();
-	/* The LCD gets it with the first frame drawn for it (plat_present), not now: the frame on
-	   the screen was drawn through the old g_lut, and a palette that cycles (the theatre's
-	   lights in Atlantis) moves the spare slots around -- until the next frame those pixels
-	   showed another colour, specks all over the wall. */
-	if (!g_clut_pending) g_clut_since = HAL_GetTick();
-	g_clut_pending = 1;
+	/* The firmware keeps the table until the next lcd_swap()'s vertical blank and writes it
+	   there, with the frame that swap brings -- the frame drawn for it, through the new
+	   g_lut. But a swap may still be on its way: the game sets its palette a few ms after
+	   showing a frame, before that frame's blank, and the new table went up with THAT frame,
+	   drawn through the old g_lut. Whatever the map had moved showed another slot's colour
+	   until the next frame: Atlantis' cycling lights flashed specks all over the wall, ten
+	   times a second. So: let that frame get there first. */
+	lcd_sleep_while_swap_pending();
+	lcd_set_clut(g_hw, 256);
 #ifdef SVM_DIAG_CLUT
 	if (g_diag_events < 400) {
 		g_diag_events++;
@@ -255,19 +255,6 @@ void plat_set_palette(const uint8_t *rgb, int start, int count)
 #endif
 }
 
-/* ...or after a long while without a frame (something that only sets palettes). Long: the
-   console takes well over 60 ms from a game's palette change to the frame drawn for it, and
-   with that as the limit the specks were all still there. */
-static void clut_flush(int now)
-{
-	if (!g_clut_pending) return;
-	if (!now && HAL_GetTick() - g_clut_since < 400) return;
-#ifdef SVM_DIAG_CLUT
-	if (!now) diag_add("LATE %lu\n", (unsigned long)HAL_GetTick());
-#endif
-	g_clut_pending = 0;
-	lcd_set_clut(g_hw, 256);
-}
 
 static void log_save_if_new(void);
 
@@ -284,12 +271,8 @@ void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 	common_ingame_overlay();
 	lcd_swap();
 #ifdef SVM_DIAG_CLUT
-	if (g_diag_events && g_diag_events < 400) diag_add("F %lu%s\n", (unsigned long)HAL_GetTick(), g_clut_pending ? " clut" : "");
+	if (g_diag_events && g_diag_events < 400) diag_add("F %lu\n", (unsigned long)HAL_GetTick());
 #endif
-	if (g_clut_pending) {                   /* with the frame drawn for it: as it comes up */
-		lcd_sleep_while_swap_pending();
-		clut_flush(1);
-	}
 	pump();
 }
 
@@ -471,7 +454,7 @@ uint32_t plat_buttons(void)
 
 /* ---------------------------------------------------------------- time */
 
-uint32_t plat_millis(void) { wdog_refresh(); clut_flush(0); return HAL_GetTick(); }
+uint32_t plat_millis(void) { wdog_refresh(); return HAL_GetTick(); }
 
 void plat_delay(uint32_t ms)
 {
