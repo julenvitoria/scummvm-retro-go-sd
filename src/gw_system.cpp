@@ -475,8 +475,55 @@ public:
 	bool _mouseSet = false, _mouseTell = false;   // the pointer starts in the middle of the screen
 	int _shakeX = 0, _shakeY = 0;
 
+#ifdef GW_GOB_SCREEN   /* the Gob image (Makefile): its front buffer is adopted as the screen */
+	static GWGraphics *_the;
+	GWGraphics() { memset(_pal, 0, sizeof _pal); _the = this; }
+	~GWGraphics() override { dropScreen(); free(_cursor); }
+
+	// gwAdoptScreen(): a window of the engine's own front buffer used as the screen, instead
+	// of a copy of it. The window has the screen's size; the buffer may be wider (its pitch).
+	const byte *_adopt = nullptr;
+	bool adopted() const { return _adopt && _screen.getPixels() == _adopt; }
+	void dropScreen() {
+		int w = _screen.w, h = _screen.h;
+		if (adopted()) _screen = Graphics::Surface();
+		else _screen.free();
+		_screen.w = w; _screen.h = h;          // the size stays known: ensureScreen()
+		_adopt = nullptr;
+	}
+	void makeScreen(int w, int h) {
+		dropScreen();
+		_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+	}
+	// true: the window is the screen now. false (another size, or p NULL: the engine is about
+	// to free the buffer): it is not, and the screen is the backend's own again -- made when
+	// something next draws on it, not here, where the engine may be changing buffers
+	bool adopt(byte *p, int pitch, int w, int h) {
+		if (p && _adopt == p && adopted() && _screen.pitch == pitch) return true;
+		if (!p || w != _screen.w || h != _screen.h || w <= 0 || h <= 0) {
+			if (adopted()) dropScreen();
+			return false;
+		}
+		dropScreen();
+		_screen.init(w, h, pitch, p, Graphics::PixelFormat::createFormatCLUT8());
+		_adopt = p;
+		return true;
+	}
+	bool drawable() { return ensureScreen(); }
+	int _fill = -1;                             // the whole screen filled before it was made
+	bool ensureScreen() {
+		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0) {
+			int w = _screen.w, h = _screen.h;
+			_screen.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+			if (_fill >= 0 && _screen.getPixels()) memset(_screen.getPixels(), _fill, _screen.pitch * _screen.h);
+		}
+		_fill = -1;
+		return _screen.getPixels() != nullptr;
+	}
+#else
 	GWGraphics();
 	~GWGraphics() override { _screen.free(); free(_cursor); }
+#endif
 
 	// Broken Sword is 640x480; the panel shows every other pixel of such a game anyway
 	// (platform_core.c, draw_frame), so the screen is kept at that size: 75 KB, not 300.
@@ -484,10 +531,18 @@ public:
 
 	void initSize(uint w, uint h, const Graphics::PixelFormat *format) override {
 		NullGraphicsManager::initSize(w, h, format);
+#ifdef GW_GOB_SCREEN   /* the Gob image (Makefile): its front buffer is adopted as the screen */
+		// (the screen itself is made when something first draws on it, ensureScreen(): an
+		// engine whose front buffer is adopted never needs it)
+		if (_screen.w != (int)w || _screen.h != (int)h) {
+			dropScreen();
+			_screen.w = w; _screen.h = h;
+#else
 		_sh = w > 320 && ConfMan.get("engineid").equalsIgnoreCase("sword1") ? 1 : 0;
 		if (_screen.w != (int)(w >> _sh) || _screen.h != (int)(h >> _sh)) {
 			_screen.free();
 			_screen.create(w >> _sh, h >> _sh, Graphics::PixelFormat::createFormatCLUT8());
+#endif
 		}
 		// SCUMM keeps its screens in a heap of their own; no other engine has such screens
 		if (!ConfMan.get("engineid").equalsIgnoreCase("scumm")) heap_screen_spill = 1;
@@ -523,6 +578,34 @@ public:
 	}
 	void grabPalette(byte *c, uint start, uint num) const override { memcpy(c, _pal + start * 3, num * 3); }
 	void copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) override {
+#ifdef GW_GOB_SCREEN   /* the Gob image (Makefile): its front buffer is adopted as the screen */
+		if (!drawable()) return;
+		const byte *src = (const byte *)buf;
+		if (adopted()) {
+			// (from the engine's front buffer, which the screen is a window of: nothing to do
+			// when it is the same place; memmove() otherwise, the two may overlap)
+			if (x < 0 || y < 0 || x + w > _screen.w || y + h > _screen.h) return;
+			byte *dst = (byte *)_screen.getBasePtr(x, y);
+			if (dst == src && pitch == _screen.pitch) return;
+			for (int i = 0; i < h; i++) memmove(dst + i * _screen.pitch, src + i * pitch, w);
+			return;
+		}
+		_screen.copyRectToSurface(buf, pitch, x, y, w, h);
+	}
+	Graphics::Surface *lockScreen() override {
+		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0) makeScreen(_screen.w, _screen.h);   // the caller writes to it
+		return &_screen;
+	}
+	// (a screen not made yet is not made to be cleared: ScummVM clears it before every game,
+	// Gob at each o2_initScreen, before its front buffer is adopted -- 64 KB for nothing)
+	void fillScreen(uint32 col) override {
+		if (!_screen.getPixels()) { _fill = col & 0xff; return; }
+		_screen.fillRect(Common::Rect(_screen.w, _screen.h), col);
+	}
+	void fillScreen(const Common::Rect &r, uint32 col) override {
+		if (!_screen.getPixels() && r.contains(Common::Rect(_screen.w, _screen.h))) { _fill = col & 0xff; return; }
+		if (drawable()) _screen.fillRect(r, col);
+#else
 		if (!_sh) {
 			// clipped to the screen (ScummVM asserts on a rect outside it, and stops): a
 			// warning instead, with the sizes, to find who asked for it
@@ -554,6 +637,7 @@ public:
 		Common::Rect h((r.left + 1) >> 1, (r.top + 1) >> 1, (r.right + 1) >> 1, (r.bottom + 1) >> 1);
 		h.clip(Common::Rect(_screen.w, _screen.h));
 		if (!h.isEmpty()) _screen.fillRect(h, col);
+#endif
 	}
 	void setShakePos(int x, int y) override { _shakeX = x; _shakeY = y; }
 
@@ -596,16 +680,36 @@ public:
 	}
 };
 
+#ifdef GW_GOB_SCREEN   /* the Gob image (Makefile): its front buffer is adopted as the screen */
+GWGraphics *GWGraphics::_the;
+
+/* patches/scummvm-slim.patch (Gob::Video::retrace): a window of w x h bytes of the engine's
+   front buffer, whose lines are pitch bytes apart, is the screen from now on if the screen
+   has that size (returns whether it is); NULL before the engine frees the buffer */
+bool gwAdoptScreen(byte *pixels, int pitch, int w, int h)
+{
+	return GWGraphics::_the && GWGraphics::_the->adopt(pixels, pitch, w, h);
+}
+
+/* ...and has the backend a screen to draw on right now? */
+bool gwScreenReady()
+{
+	return GWGraphics::_the && GWGraphics::_the->_screen.getPixels() != nullptr;
+#else
 /* patches/scummvm-slim.patch (Broken Sword, screen.cpp): its room picture, already at half
    size, into the half-size screen at (x, y) of that size */
 static GWGraphics *g_gwGfx;
 GWGraphics::GWGraphics() { memset(_pal, 0, sizeof _pal); g_gwGfx = this; }
+/* (Gob's hooks, for a build with every engine in it: its screen stays the backend's copy) */
+bool gwAdoptScreen(byte *, int, int, int) { return false; }
+bool gwScreenReady() { return g_gwGfx && g_gwGfx->_screen.getPixels() != nullptr; }
 void gwCopyRectHalf(const byte *buf, int pitch, int x, int y, int w, int h)
 {
 	GWGraphics *g = g_gwGfx;
 	if (!g || !g->_screen.getPixels()) return;
 	if (!g->_sh) { g->copyRectToScreen(buf, pitch, x, y, w, h); return; }
 	g->_screen.copyRectToSurface(buf, pitch, x, y, w, h);
+#endif
 }
 
 /* ================================================================ sound */

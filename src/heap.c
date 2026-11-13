@@ -183,6 +183,8 @@ static void *alloc(size_t align, size_t n, void *caller)
 			         (unsigned long)(g_peak / 1024), caller);
 			plat_log(msg);
 			map_dump();
+			extern void plat_log_flush(void) __attribute__((weak));
+			if (plat_log_flush) plat_log_flush();
 		}
 	}
 	if (p) map_add(p, (uint32_t)n, caller);

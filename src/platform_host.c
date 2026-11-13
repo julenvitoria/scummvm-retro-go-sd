@@ -73,6 +73,8 @@ static void wdog_refresh(void)
 	setitimer(ITIMER_VIRTUAL, &it, 0);
 }
 
+void gw_wdog_kick(void) { wdog_refresh(); }
+
 uint32_t plat_millis(void)
 {
 	wdog_refresh();
