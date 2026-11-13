@@ -571,6 +571,10 @@ plat_stat_t plat_stat(const char *path)
 #ifdef SVM_DIAG_TRACE
 	if (g_trace) logf_("stat %s\n", path);
 #endif
+	/* (every file call refreshes the watchdog: looking a name up in a folder with many files
+	   takes tens of ms on the card, and Ween looks its 15 save slots up, several times each,
+	   inside one instruction of its script -- it was reset opening its save menu) */
+	wdog_refresh();
 	rg_stat_t s = rg_storage_stat(path);
 	plat_stat_t r = { s.exists, s.is_dir, (uint32_t)s.size };
 	return r;
@@ -592,7 +596,7 @@ bool plat_list_dir(const char *path, void (*cb)(const char *, bool, uint32_t, vo
 	return true;
 }
 
-bool plat_mkdir(const char *path) { return rg_storage_mkdir(path); }
+bool plat_mkdir(const char *path) { wdog_refresh(); return rg_storage_mkdir(path); }
 void *plat_fopen(const char *path, const char *mode)
 {
 	wdog_refresh();
@@ -605,9 +609,9 @@ void *plat_fopen(const char *path, const char *mode)
 }
 uint32_t plat_fread(void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fread(buf, 1, n, (FILE *)f); }
 uint32_t plat_fwrite(const void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fwrite(buf, 1, n, (FILE *)f); }
-bool plat_fseek(void *f, int32_t off, int whence) { return fseek((FILE *)f, off, whence) == 0; }
+bool plat_fseek(void *f, int32_t off, int whence) { wdog_refresh(); return fseek((FILE *)f, off, whence) == 0; }
 int32_t plat_ftell(void *f) { return (int32_t)ftell((FILE *)f); }
-void plat_fclose(void *f) { fclose((FILE *)f); }
+void plat_fclose(void *f) { wdog_refresh(); fclose((FILE *)f); wdog_refresh(); }
 
 /* The game's files, cached in external flash before ScummVM starts (the firmware unmaps the
    flash while it writes it, and most of ScummVM runs from there). */
