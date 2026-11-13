@@ -651,7 +651,6 @@ image/codecs/cinepak.cpp
 image/codecs/codec.cpp
 image/codecs/dither.cpp
 image/codecs/hlz.cpp
-image/codecs/indeo3.cpp
 image/codecs/msrle.cpp
 image/codecs/msrle4.cpp
 image/codecs/msvideo1.cpp
