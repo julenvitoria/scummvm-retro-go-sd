@@ -32,7 +32,7 @@ No games are included, nor will they be: bring your own.
 | Beneath a Steel Sky | Sky | ✅ | first launch prepares the game (a few minutes) |
 | Sołtys | CGE | ✅ | |
 | Lure of the Temptress | Lure | ✅ | |
-| Broken Sword: The Shadow of the Templars | Sword1 | 🟡 | no cutscene videos; see the notes |
+| Broken Sword: The Shadow of the Templars | Sword1 | ✅ | no cutscene videos; see the notes |
 | The Dig | SCUMM | ❌ | too big for the flash |
 | The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
 | Macintosh versions | — | ❌ | |
@@ -46,7 +46,11 @@ Open a section:
 <details>
 <summary><b>Installation</b></summary>
 
-1. Copy `scummvm.bin` to `/cores/` on the SD card.
+1. Unzip the release at the root of the SD card. It holds the loader, `/cores/scummvm.bin`,
+   and one file per game engine in `/cores/scummvm/` (`scumm.svm`, `sky.svm`, `cge.svm`,
+   `lure.svm`, `sword1.svm`): the loader looks at the game's files and starts the engine it
+   needs. All of them must come from the same release. Delete nothing by hand when updating:
+   the new files replace the old ones.
 2. Copy each game's files, as they are (`000.lfl`, `901.lfl`, `disk01.lec`…), to a folder of
    its own inside `/scummvm/` — outside `/roms`, so that it does not show in the menu.
 3. Put one `.scummvm` text file per game in `/roms/scummvm/`. Its name is what the menu
@@ -226,15 +230,27 @@ kept for every game.
 If a game goes back to the Retro-Go menu, the reason is shown on screen and written to
 `/saves/scummvm/scummvm.log`.
 
+- *Engine file missing or from another version*: `/cores/scummvm.bin` and the files in
+  `/cores/scummvm/` are not from the same release. Copy them all again.
+- The loader picks the engine from the game's files. To choose it yourself, add a line
+  `engine=sky` (or `scumm`, `cge`, `lure`, `sword1`) to the game's `.scummvm` file.
+- Which files are on the card: the PAUSE menu inside a game has a *ScummVM* line such as
+  `scumm 3364D11A L2` — the engine, the id of that engine file and the loader's version.
+  The log's first lines say the same. Each release lists its ids.
+
 </details>
 
 <details>
 <summary><b>How it is made</b></summary>
 
-- The essentials (boot, SD card access, the heap) live in the core's RAM; the rest of
-  ScummVM (~2.5 MB of code) runs straight from the external flash (XIP). At boot the core
-  is copied to the flash and relocated to wherever it landed (`tools/xip_pack.py`,
-  `src/boot.c`).
+- `scummvm.bin` is a 5 KB loader (`src/stub.c`). ScummVM itself comes in one image per
+  engine, `/cores/scummvm/<engine>.svm`: a whole ScummVM with that engine alone, so a game
+  carries no other engine's code in the flash nor its tables in memory, and a change to one
+  engine changes one file. The loader picks the image from the game's files, copies it to
+  the flash and starts it.
+- In an image, the essentials (SD card access, the heap) live in RAM; the rest of ScummVM
+  (1.6 to 3 MB of code) runs straight from the external flash (XIP), relocated to wherever
+  it landed (`tools/xip_pack.py`, `src/stub.c`).
 - Game files are read from the external flash without being copied to RAM. The data files
   of SCUMM v4-v6 games (encrypted with XOR 0x69 on disk) are stored decrypted, so the
   engine uses the rooms, costumes and scripts where they lie instead of loading them into
@@ -258,7 +274,9 @@ If a game goes back to the Retro-Go menu, the reason is shown on screen and writ
 
 ```
 git submodule update --init
-make              # out/scummvm.bin (arm-none-eabi-gcc on the PATH, or GCC_PATH=...)
+make              # out/scummvm.bin (the loader) and out/scummvm/<engine>.svm
+                  # (arm-none-eabi-gcc on the PATH, or GCC_PATH=...)
+make mono         # out/mono/scummvm.bin: every engine in a single .bin, as before 0.1.0
 make host         # PC test build: build/host/scummvm_host <game folder>
 make host-gwheap  # the same with the console's heap, to find out-of-memory spots
 ```
@@ -297,7 +315,7 @@ No incluye juegos ni los incluirá: usa los tuyos.
 | Beneath a Steel Sky | Sky | ✅ | el primer arranque prepara el juego (unos minutos) |
 | Sołtys | CGE | ✅ | |
 | Lure of the Temptress | Lure | ✅ | |
-| Broken Sword: La leyenda de los templarios | Sword1 | 🟡 | sin vídeos; mira las notas |
+| Broken Sword: La leyenda de los templarios | Sword1 | ✅ | sin vídeos; mira las notas |
 | The Dig | SCUMM | ❌ | no cabe en la flash |
 | The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
 | Versiones de Macintosh | — | ❌ | |
@@ -312,7 +330,11 @@ Abre una sección:
 <details>
 <summary><b>Instalación</b></summary>
 
-1. Copia `scummvm.bin` en `/cores/` de la SD.
+1. Descomprime la versión en la raíz de la SD. Lleva el cargador, `/cores/scummvm.bin`, y
+   un fichero por motor de juegos en `/cores/scummvm/` (`scumm.svm`, `sky.svm`, `cge.svm`,
+   `lure.svm`, `sword1.svm`): el cargador mira los ficheros del juego y arranca el motor que
+   le toca. Todos tienen que ser de la misma versión. Al actualizar no hace falta borrar
+   nada: los ficheros nuevos sustituyen a los viejos.
 2. Copia los ficheros de cada juego, tal cual (`000.lfl`, `901.lfl`, `disk01.lec`…), en una
    carpeta propia dentro de `/scummvm/` — fuera de `/roms`, para que no salga en el menú.
 3. Pon en `/roms/scummvm/` un fichero de texto `.scummvm` por juego. Su nombre es lo que
@@ -485,15 +507,28 @@ La elección se guarda para todos los juegos.
 Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escrito en
 `/saves/scummvm/scummvm.log`.
 
+- *Engine file missing or from another version*: `/cores/scummvm.bin` y los ficheros de
+  `/cores/scummvm/` no son de la misma versión. Cópialos todos otra vez.
+- El cargador elige el motor por los ficheros del juego. Para elegirlo a mano, añade una
+  línea `engine=sky` (o `scumm`, `cge`, `lure`, `sword1`) al fichero `.scummvm` del juego.
+- Qué ficheros hay en la tarjeta: el menú de PAUSE dentro de un juego tiene una línea
+  *ScummVM* como `scumm 3364D11A L2` — el motor, el identificador de ese fichero de motor y
+  la versión del cargador. Las primeras líneas del log dicen lo mismo. Cada versión publica
+  sus identificadores.
+
 </details>
 
 <details>
 <summary><b>Cómo está hecho</b></summary>
 
-- Lo esencial (arranque, acceso a la SD, el heap) va en la RAM del core; el resto de ScummVM
-  (~2,5 MB de código) se ejecuta directamente desde la flash externa (XIP). Al arrancar, el
-  core se copia a la flash y se reubica a la dirección donde quedó (`tools/xip_pack.py`,
-  `src/boot.c`).
+- `scummvm.bin` es un cargador de 5 KB (`src/stub.c`). ScummVM va en una imagen por motor,
+  `/cores/scummvm/<motor>.svm`: un ScummVM entero con ese motor solo, así un juego no lleva
+  el código de los demás en la flash ni sus tablas en la memoria, y un cambio en un motor
+  cambia un solo fichero. El cargador elige la imagen por los ficheros del juego, la copia a
+  la flash y la arranca.
+- En cada imagen, lo esencial (acceso a la SD, el heap) va en la RAM; el resto de ScummVM
+  (de 1,6 a 3 MB de código) se ejecuta directamente desde la flash externa (XIP), reubicado
+  a la dirección donde quedó (`tools/xip_pack.py`, `src/stub.c`).
 - Los ficheros del juego se leen desde la flash externa, sin copiarlos a RAM. Los de datos
   de los juegos SCUMM v4-v6 (cifrados con XOR 0x69 en el disco) se guardan descifrados, así
   el motor usa las habitaciones, disfraces y scripts donde están en vez de cargarlos en el
@@ -517,7 +552,9 @@ Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escr
 
 ```
 git submodule update --init
-make              # out/scummvm.bin (arm-none-eabi-gcc en el PATH o GCC_PATH=...)
+make              # out/scummvm.bin (el cargador) y out/scummvm/<motor>.svm
+                  # (arm-none-eabi-gcc en el PATH o GCC_PATH=...)
+make mono         # out/mono/scummvm.bin: todos los motores en un solo .bin, como antes de la 0.1.0
 make host         # versión de PC para pruebas: build/host/scummvm_host <carpeta del juego>
 make host-gwheap  # lo mismo con el heap de la consola, para encontrar faltas de memoria
 ```
