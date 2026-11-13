@@ -52,6 +52,7 @@ int svm_main(void);                     /* platform_core.c */
 uint8_t svm_load_state;                 /* the launcher's "resume": load save_slot at start */
 int8_t svm_save_slot;
 uint8_t *svm_stub_start, *svm_stub_end; /* the loader's RAM: svm_main() adds it to the heap */
+uint32_t svm_image_id, svm_loader_version;  /* which engine image and loader: the log and the PAUSE menu */
 
 int svm_engine_entry(const svm_eng_boot_t *boot)
 {
@@ -62,6 +63,8 @@ int svm_engine_entry(const svm_eng_boot_t *boot)
 	strncpy(svm_core_path, boot->path, sizeof svm_core_path - 1);
 	svm_stub_start = boot->stub_start;
 	svm_stub_end = boot->stub_end;
+	svm_image_id = boot->image_id;
+	svm_loader_version = boot->loader_version;
 	return svm_main();
 }
 #else

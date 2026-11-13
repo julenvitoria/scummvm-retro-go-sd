@@ -259,6 +259,8 @@ int app_main_scummvm(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 	boot.path = g_path;
 	boot.stub_start = __RAM_EMU_START__;
 	boot.stub_end = (uint8_t *)(uintptr_t)g_foot.ram_vma;
+	boot.image_id = g_foot.image_id;
+	boot.loader_version = SVM_LOADER_VERSION;
 	return ((int (*)(const svm_eng_boot_t *))(uintptr_t)g_foot.entry)(&boot);
 }
 

@@ -162,8 +162,12 @@ def main():
     core += ram_bits
     core += b'\0' * (-len(core) % 4)
     if a.engine:
+        import zlib
+        image_id = zlib.crc32(bytes(core)) & 0xFFFFFFFF
         core += struct.pack('<12I', ENG_MAGIC, a.build_id, xip_lo, xip_off, len(image), xbits_off, rbits_off, len(ram_bits),
                             ram_lo, ram_hi - ram_lo, syms['__CORE_BSS_END__'], syms['svm_engine_entry'] | 1)
+        core += struct.pack('<I', image_id)
+        print('  %s: image %08X' % (a.out, image_id))
     else:
         core += struct.pack('<8I', MAGIC, a.build_id, xip_lo, xip_off, len(image), xbits_off, rbits_off, len(ram_bits))
     open(a.out, 'wb').write(core)
