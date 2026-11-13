@@ -522,6 +522,7 @@ void plat_log(const char *msg)
 	printf("%s", msg);
 	for (const char *p = msg; *p; p++) g_log[g_log_len++ % LOG_SIZE] = *p;
 #ifdef SVM_DIAG_TRACE
+	if (g_trace) wdog_refresh();            /* writing the trace is slow: a script loop outlasted the watchdog */
 	static uint32_t saved;                  /* the screen of the reset shows the lines after this */
 	if (g_trace && strchr(msg, '\n') && HAL_GetTick() - saved >= 300) { log_save(); saved = HAL_GetTick(); }
 #endif
