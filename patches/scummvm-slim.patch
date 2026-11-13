@@ -4237,10 +4237,10 @@ index 1c6463160f4..670b5c3b846 100644
  					_smushTracks[idx].state = TRK_STATE_INACTIVE;
  					_smushTracks[idx].groupId = GRP_MASTER;
 diff --git a/engines/scumm/smush/smush_player.h b/engines/scumm/smush/smush_player.h
-index 15975a2aa2d..95f7f0a7b36 100644
+index 15975a2aa2d..583a551b5a0 100644
 --- a/engines/scumm/smush/smush_player.h
 +++ b/engines/scumm/smush/smush_player.h
-@@ -143,6 +143,37 @@ private:
+@@ -143,6 +143,39 @@ private:
  	ScummEngine_v7 *_vm;
  	IMuseDigital *_imuseDigital;
  	Insane *_insane;
@@ -4254,7 +4254,9 @@ index 15975a2aa2d..95f7f0a7b36 100644
 +	int32 _gwChunkSize = 0;
 +	bool _gwCodecKept = false;		// FT: the decoder made at start, never deleted
 +	bool _gwChunkKeep = false;		// the one made at start (FT): kept between videos
-+	bool _gwSettingUp = false;		// init() is taking a video's buffers: none is given back
++	volatile bool _gwSettingUp = false;	// init() is taking a video's buffers: none is given back
++						// (volatile: read by the heap's low-memory hook from inside malloc(),
++						// which the compiler takes not to look -- it dropped the store)
 +	byte *_gwTrackBlock = nullptr;	// FT: the audio tracks' buffers in one block, for one video
 +	bool _gwChunkArena = false;		// ...and lent to the audio tracks, the videos being in the flash
 +public:
