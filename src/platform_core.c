@@ -486,10 +486,21 @@ const char *plat_save_path(void) { return SAVE_DIR; }
 static char g_log[LOG_SIZE];
 static uint32_t g_log_len;                       /* total written; the ring keeps the last 4 KB */
 
+#ifdef SVM_DIAG_TRACE
+/* Diagnostic build (make DIAG=-DSVM_DIAG_TRACE): for a game that hangs until the watchdog
+   resets the console. ScummVM runs with its debug output on (svm_main) and every line of the
+   log is on the card as soon as it is written, so scummvm.log ends where the game stopped. */
+static void log_save(void);
+static bool g_trace;
+#endif
+
 void plat_log(const char *msg)
 {
 	printf("%s", msg);
 	for (const char *p = msg; *p; p++) g_log[g_log_len++ % LOG_SIZE] = *p;
+#ifdef SVM_DIAG_TRACE
+	if (g_trace && strchr(msg, '\n')) log_save();
+#endif
 }
 
 static void logf_(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -1262,7 +1273,7 @@ int svm_main(void)
 	audio_start();
 	/* with game=: "scummvm -p <folder> [--platform=] [--language=] <game id>" (the game ScummVM
 	   would add by hand); without it: --auto-detect, the first game found in the folder */
-	const char *argv[12];
+	const char *argv[14];
 	int argc = 0;
 	argv[argc++] = "scummvm";
 	argv[argc++] = "-p";
@@ -1290,6 +1301,12 @@ int svm_main(void)
 		   asked for it), ScummVM loads that file as its slot 99 as soon as the game starts */
 		if (gw_rg_load_at_start()) { argv[argc++] = "-x"; argv[argc++] = "99"; }
 	}
+#ifdef SVM_DIAG_TRACE
+	argv[argc++] = "--debuglevel=1";
+	argv[argc++] = "--debugflags=funcopcodes,drawopcodes,fileio,gameflow,sound,video";   /* Gob's */
+	g_trace = true;
+	logf_("ScummVM: diagnostic build, the log is saved line by line\n");
+#endif
 	argv[argc++] = g_opt_game[0] ? g_opt_game : "--auto-detect";
 	argv[argc] = NULL;
 	for (uint32_t i = 0; i < STACK_SIZE / 4; i++) g_stack[i] = STACK_PAINT;
