@@ -56,6 +56,9 @@ static uint32_t g_clut[256];           /* the game's palette */
    that to the nearest colour, through g_lut. */
 static uint32_t g_hw[256];
 static uint8_t g_lut[256];
+static uint8_t g_clut_pending;         /* g_hw is newer than what the LCD has */
+static uint32_t g_clut_since;
+static void clut_flush(int now);
 #define OV0 LCD_OVERLAY_CLUT_BASE
 #define OV1 (LCD_OVERLAY_CLUT_BASE + LCD_OVERLAY_CLUT_MAX)
 static inline int in_ov(int i) { return i >= OV0 && i < OV1; }
@@ -159,6 +162,20 @@ void plat_set_palette(const uint8_t *rgb, int start, int count)
 	for (int i = 0; i < count && start + i < 256; i++)
 		g_clut[start + i] = ((uint32_t)rgb[3 * i] << 16) | ((uint32_t)rgb[3 * i + 1] << 8) | rgb[3 * i + 2];
 	build_hw_clut();
+	/* The LCD gets it with the first frame drawn for it (plat_present), not now: the frame on
+	   the screen was drawn through the old g_lut, and a palette that cycles (the theatre's
+	   lights in Atlantis) moves the spare slots around -- until the next frame those pixels
+	   showed another colour, specks all over the wall. */
+	if (!g_clut_pending) g_clut_since = HAL_GetTick();
+	g_clut_pending = 1;
+}
+
+/* ...or after a while without a frame (a fade that only sets palettes) */
+static void clut_flush(int now)
+{
+	if (!g_clut_pending) return;
+	if (!now && HAL_GetTick() - g_clut_since < 60) return;
+	g_clut_pending = 0;
 	lcd_set_clut(g_hw, 256);
 }
 
@@ -176,6 +193,10 @@ void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 	osk_draw((uint8_t *)lcd_get_active_buffer(), g_hw);
 	common_ingame_overlay();
 	lcd_swap();
+	if (g_clut_pending) {                   /* with the frame drawn for it: as it comes up */
+		lcd_sleep_while_swap_pending();
+		clut_flush(1);
+	}
 	pump();
 }
 
@@ -331,7 +352,7 @@ uint32_t plat_buttons(void)
 
 /* ---------------------------------------------------------------- time */
 
-uint32_t plat_millis(void) { wdog_refresh(); return HAL_GetTick(); }
+uint32_t plat_millis(void) { wdog_refresh(); clut_flush(0); return HAL_GetTick(); }
 
 void plat_delay(uint32_t ms)
 {
