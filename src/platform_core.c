@@ -522,7 +522,8 @@ void plat_log(const char *msg)
 	printf("%s", msg);
 	for (const char *p = msg; *p; p++) g_log[g_log_len++ % LOG_SIZE] = *p;
 #ifdef SVM_DIAG_TRACE
-	if (g_trace && strchr(msg, '\n')) log_save();
+	static uint32_t saved;                  /* the screen of the reset shows the lines after this */
+	if (g_trace && strchr(msg, '\n') && HAL_GetTick() - saved >= 300) { log_save(); saved = HAL_GetTick(); }
 #endif
 }
 
@@ -566,6 +567,9 @@ static void log_save_if_new(void)
 
 plat_stat_t plat_stat(const char *path)
 {
+#ifdef SVM_DIAG_TRACE
+	if (g_trace) logf_("stat %s\n", path);
+#endif
 	rg_stat_t s = rg_storage_stat(path);
 	plat_stat_t r = { s.exists, s.is_dir, (uint32_t)s.size };
 	return r;
@@ -573,6 +577,9 @@ plat_stat_t plat_stat(const char *path)
 
 bool plat_list_dir(const char *path, void (*cb)(const char *, bool, uint32_t, void *), void *arg)
 {
+#ifdef SVM_DIAG_TRACE
+	if (g_trace) logf_("list %s\n", path);
+#endif
 	DIR d;
 	FILINFO fi;
 	if (f_opendir(&d, path) != FR_OK) return false;
@@ -588,6 +595,9 @@ bool plat_mkdir(const char *path) { return rg_storage_mkdir(path); }
 void *plat_fopen(const char *path, const char *mode)
 {
 	wdog_refresh();
+#ifdef SVM_DIAG_TRACE
+	if (g_trace) logf_("open %s %s\n", mode, path);
+#endif
 	FILE *f = fopen(path, mode);
 	if (!f && mode[0] == 'r') logf_("ScummVM: cannot open %s\n", path);
 	return f;
@@ -1325,8 +1335,8 @@ int svm_main(void)
 		if (gw_rg_load_at_start()) { argv[argc++] = "-x"; argv[argc++] = "99"; }
 	}
 #ifdef SVM_DIAG_TRACE
-	argv[argc++] = "--debuglevel=1";
-	argv[argc++] = "--debugflags=funcopcodes,drawopcodes,fileio,gameflow,sound,video";   /* Gob's */
+	argv[argc++] = "--debuglevel=4";
+	argv[argc++] = "--debugflags=funcopcodes,drawopcodes,fileio,saveload,gameflow,sound,video";   /* Gob's */
 	g_trace = true;
 	logf_("ScummVM: diagnostic build, the log is saved line by line\n");
 #endif
