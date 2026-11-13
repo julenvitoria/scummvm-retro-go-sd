@@ -4440,6 +4440,42 @@ index 5d924d7c5f6..73ca2abe069 100644
  		free(_cptSizes[i]);
  		free(_cptTypes[i]);
  		free(_compacts[i]);
+diff --git a/engines/sky/control.cpp b/engines/sky/control.cpp
+index 50113a519dc..6f0ebee258f 100644
+--- a/engines/sky/control.cpp
++++ b/engines/sky/control.cpp
+@@ -1360,7 +1360,8 @@ void Control::drawTextCross(uint32 flags) {
+ 
+ void Control::drawCross(uint16 x, uint16 y) {
+ 	_text->flushForRedraw();
+-	uint8 *bufPos, *crossPos;
++	uint8 *bufPos;
++	const uint8 *crossPos;
+ 	bufPos = _screenBuf + y * GAME_SCREEN_WIDTH + x;
+ 	crossPos = _crossImg;
+ 	for (uint16 cnty = 0; cnty < CROSS_SZ_Y; cnty++) {
+@@ -2663,7 +2664,7 @@ char Control::_quitTexts[20][45] = {
+ 	"\x84\x89\x85 \x92\x98\x90\x89\x89\x8D"
+ };
+ 
+-uint8 Control::_crossImg[594] = {
++const uint8 Control::_crossImg[594] = {
+ 	0xFF, 0xFF, 0xFF, 0xFF, 0x09, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+ 	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0B, 0x61, 0xFF, 0xFF, 0xFF, 0xFF, 0x4F, 0x4D, 0x61,
+ 	0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+diff --git a/engines/sky/control.h b/engines/sky/control.h
+index 9ac2ba9ae7c..7552056a52a 100644
+--- a/engines/sky/control.h
++++ b/engines/sky/control.h
+@@ -314,7 +314,7 @@ private:
+ 	ControlStatus *_statusBar;
+ 
+ 	static char _quitTexts[20][45];
+-	static uint8 _crossImg[594];
++	static const uint8 _crossImg[594];
+ };
+ 
+ } // End of namespace Sky
 diff --git a/engines/sky/disk.cpp b/engines/sky/disk.cpp
 index 8e9be3e2b61..297d1604121 100644
 --- a/engines/sky/disk.cpp
@@ -4551,8 +4587,49 @@ index f134065be31..4a5b7a63e6a 100644
  		// HACK: Fill the header with silence. We should
  		// probably use _skySound instead of calling playStream()
  		// directly, but this will have to do for now.
+diff --git a/engines/sky/logic.cpp b/engines/sky/logic.cpp
+index a46e5906662..3657b6165cd 100644
+--- a/engines/sky/logic.cpp
++++ b/engines/sky/logic.cpp
+@@ -40,7 +40,11 @@
+ 
+ namespace Sky {
+ 
++#ifdef GW_SKY_SLIM
++uint32 *Logic::_scriptVariables = nullptr;
++#else
+ uint32 Logic::_scriptVariables[NUM_SKY_SCRIPTVARS];
++#endif
+ 
+ void Logic::setupLogicTable() {
+ 	static const LogicTable logicTable[] = {
+@@ -1126,7 +1130,7 @@ void Logic::fnExec(uint16 num, uint32 a, uint32 b, uint32 c) {
+ }
+ 
+ void Logic::initScriptVariables() {
+-	for (int i = 0; i < ARRAYSIZE(_scriptVariables); i++)
++	for (int i = 0; i < NUM_SKY_SCRIPTVARS; i++)
+ 		_scriptVariables[i] = 0;
+ 
+ 	_scriptVariables[LOGIC_LIST_NO] = 141;
+diff --git a/engines/sky/logic.h b/engines/sky/logic.h
+index 74df32375fc..c5efebae3ff 100644
+--- a/engines/sky/logic.h
++++ b/engines/sky/logic.h
+@@ -149,7 +149,11 @@ public:
+ 
+ 	uint16 mouseScript(uint32 scrNum, Compact *scriptComp);
+ 
++#ifdef GW_SKY_SLIM
++	static uint32 *_scriptVariables;	// (in the heap from SkyEngine::init() on: 3.3 KB that were every game's)
++#else
+ 	static uint32 _scriptVariables[NUM_SKY_SCRIPTVARS];
++#endif
+ 	Grid *_skyGrid;
+ 
+ 	uint16 script(uint16 scriptNo, uint16 offset);
 diff --git a/engines/sky/mouse.cpp b/engines/sky/mouse.cpp
-index 7cea2552557..2baa67693b7 100644
+index 7cea2552557..a6c47f2e874 100644
 --- a/engines/sky/mouse.cpp
 +++ b/engines/sky/mouse.cpp
 @@ -102,7 +102,7 @@ Mouse::Mouse(OSystem *system, Disk *skyDisk, SkyCompact *skyCompact, Screen *sky
@@ -4564,6 +4641,42 @@ index 7cea2552557..2baa67693b7 100644
  
  	//load in the object mouse file
  	_objectMouseData = _skyDisk->loadFile(MICE_FILE + 1);
+@@ -624,7 +624,7 @@ bool Mouse::hasSingleInteractIcon(uint32 id) {
+ 	return  false;
+ }
+ 
+-struct MouseXMap {
++static const struct MouseXMap {
+ 	int id;
+ 	int mid;
+ } mouseXMap[] = {
+@@ -712,7 +712,7 @@ uint16 Mouse::giveXCood(Compact *itemData, uint32 id) {
+ 	}
+ 
+ 	if (_hotspotXMap.size() == 0) {
+-		for (MouseXMap *m = mouseXMap; m->id != 0; m++)
++		for (const MouseXMap *m = mouseXMap; m->id != 0; m++)
+ 			_hotspotXMap[m->id] = m->mid;
+ 	}
+ 
+@@ -722,7 +722,7 @@ uint16 Mouse::giveXCood(Compact *itemData, uint32 id) {
+ 	return mid;
+ }
+ 
+-struct MouseYMap {
++static const struct MouseYMap {
+ 	uint32 id;
+ 	uint16 mid;
+ } mouseYMap[] = {
+@@ -897,7 +897,7 @@ uint16 Mouse::giveYCood(Compact *itemData, uint32 id) {
+ 	}
+ 
+ 	if (_hotspotYMap.size() == 0) {
+-		for (MouseYMap *m = mouseYMap; m->id != 0; m++)
++		for (const MouseYMap *m = mouseYMap; m->id != 0; m++)
+ 			_hotspotYMap[m->id] = m->mid;
+ 	}
+ 
 diff --git a/engines/sky/music/musicbase.cpp b/engines/sky/music/musicbase.cpp
 index 9ab9978351f..4490d0ef490 100644
 --- a/engines/sky/music/musicbase.cpp
@@ -4591,10 +4704,10 @@ index 2d334840d09..c7877a2d01c 100644
  		// make sure the last 8 lines are forced to black.
  		memset(_currentScreen + GAME_SCREEN_HEIGHT * GAME_SCREEN_WIDTH, 0, (FULL_SCREEN_HEIGHT - GAME_SCREEN_HEIGHT) * GAME_SCREEN_WIDTH);
 diff --git a/engines/sky/sky.cpp b/engines/sky/sky.cpp
-index 81baee63729..a3753eb05f8 100644
+index 81baee63729..3bc29dc4367 100644
 --- a/engines/sky/sky.cpp
 +++ b/engines/sky/sky.cpp
-@@ -67,6 +67,13 @@
+@@ -67,9 +67,20 @@
   With apologies to the CD32 SteelSky file.
  */
  
@@ -4607,8 +4720,25 @@ index 81baee63729..a3753eb05f8 100644
 +
  namespace Sky {
  
++#ifdef GW_SKY_SLIM
++void **SkyEngine::_itemList = nullptr;
++#else
  void *SkyEngine::_itemList[300];
-@@ -203,6 +210,10 @@ void SkyEngine::handleKey() {
++#endif
+ SystemVars *SkyEngine::_systemVars = nullptr;
+ const char *SkyEngine::shortcutsKeymapId = "sky-shortcuts";
+ 
+@@ -117,6 +128,9 @@ SkyEngine::~SkyEngine() {
+ 	delete _skyControl;
+ 	delete _skyCompact;
+ 
++#ifdef GW_SKY_SLIM
++	if (_itemList)
++#endif
+ 	for (int i = 0; i < 300; i++)
+ 		if (_itemList[i])
+ 			free(_itemList[i]);
+@@ -203,6 +217,10 @@ void SkyEngine::handleKey() {
  	_keyPressed.reset();
  }
  
@@ -4619,7 +4749,7 @@ index 81baee63729..a3753eb05f8 100644
  Common::Error SkyEngine::go() {
  	_action = kSkyActionNone;
  
-@@ -244,6 +255,11 @@ Common::Error SkyEngine::go() {
+@@ -244,6 +262,11 @@ Common::Error SkyEngine::go() {
  
  	uint32 delayCount = _system->getMillis();
  	while (!shouldQuit()) {
@@ -4631,11 +4761,18 @@ index 81baee63729..a3753eb05f8 100644
  		_skySound->checkFxQueue();
  		if (SkyEngine::isIbass()) {
  			if (_curScreen != Logic::_scriptVariables[SCREEN]) {
-@@ -360,6 +376,14 @@ bool SkyEngine::loadChineseTraditional() {
+@@ -360,6 +383,21 @@ bool SkyEngine::loadChineseTraditional() {
  }
  
  Common::Error SkyEngine::init() {
 +#ifdef GW_SKY_SLIM
++	// tables that were static data, in the heap only while this game runs
++	if (!_itemList)
++		_itemList = (void **)calloc(300, sizeof(void *));
++	if (!Logic::_scriptVariables)
++		Logic::_scriptVariables = (uint32 *)calloc(NUM_SKY_SCRIPTVARS, sizeof(uint32));
++	if (!_itemList || !Logic::_scriptVariables)
++		error("Beneath a Steel Sky: no memory for the tables");
 +	heap_screen_spill = 1;	// Game & Watch: no SCUMM screens here, their heap is everyone's
 +	// The core runs ScummVM at full volume (the console has its own); this game's voices,
 +	// effects and music played together clip at that level (the intro: 2.3% of the samples), and
@@ -4646,7 +4783,7 @@ index 81baee63729..a3753eb05f8 100644
  	if (SkyEngine::isIbass()) {
  		Graphics::PixelFormat format(4, 8, 8, 8, 8, 24, 16, 8, 0);
  		initGraphics(320, 200, &format);
-@@ -667,3 +691,18 @@ Common::String SkyEngine::giveButton(const Common::String &button) {
+@@ -667,3 +705,18 @@ Common::String SkyEngine::giveButton(const Common::String &button) {
  }
  
  } // End of namespace Sky
@@ -4666,10 +4803,22 @@ index 81baee63729..a3753eb05f8 100644
 +	return 1;
 +}
 diff --git a/engines/sky/sky.h b/engines/sky/sky.h
-index 8b0b8ce28a6..64809a25e75 100644
+index 8b0b8ce28a6..035f5626b89 100644
 --- a/engines/sky/sky.h
 +++ b/engines/sky/sky.h
-@@ -125,6 +125,9 @@ public:
+@@ -117,7 +117,11 @@ public:
+ 	}
+ 
+ 	static void *fetchItem(uint32 num);
++#ifdef GW_SKY_SLIM
++	static void **_itemList;	// (300 of them, in the heap from init() on)
++#else
+ 	static void *_itemList[300];
++#endif
+ 	static SystemVars *_systemVars;
+ 	static const char *shortcutsKeymapId;
+ 	uint32 _chineseTraditionalOffsets[8];
+@@ -125,6 +129,9 @@ public:
  	Graphics::Big5Font *_big5Font;
  
  	bool canSaveGameStateCurrently();
