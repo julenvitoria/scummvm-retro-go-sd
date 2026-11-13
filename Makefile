@@ -17,7 +17,7 @@ CODECS   := src/codecs/gwc.c src/codecs/gwc_vorbis.c src/codecs/gwc_mp3.c src/co
 V7_SLIM  ?= -DGW_V7_SLIM
 # Beneath a Steel Sky likewise ("SKY_SLIM=" for the PC test program without the cuts)
 SKY_SLIM ?= -DGW_SKY_SLIM
-DEFS     := -DHAVE_CONFIG_H -DENABLE_SCUMM=STATIC_PLUGIN -DENABLE_SCUMM_7_8 -DENABLE_SKY=STATIC_PLUGIN -DENABLE_CGE=STATIC_PLUGIN -DGW_CGE_SLIM -DENABLE_LURE=STATIC_PLUGIN -DGW_LURE_SLIM -DENABLE_SWORD1=STATIC_PLUGIN -DGW_SWORD1_SLIM $(SKY_SLIM) -DRELEASE_BUILD \
+DEFS     := -DHAVE_CONFIG_H -DENABLE_SCUMM=STATIC_PLUGIN -DENABLE_SCUMM_7_8 -DENABLE_SKY=STATIC_PLUGIN -DENABLE_CGE=STATIC_PLUGIN -DGW_CGE_SLIM -DENABLE_LURE=STATIC_PLUGIN -DGW_LURE_SLIM -DENABLE_SWORD1=STATIC_PLUGIN -DGW_SWORD1_SLIM -DENABLE_GOB=STATIC_PLUGIN -DGW_GOB_SLIM -DUSE_COKTEL_DECODER -DUSE_INDEO3 $(SKY_SLIM) -DRELEASE_BUILD \
             -DDISABLE_HELP -DDISABLE_FANCY_THEMES -DDISABLE_SAVELOADCHOOSER_GRID \
             -DDISABLE_LAUNCHERDISPLAY_GRID -DDISABLE_TOWNS_DUAL_LAYER_MODE \
             -DDISABLE_PC98_RHYTHM_CHANNEL -DDISABLE_MAME_OPL -DREDUCE_MEMORY_USAGE -DGW_SCUMM_SLIM -DGW_FS_PROBE $(V7_SLIM)
@@ -113,12 +113,15 @@ ARM_OWN  := $(AB)/boot.o $(AB)/platform_core.o $(AB)/osk.o $(AB)/pack.o $(AB)/gw
 
 # "make" builds the loader and one image per engine (see below); "make mono" the single .bin
 # with every engine in it, as before
-ENGINES  := scumm sky cge lure sword1
+ENGINES  := scumm sky cge lure sword1 gob
 ENGDEFS_scumm  := -DENABLE_SCUMM=STATIC_PLUGIN -DENABLE_SCUMM_7_8
 ENGDEFS_sky    := -DENABLE_SKY=STATIC_PLUGIN
 ENGDEFS_cge    := -DENABLE_CGE=STATIC_PLUGIN
 ENGDEFS_lure   := -DENABLE_LURE=STATIC_PLUGIN
 ENGDEFS_sword1 := -DENABLE_SWORD1=STATIC_PLUGIN
+ENGDEFS_gob    := -DENABLE_GOB=STATIC_PLUGIN
+# an engine whose image has its own build of src/gw_system.cpp (the backend), with these defines
+ENGGFX_gob     := -DGW_GOB_SCREEN
 ENG_OUT  := $(ENGINES:%=out/scummvm/%.svm)
 core: $(OUT) $(ENG_OUT)
 mono: out/mono/scummvm.bin
@@ -243,11 +246,19 @@ $(AB)/eng/$(1)/plugins.o: $(SVM)/base/plugins.cpp Makefile | $(PATCHED)
 	@$(CROSS)g++ -c $(MCU) $(OPT) $(CXXSTD) -fno-threadsafe-statics $(WARN) $(filter-out $(ENGDEFS_ALL),$(DEFS)) $(ENGDEFS_$(1)) $(INCS) $$< -o $$@
 
 ARM_ENG_$(1) := $$(patsubst %,$(AB)/svm/%.o,$$(filter engines/$(1)/%,$(SVM_SRC)))
-$(AB)/eng/$(1)/scummvm.elf: $(ARM_ENGOWN) $(ARM_COMMON) $$(ARM_ENG_$(1)) $(AB)/eng/$(1)/plugins.o ld/scummvm_engine.ld ld/hot_objects.ld
+ifneq ($(ENGGFX_$(1)),)
+$(AB)/eng/$(1)/gw_system.o: src/gw_system.cpp src/platform.h Makefile | $(PATCHED)
+	@mkdir -p $$(dir $$@)
+	$(CROSS)g++ -c $(ARM_CXX) $(ENGGFX_$(1)) $$< -o $$@
+ARM_COMMON_$(1) := $$(filter-out $(AB)/src/gw_system.cpp.o,$(ARM_COMMON)) $(AB)/eng/$(1)/gw_system.o
+else
+ARM_COMMON_$(1) := $(ARM_COMMON)
+endif
+$(AB)/eng/$(1)/scummvm.elf: $(ARM_ENGOWN) $$(ARM_COMMON_$(1)) $$(ARM_ENG_$(1)) $(AB)/eng/$(1)/plugins.o ld/scummvm_engine.ld ld/hot_objects.ld
 	@echo "  LINK $$@"
 	@$(CROSS)g++ $(MCU) -nostartfiles -T ld/scummvm_engine.ld -Lsdk/ld -Lld \
 	    -Wl,--gc-sections -Wl,--emit-relocs -Wl,--no-check-sections -Wl,-Map=$(AB)/eng/$(1)/scummvm.map \
-	    $(ARM_ENGOWN) $(ARM_COMMON) $$(ARM_ENG_$(1)) $(AB)/eng/$(1)/plugins.o -Wl,--start-group -lsupc++ -lc -lm -lgcc -Wl,--end-group -o $$@
+	    $(ARM_ENGOWN) $$(ARM_COMMON_$(1)) $$(ARM_ENG_$(1)) $(AB)/eng/$(1)/plugins.o -Wl,--start-group -lsupc++ -lc -lm -lgcc -Wl,--end-group -o $$@
 
 out/scummvm/$(1).svm: $(AB)/eng/$(1)/scummvm.elf tools/xip_pack.py
 	@mkdir -p $$(dir $$@)

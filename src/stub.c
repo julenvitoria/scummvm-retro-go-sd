@@ -143,6 +143,7 @@ static const char *engine_of(const char *dir)
 	if (exists(dir, "sky.dnr")) return "sky";
 	if (exists(dir, "vol.cat")) return "cge";
 	if (exists(dir, "disk1.vga") || exists(dir, "disk1.ega")) return "lure";
+	if (exists(dir, "intro.stk")) return "gob";              /* Gobliiins, Ween... */
 	return "scumm";
 }
 

@@ -100,6 +100,62 @@ index d8ee41aca0c..73bdddd1ae0 100644
  
  class MidiDriver_BASE;
  
+diff --git a/audio/softsynth/opl/dbopl.cpp b/audio/softsynth/opl/dbopl.cpp
+index dcda5a170ce..cb07974b75f 100644
+--- a/audio/softsynth/opl/dbopl.cpp
++++ b/audio/softsynth/opl/dbopl.cpp
+@@ -1259,6 +1259,8 @@ void Chip::GenerateBlock3( Bitu total, Bit32s* output  ) {
+ 	}
+ }
+ 
++extern "C" void gw_wdog_kick( void ) __attribute__((weak));   // src/platform_*.c
++
+ void Chip::Setup( Bit32u rate ) {
+ 	double scale = OPLRATE / (double)rate;
+ 
+@@ -1294,6 +1296,15 @@ void Chip::Setup( Bit32u rate ) {
+ 		linearRates[i] = (Bit32u)( scale * (EnvelopeIncreaseTable[ index ] << ( RATE_SH + ENV_EXTRA - shift - 3 )));
+ 	}
+ 	//Generate the best matching attack rate
++	// Game & Watch: worked out once per rate (Ween makes a new AdLib for each tune), with the
++	// watchdog kicked in the simulation itself -- one pass of a slow rate alone is millions of
++	// steps, longer than the console's watchdog allows
++	static Bit32u gwRate = 0;
++	static Bit32s gwAttack[62];
++	if ( gwRate == rate ) {
++		for ( Bit8u i = 0; i < 62; i++ )
++			attackRates[i] = gwAttack[i];
++	} else
+ 	for ( Bit8u i = 0; i < 62; i++ ) {
+ 		Bit8u index, shift;
+ 		EnvelopeSelect( i, index, shift );
+@@ -1304,10 +1315,16 @@ void Chip::Setup( Bit32u rate ) {
+ 		Bit32s bestAdd = guessAdd;
+ 		Bit32u bestDiff = 1 << 30;
+ 		for( Bit32u passes = 0; passes < 16; passes ++ ) {
++			// Game & Watch: these 62 x 16 simulated attacks take longer than the console's
++			// watchdog allows (Ween makes a new AdLib for each tune: reset at start)
++			if ( gw_wdog_kick )
++				gw_wdog_kick();
+ 			Bit32s volume = ENV_MAX;
+ 			Bit32s samples = 0;
+ 			Bit32u count = 0;
+ 			while ( volume > 0 && samples < original * 2 ) {
++				if ( !( samples & 0xffff ) && gw_wdog_kick )
++					gw_wdog_kick();
+ 				count += guessAdd;
+ 				Bit32s change = count >> RATE_SH;
+ 				count &= RATE_MASK;
+@@ -1339,6 +1356,9 @@ void Chip::Setup( Bit32u rate ) {
+ 			}
+ 		}
+ 		attackRates[i] = bestAdd;
++		gwAttack[i] = bestAdd;
++		if ( i == 61 )
++			gwRate = rate;
+ 	}
+ 	for ( Bit8u i = 62; i < 76; i++ ) {
+ 		//This should provide instant volume maximizing
 diff --git a/base/commandLine.cpp b/base/commandLine.cpp
 index 87b0fafe9f2..060b338d170 100644
 --- a/base/commandLine.cpp
@@ -378,6 +434,149 @@ index 05a40b5eab1..a81823d2927 100644
  }
  
  //--------------------------------------------------------------------------
+diff --git a/engines/gob/gob.cpp b/engines/gob/gob.cpp
+index 42e3938002a..6fe92a3c43b 100644
+--- a/engines/gob/gob.cpp
++++ b/engines/gob/gob.cpp
+@@ -666,7 +666,13 @@ Common::Error GobEngine::initGameParts() {
+ 		_map      = new Map_v2(this);
+ 		_goblin   = new Goblin_v4(this);
+ 		_scenery  = new Scenery_v2(this);
++#ifdef GW_GOB_SLIM
++		// Game & Watch: these games (640x480 and up) are out of the console's reach, and their
++		// tables of save files are 34 KB of RAM whatever game runs
++		_saveLoad = new SaveLoad(this);
++#else
+ 		_saveLoad = new SaveLoad_v6(this, _targetName.c_str());
++#endif
+ 		break;
+ 
+ 	case kGameTypePlaytoons:
+@@ -692,7 +698,13 @@ Common::Error GobEngine::initGameParts() {
+ 		_map      = new Map_v2(this);
+ 		_goblin   = new Goblin_v7(this);
+ 		_scenery  = new Scenery_v2(this);
++#ifdef GW_GOB_SLIM
++		// Game & Watch: these games (640x480 and up) are out of the console's reach, and their
++		// tables of save files are 34 KB of RAM whatever game runs
++		_saveLoad = new SaveLoad(this);
++#else
+ 		_saveLoad = new SaveLoad_v7(this, _targetName.c_str());
++#endif
+ 		break;
+ 
+ 	case kGameTypeAdibou1:
+diff --git a/engines/gob/surface.cpp b/engines/gob/surface.cpp
+index 452492a62f1..310df8737b2 100644
+--- a/engines/gob/surface.cpp
++++ b/engines/gob/surface.cpp
+@@ -45,6 +45,8 @@
+ #include "image/jpeg.h"
+ #include "image/tga.h"
+ 
++bool gwAdoptScreen(byte *pixels, int pitch, int w, int h);   // src/gw_system.cpp
++
+ namespace Gob {
+ 
+ class SurfacePrimitives final : public Graphics::Primitives {
+@@ -237,6 +239,7 @@ Surface::Surface(uint16 width, uint16 height, uint8 bpp, const byte *vidMem, con
+ }
+ 
+ Surface::~Surface() {
++	gwUnadopt();
+ 	if (_ownVidMem)
+ 		delete[] _vidMem;
+ 
+@@ -256,9 +259,31 @@ uint8 Surface::getBPP() const {
+ 	return _bpp;
+ }
+ 
++// Game & Watch: a window of the primary surface is the backend's screen too (Video::retrace(),
++// src/gw_system.cpp), not copied to one. Before the surface's memory goes, the backend is told.
++static const byte *gwAdoptedBase;
++
++bool Surface::gwAdopt(int x, int y, int w, int h) {
++	if (_bpp != 1 || x < 0 || y < 0 || x + w > _width || y + h > _height) {
++		gwUnadopt();
++		return false;
++	}
++	bool ok = gwAdoptScreen(_vidMem + y * _width + x, _width, w, h);
++	gwAdoptedBase = ok ? _vidMem : (gwAdoptedBase == _vidMem ? nullptr : gwAdoptedBase);
++	return ok;
++}
++
++void Surface::gwUnadopt() {
++	if (gwAdoptedBase && gwAdoptedBase == _vidMem) {
++		gwAdoptScreen(nullptr, 0, 0, 0);
++		gwAdoptedBase = nullptr;
++	}
++}
++
+ void Surface::resize(uint16 width, uint16 height) {
+ 	assert((width > 0) && (height > 0));
+ 
++	gwUnadopt();
+ 	if (_ownVidMem)
+ 		delete[] _vidMem;
+ 
+@@ -273,6 +298,8 @@ void Surface::setBPP(uint8 bpp) {
+ 	if (_bpp == bpp)
+ 		return;
+ 
++	gwUnadopt();
++
+ 	if (_ownVidMem) {
+ 		delete[] _vidMem;
+ 
+diff --git a/engines/gob/surface.h b/engines/gob/surface.h
+index 0cc05382102..b619a878e49 100644
+--- a/engines/gob/surface.h
++++ b/engines/gob/surface.h
+@@ -117,6 +117,8 @@ public:
+ 	const byte *getData(uint16 x = 0, uint16 y = 0) const;
+ 
+ 	void resize(uint16 width, uint16 height);
++	bool gwAdopt(int x, int y, int w, int h);	// Game & Watch: this window of the surface is the backend's screen too
++	void gwUnadopt();
+ 
+ 	void setBPP(uint8 bpp);
+ 
+diff --git a/engines/gob/video.cpp b/engines/gob/video.cpp
+index 9f637fbfb09..a5cbbd356b9 100644
+--- a/engines/gob/video.cpp
++++ b/engines/gob/video.cpp
+@@ -40,6 +40,8 @@
+ #include "gob/dataio.h"
+ #include "gob/draw.h"
+ 
++bool gwScreenReady();   // src/gw_system.cpp
++
+ namespace Gob {
+ 
+ Font::Font(const byte *data) : _dataPtr(data) {
+@@ -283,8 +285,20 @@ void Video::retrace(bool mouse) {
+ 		int screenWidth = MIN<int>(_surfWidth - _scrollOffsetX, _vm->_width);
+ 		int screenHeight = MIN<int>(_surfHeight - _splitHeight2 - _scrollOffsetY, _vm->_height - _splitHeight2);
+ 
+-		dirtyRectsApply(_scrollOffsetX, _scrollOffsetY, screenWidth, screenHeight,
+-				screenX, screenY);
++		// Game & Watch: when what is shown is one whole window of the front buffer, that
++		// window is the screen itself (surface.cpp) and nothing is copied. Otherwise the
++		// backend keeps a screen of its own; when it has just made one, everything is
++		// drawn onto it again.
++		bool gwDirect = !_splitSurf && _splitHeight2 <= 0 && screenX == 0 && screenY == 0 &&
++			screenWidth == _vm->_width && screenHeight == _vm->_height &&
++			_vm->_global->_primarySurfDesc->gwAdopt(_scrollOffsetX, _scrollOffsetY, screenWidth, screenHeight);
++		if (!gwDirect) {
++			_vm->_global->_primarySurfDesc->gwUnadopt();
++			if (!gwScreenReady())
++				dirtyRectsAll();
++			dirtyRectsApply(_scrollOffsetX, _scrollOffsetY, screenWidth, screenHeight,
++					screenX, screenY);
++		}
+ 
+ 		if (_splitSurf) {
+ 
 diff --git a/engines/lure/animseq.cpp b/engines/lure/animseq.cpp
 index cc1c4e47db0..8ebd4896fd1 100644
 --- a/engines/lure/animseq.cpp

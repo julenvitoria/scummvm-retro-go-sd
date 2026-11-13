@@ -41,7 +41,7 @@ typedef struct {
 	uint32_t image_id;            /* CRC-32 of the file up to this footer: which build of the engine this is */
 } svm_eng_footer_t;
 
-#define SVM_LOADER_VERSION 2             /* src/stub.c; goes up when the loader changes */
+#define SVM_LOADER_VERSION 3             /* src/stub.c; goes up when the loader changes */
 
 /* what the loader hands the engine image */
 typedef struct {
