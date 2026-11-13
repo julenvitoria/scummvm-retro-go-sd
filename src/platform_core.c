@@ -210,11 +210,13 @@ void plat_set_palette(const uint8_t *rgb, int start, int count)
 	g_clut_pending = 1;
 }
 
-/* ...or after a while without a frame (a fade that only sets palettes) */
+/* ...or after a long while without a frame (something that only sets palettes). Long: the
+   console takes well over 60 ms from a game's palette change to the frame drawn for it, and
+   with that as the limit the specks were all still there. */
 static void clut_flush(int now)
 {
 	if (!g_clut_pending) return;
-	if (!now && HAL_GetTick() - g_clut_since < 60) return;
+	if (!now && HAL_GetTick() - g_clut_since < 400) return;
 	g_clut_pending = 0;
 	lcd_set_clut(g_hw, 256);
 }

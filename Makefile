@@ -39,6 +39,8 @@ $(PATCHED): $(wildcard patches/*.patch)
 	@touch $@
 
 # ---------------------------------------------------------------- host
+# HOSTX: extra compiler flags for the PC build; with HB= for a second build beside the first,
+# e.g. "make host-gwheap HB=build/hostuc HOSTX=-funsigned-char": char as on the console (ARM)
 HB       := build/host
 HOST_OBJ := $(SVM_SRC:%=$(HB)/svm/%.o) $(OWN_CXX:%=$(HB)/%.o) $(CODECS:%=$(HB)/%.o) $(HB)/gen/dimuse_mixtable.o $(HB)/gen/dimuse_imctable.o $(HB)/src/platform_host.c.o $(HB)/src/osk.c.o $(HB)/src/pack.c.o
 
@@ -47,15 +49,15 @@ host: $(HB)/scummvm_host
 
 $(HB)/svm/%.cpp.o: $(SVM)/%.cpp Makefile | $(PATCHED)
 	@mkdir -p $(dir $@)
-	@g++ -c -O1 -g $(CXXSTD) $(WARN) $(DEFS) $(INCS) $< -o $@
+	@g++ -c -O1 -g $(HOSTX) $(CXXSTD) $(WARN) $(DEFS) $(INCS) $< -o $@
 
 $(HB)/svm/%.c.o: $(SVM)/%.c Makefile | $(PATCHED)
 	@mkdir -p $(dir $@)
-	@gcc -c -O1 -g $(DEFS) $(INCS) $< -o $@
+	@gcc -c -O1 -g $(HOSTX) $(DEFS) $(INCS) $< -o $@
 
 $(HB)/src/%.cpp.o: src/%.cpp src/platform.h
 	@mkdir -p $(dir $@)
-	g++ -c -O1 -g $(CXXSTD) $(WARN) $(DEFS) $(INCS) $< -o $@
+	g++ -c -O1 -g $(HOSTX) $(CXXSTD) $(WARN) $(DEFS) $(INCS) $< -o $@
 
 $(HB)/src/%.c.o: src/%.c src/platform.h
 	@mkdir -p $(dir $@)
