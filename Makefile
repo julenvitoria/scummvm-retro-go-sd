@@ -98,7 +98,8 @@ SDKDEFS  := -DUSE_HAL_DRIVER -DSTM32H7B0xx -DSD_CARD=1 -DGNW_DISABLE_COMPRESSION
 SDKINC   := $(addprefix -Isdk/include/,Core/Inc Core/Inc/retro-go Core/Inc/porting Core/Src/porting/lib \
             Core/Src/porting/lib/FatFs Drivers/STM32H7xx_HAL_Driver/Inc Drivers/STM32H7xx_HAL_Driver/Inc/Legacy \
             Drivers/CMSIS/Device/ST/STM32H7xx/Include Drivers/CMSIS/Include) -Isdk/src -Isrc
-ARM_C    := $(MCU) $(OPT) -Wall $(SDKDEFS) $(SDKINC)
+# DIAG: extra defines for a diagnostic build (e.g. DIAG=-DSVM_DIAG_CLUT, src/platform_core.c)
+ARM_C    := $(MCU) $(OPT) -Wall $(SDKDEFS) $(SDKINC) $(DIAG)
 
 # firmware calls of boot.c / platform_core.c go to the bridge; the C library stays ours (newlib)
 LIBC_NAMES := memchr memcmp strchr strcmp strlen strncmp strncpy strrchr strstr strcpy strcat strtol strtod \
