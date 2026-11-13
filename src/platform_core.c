@@ -197,6 +197,40 @@ static void build_hw_clut(void)
 	}
 }
 
+#ifdef SVM_DIAG_CLUT
+/* Diagnostic build (make DIAG=-DSVM_DIAG_CLUT): what the palette and the frames do, to
+   SAVE_DIR/clut.log, and the frame with its tables to SAVE_DIR/clut.bin when PAUSE is pressed */
+static char g_diag[12 * 1024];
+static uint32_t g_diag_len, g_diag_events;
+static void diag_add(const char *fmt, ...)
+{
+	if (g_diag_len > sizeof g_diag - 200) return;
+	va_list ap;
+	va_start(ap, fmt);
+	g_diag_len += (uint32_t)vsnprintf(g_diag + g_diag_len, sizeof g_diag - g_diag_len, fmt, ap);
+	va_end(ap);
+}
+static void diag_save(void)
+{
+	FILE *f = fopen(SAVE_DIR "/clut.log", "w");
+	if (f) { fwrite(g_diag, 1, g_diag_len, f); fclose(f); }
+	if (g_last) {
+		f = fopen(SAVE_DIR "/clut.bin", "wb");
+		if (f) {
+			uint32_t hdr[4] = { 0x54554C43, (uint32_t)g_last_w, (uint32_t)g_last_h, (uint32_t)g_last_pitch };
+			fwrite(hdr, 1, sizeof hdr, f);
+			fwrite(g_clut, 1, sizeof g_clut, f);
+			fwrite(g_hw, 1, sizeof g_hw, f);
+			fwrite(g_lut, 1, sizeof g_lut, f);
+			for (int y = 0; y < g_last_h; y++) fwrite(g_last + y * g_last_pitch, 1, (size_t)g_last_w, f);
+			fwrite(lcd_get_active_buffer(), 1, LCD_W * LCD_H, f);
+			fwrite(lcd_get_inactive_buffer(), 1, LCD_W * LCD_H, f);
+			fclose(f);
+		}
+	}
+}
+#endif
+
 void plat_set_palette(const uint8_t *rgb, int start, int count)
 {
 	for (int i = 0; i < count && start + i < 256; i++)
@@ -208,6 +242,17 @@ void plat_set_palette(const uint8_t *rgb, int start, int count)
 	   showed another colour, specks all over the wall. */
 	if (!g_clut_pending) g_clut_since = HAL_GetTick();
 	g_clut_pending = 1;
+#ifdef SVM_DIAG_CLUT
+	if (g_diag_events < 400) {
+		g_diag_events++;
+		diag_add("P %lu %d+%d:", (unsigned long)HAL_GetTick(), start, count);
+		for (int i = 0; i < 256; i++)
+			if (g_lut[i] != i) diag_add(" %d>%d", i, g_lut[i]);
+		for (int i = 0; i < 256; i++)
+			if (g_hw[i] != g_clut[i]) diag_add(" [%d]=%06lx(was %06lx)", i, (unsigned long)g_hw[i], (unsigned long)g_clut[i]);
+		diag_add("\n");
+	}
+#endif
 }
 
 /* ...or after a long while without a frame (something that only sets palettes). Long: the
@@ -217,6 +262,9 @@ static void clut_flush(int now)
 {
 	if (!g_clut_pending) return;
 	if (!now && HAL_GetTick() - g_clut_since < 400) return;
+#ifdef SVM_DIAG_CLUT
+	if (!now) diag_add("LATE %lu\n", (unsigned long)HAL_GetTick());
+#endif
 	g_clut_pending = 0;
 	lcd_set_clut(g_hw, 256);
 }
@@ -235,6 +283,9 @@ void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 	osk_draw((uint8_t *)lcd_get_active_buffer(), g_hw);
 	common_ingame_overlay();
 	lcd_swap();
+#ifdef SVM_DIAG_CLUT
+	if (g_diag_events && g_diag_events < 400) diag_add("F %lu%s\n", (unsigned long)HAL_GetTick(), g_clut_pending ? " clut" : "");
+#endif
 	if (g_clut_pending) {                   /* with the frame drawn for it: as it comes up */
 		lcd_sleep_while_swap_pending();
 		clut_flush(1);
@@ -395,6 +446,9 @@ uint32_t plat_buttons(void)
 	odroid_input_read_gamepad(&js);
 	pump();
 	bool menu = js.values[ODROID_INPUT_VOLUME];
+#ifdef SVM_DIAG_CLUT
+	if (menu) diag_save();
+#endif
 	if (menu) pcm_audio_set(0, 0);                       /* silence while the menu is open */
 	common_emu_input_loop(&js, menu_options, &repaint);  /* PAUSE/SET menu, power, volume... */
 	if (menu) lcd_set_clut(g_hw, 256);                 /* the menu used part of the CLUT */
