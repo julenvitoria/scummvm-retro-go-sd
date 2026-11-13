@@ -12,6 +12,22 @@ Version 1.4.1 and earlier cannot load cores from `/cores/`.
 
 No games are included, nor will they be: bring your own.
 
+### Current version: v0.1.0
+
+| File | Engine | Version / id |
+|---|---|---|
+| `/cores/scummvm.bin` | loader | `L2` |
+| `/cores/scummvm/scumm.svm` | scumm | `3364D11A` |
+| `/cores/scummvm/sky.svm` | sky | `726C20AB` |
+| `/cores/scummvm/cge.svm` | cge | `28680DE9` |
+| `/cores/scummvm/lure.svm` | lure | `1B64066C` |
+| `/cores/scummvm/sword1.svm` | sword1 | `4CFA4569` |
+
+The PAUSE menu inside a game shows these on its *ScummVM* line, for example
+`scumm 3364D11A L2`: engine, id of the engine file, loader version. The id changes only when
+the file changes, so an update replaces just the files whose id is new. Every release lists
+its own in its notes.
+
 ### Compatibility
 
 ✅ tested on the console · 🟡 should work, not tested on the console yet · ❌ not supported
@@ -276,6 +292,7 @@ If a game goes back to the Retro-Go menu, the reason is shown on screen and writ
 git submodule update --init
 make              # out/scummvm.bin (the loader) and out/scummvm/<engine>.svm
                   # (arm-none-eabi-gcc on the PATH, or GCC_PATH=...)
+make dist         # out/scummvm-retro-go-sd.zip (unpack at the root of the SD) and out/versions.md
 make mono         # out/mono/scummvm.bin: every engine in a single .bin, as before 0.1.0
 make host         # PC test build: build/host/scummvm_host <game folder>
 make host-gwheap  # the same with the console's heap, to find out-of-memory spots
@@ -294,6 +311,22 @@ Retro-Go SD de sylverb, versión 2.0.0-rc1 o posterior (o su rama `external_core
 La 1.4.1 y anteriores no pueden cargar cores desde `/cores/`.
 
 No incluye juegos ni los incluirá: usa los tuyos.
+
+### Versión actual: v0.1.0
+
+| Fichero | Motor | Versión / id |
+|---|---|---|
+| `/cores/scummvm.bin` | loader | `L2` |
+| `/cores/scummvm/scumm.svm` | scumm | `3364D11A` |
+| `/cores/scummvm/sky.svm` | sky | `726C20AB` |
+| `/cores/scummvm/cge.svm` | cge | `28680DE9` |
+| `/cores/scummvm/lure.svm` | lure | `1B64066C` |
+| `/cores/scummvm/sword1.svm` | sword1 | `4CFA4569` |
+
+El menú de PAUSE dentro de un juego los muestra en la línea *ScummVM*, por ejemplo
+`scumm 3364D11A L2`: motor, identificador del fichero de motor y versión del cargador. El
+identificador solo cambia cuando cambia el fichero, así que una actualización sustituye solo
+los ficheros con identificador nuevo. Cada versión publica los suyos en sus notas.
 
 ### Compatibilidad
 
@@ -554,6 +587,7 @@ Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escr
 git submodule update --init
 make              # out/scummvm.bin (el cargador) y out/scummvm/<motor>.svm
                   # (arm-none-eabi-gcc en el PATH o GCC_PATH=...)
+make dist         # out/scummvm-retro-go-sd.zip (se descomprime en la raíz de la SD) y out/versions.md
 make mono         # out/mono/scummvm.bin: todos los motores en un solo .bin, como antes de la 0.1.0
 make host         # versión de PC para pruebas: build/host/scummvm_host <carpeta del juego>
 make host-gwheap  # lo mismo con el heap de la consola, para encontrar faltas de memoria
