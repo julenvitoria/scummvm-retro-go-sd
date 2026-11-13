@@ -122,6 +122,8 @@ static uint32_t dist(uint32_t a, uint32_t b)
 static void build_hw_clut(void)
 {
 	uint8_t spare_of[256] = { 0 };          /* 1: slot given to an overlay colour; 2: a twin, kept */
+	uint8_t need[LCD_OVERLAY_CLUT_MAX];
+	int nneed = 0;
 	for (int i = 0; i < 256; i++) { g_hw[i] = g_clut[i]; g_lut[i] = (uint8_t)i; }
 	int s = 255;
 	for (int w = OV0; w < OV1; w++) {
@@ -143,10 +145,48 @@ static void build_hw_clut(void)
 			g_lut[spare] = (uint8_t)twin;
 			g_hw[spare] = g_clut[w];
 			g_lut[w] = (uint8_t)spare;
-		} else {                             /* none left: the nearest colour outside */
-			uint32_t best = ~0u;
-			for (int j = 0; j < 256; j++)
-				if (!in_ov(j) && spare_of[j] != 1 && dist(g_clut[j], g_clut[w]) < best) { best = dist(g_clut[j], g_clut[w]); g_lut[w] = (uint8_t)j; }
+		} else {
+			need[nneed++] = (uint8_t)w;      /* none left: below */
+		}
+	}
+	if (nneed) {
+		/* No exact duplicate to spare (a full 256-colour palette: Atlantis, while Indy's
+		   colours are being shaded): the two closest colours of the whole palette share a
+		   slot and the freed one takes the overlay slot's colour -- unless that colour's own
+		   nearest is closer still. It used to go straight to its nearest, which can be far:
+		   specks on the wall. */
+		static uint8_t nn[256];
+		static uint32_t nd[256];
+		for (int i = 0; i < 256; i++) nd[i] = ~0u;
+		for (int i = 0; i < 256; i++) {
+			if (in_ov(i) || spare_of[i] == 1) continue;
+			for (int j = i + 1; j < 256; j++) {
+				if (in_ov(j) || spare_of[j] == 1) continue;
+				uint32_t d = dist(g_clut[i], g_clut[j]);
+				if (d < nd[i]) { nd[i] = d; nn[i] = (uint8_t)j; }
+				if (d < nd[j]) { nd[j] = d; nn[j] = (uint8_t)i; }
+			}
+		}
+		for (int k = 0; k < nneed; k++) {
+			int w = need[k], near = -1, victim = -1;
+			uint32_t dnear = ~0u, dvictim = ~0u;
+			for (int j = 0; j < 256; j++) {
+				if (in_ov(j) || spare_of[j] == 1) continue;
+				uint32_t d = dist(g_clut[j], g_clut[w]);
+				if (d < dnear) { dnear = d; near = j; }
+				/* a slot to free: nothing else maps to it, and its neighbour is still there */
+				if (spare_of[j] == 0 && nd[j] < dvictim && spare_of[nn[j]] != 1) { dvictim = nd[j]; victim = j; }
+			}
+			if (victim >= 0 && dvictim < dnear) {
+				spare_of[victim] = 1;
+				spare_of[nn[victim]] = 2;
+				g_lut[victim] = nn[victim];
+				g_hw[victim] = g_clut[w];
+				g_lut[w] = (uint8_t)victim;
+			} else if (near >= 0) {
+				g_lut[w] = (uint8_t)near;
+				spare_of[near] = 2;
+			}
 		}
 	}
 	uint32_t best = ~0u;
@@ -312,10 +352,33 @@ static bool subtitles_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t e
 	return false;
 }
 
+/* "scumm 1A2B3C4D L2": the engine image's name and id (its file's CRC-32, tools/xip_pack.py)
+   and the loader's version; "mono" for the single .bin */
+static char g_version[40];
+static const char *svm_version(void)
+{
+	if (!g_version[0]) {
+#ifdef SVM_ENGINE_IMAGE
+		extern uint32_t svm_image_id, svm_loader_version;
+		extern char svm_core_path[];
+		const char *b = strrchr(svm_core_path, '/');
+		char name[16];
+		snprintf(name, sizeof name, "%s", b ? b + 1 : svm_core_path);
+		char *dot = strrchr(name, '.');
+		if (dot) *dot = 0;
+		snprintf(g_version, sizeof g_version, "%s %08lX L%lu", name, (unsigned long)svm_image_id, (unsigned long)svm_loader_version);
+#else
+		snprintf(g_version, sizeof g_version, "mono");
+#endif
+	}
+	return g_version;
+}
+
 uint32_t plat_buttons(void)
 {
 	static odroid_dialog_choice_t options[] = {
 		{ 400, "", g_voice_value, 1, subtitles_cb },
+		{ 401, "ScummVM", g_version, 0, NULL },        /* which engine image this is (svm_version) */
 		ODROID_DIALOG_CHOICE_LAST,
 	};
 	static int talkie = -2;                            /* -2: not asked yet */
@@ -1137,6 +1200,7 @@ int svm_main(void)
 	svm_run_constructors();
 	extern uint32_t svm_xip_delta;
 	printf("ScummVM: heap %lu KB, XIP delta 0x%08lx\n", (unsigned long)(heap_total() / 1024), (unsigned long)svm_xip_delta);
+	printf("ScummVM: version %s\n", svm_version());
 
 	find_game(ACTIVE_FILE ? ACTIVE_FILE->path : "");
 	rg_storage_mkdir(SAVE_DIR);

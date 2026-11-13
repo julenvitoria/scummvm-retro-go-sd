@@ -38,7 +38,10 @@ typedef struct {
 	uint32_t ram_size;            /* bytes of the RAM image, at the start of the file */
 	uint32_t bss_end;             /* the RAM image's .bss ends here (zeroed by the loader) */
 	uint32_t entry;               /* svm_engine_entry, thumb bit set */
+	uint32_t image_id;            /* CRC-32 of the file up to this footer: which build of the engine this is */
 } svm_eng_footer_t;
+
+#define SVM_LOADER_VERSION 2             /* src/stub.c; goes up when the loader changes */
 
 /* what the loader hands the engine image */
 typedef struct {
@@ -47,4 +50,6 @@ typedef struct {
 	uint32_t xip_delta;
 	const char *path;             /* the engine image's file */
 	uint8_t *stub_start, *stub_end;   /* the loader's own RAM: free once the engine runs */
+	uint32_t image_id;            /* the footer's */
+	uint32_t loader_version;      /* SVM_LOADER_VERSION */
 } svm_eng_boot_t;
