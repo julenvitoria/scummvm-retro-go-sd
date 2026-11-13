@@ -3516,7 +3516,7 @@ index 3cdc7fcafbc..81c096ff475 100644
  	int _curTable;
  	uint16 _prevSeqNb;
 diff --git a/engines/scumm/smush/smush_player.cpp b/engines/scumm/smush/smush_player.cpp
-index 1c6463160f4..62118a7df94 100644
+index 1c6463160f4..53c9375cff0 100644
 --- a/engines/scumm/smush/smush_player.cpp
 +++ b/engines/scumm/smush/smush_player.cpp
 @@ -54,6 +54,10 @@
@@ -3592,7 +3592,7 @@ index 1c6463160f4..62118a7df94 100644
  	delete _IACTchannel;
  	delete _compressedFileSoundHandle;
  	terminateAudio();
-@@ -327,6 +373,15 @@ SmushPlayer::~SmushPlayer() {
+@@ -327,6 +373,31 @@ SmushPlayer::~SmushPlayer() {
  void SmushPlayer::init(int32 speed) {
  	VirtScreen *vs = &_vm->_virtscr[kMainVirtScreen];
  
@@ -3603,12 +3603,28 @@ index 1c6463160f4..62118a7df94 100644
 +	// (not when it is the decoder's own memory: gwLendBlock())
 +	_gwArena = vs->hasTwoBuffers && !gwLendBlock(1) ? vs->backBuf : nullptr;
 +	_gwArenaLeft = _gwArena ? _vm->getResourceSize(rtBuffer, 5) : 0;
++	if (!_gwArena && _vm->_game.id == GID_FT) {
++		// FT (its back buffer is the decoder's): the tracks' buffers in one block, taken
++		// now. Asked for one by one as the video goes, the third and fourth found the heap
++		// cut up by the small pieces of sound in the queues -- 40 KB free and no 20 KB
++		// hole, and a whole conversation without voice. As many tracks as there is room for.
++		free(_gwTrackBlock);
++		_gwTrackBlock = nullptr;
++		const uint32 one = SMUSH_FADE_SIZE + 20480;
++		for (int n = SMUSH_MAX_TRACKS; n >= 2 && !_gwTrackBlock; n--) {
++			_gwTrackBlock = (byte *)malloc(n * one);
++			if (_gwTrackBlock) {
++				_gwArena = _gwTrackBlock;
++				_gwArenaLeft = n * one;
++			}
++		}
++	}
 +#endif
 +
  	_frame = 0;
  	_speed = speed;
  	_endOfFile = false;
-@@ -411,8 +466,23 @@ void SmushPlayer::release() {
+@@ -411,8 +482,23 @@ void SmushPlayer::release() {
  	_vm->_virtscr[kMainVirtScreen].pitch = _origPitch;
  	_vm->_gdi->_numStrips = _origNumStrips;
  
@@ -3634,7 +3650,7 @@ index 1c6463160f4..62118a7df94 100644
  	delete _deltaGlyphsCodec;
  	_deltaGlyphsCodec = 0;
  }
-@@ -652,6 +722,10 @@ void SmushPlayer::handleTextResource(uint32 subType, int32 subSize, Common::Seek
+@@ -652,6 +738,10 @@ void SmushPlayer::handleTextResource(uint32 subType, int32 subSize, Common::Seek
  	char *string = nullptr, *string2 = nullptr;
  	if (subType == MKTAG('T','E','X','T')) {
  		string = (char *)malloc(subSize - 16);
@@ -3645,7 +3661,7 @@ index 1c6463160f4..62118a7df94 100644
  		str = string;
  		b.read(string, subSize - 16);
  	} else {
-@@ -751,6 +825,12 @@ void SmushPlayer::handleTextResource(uint32 subType, int32 subSize, Common::Seek
+@@ -751,6 +841,12 @@ void SmushPlayer::handleTextResource(uint32 subType, int32 subSize, Common::Seek
  		// Handled by game-specific renderer
  	} else {
  		SmushFont *sf = getFont(fontId);
@@ -3658,7 +3674,7 @@ index 1c6463160f4..62118a7df94 100644
  		assert(sf != nullptr);
  
  		// The hack that used to be here to prevent bug #2220 is no longer necessary and
-@@ -928,8 +1008,22 @@ void SmushPlayer::decodeFrameObject(int codec, const uint8 *src, int left, int t
+@@ -928,8 +1024,22 @@ void SmushPlayer::decodeFrameObject(int codec, const uint8 *src, int left, int t
  			smushDecodeRLE(_dst, adjustedSrc, left, top, width, height, pitch);
  			break;
  		case SMUSH_CODEC_DELTA_BLOCKS:
@@ -3681,7 +3697,7 @@ index 1c6463160f4..62118a7df94 100644
  			if (_deltaBlocksCodec)
  				_deltaBlocksCodec->decode(_dst, src);
  			break;
-@@ -958,6 +1052,9 @@ void SmushPlayer::decodeFrameObject(int codec, const uint8 *src, int left, int t
+@@ -958,6 +1068,9 @@ void SmushPlayer::decodeFrameObject(int codec, const uint8 *src, int left, int t
  		if (_frameBuffer == nullptr) {
  			_frameBuffer = (byte *)malloc(_width * _height);
  		}
@@ -3691,7 +3707,7 @@ index 1c6463160f4..62118a7df94 100644
  		memcpy(_frameBuffer, _dst, _width * _height);
  		_storeFrame = false;
  	}
-@@ -1016,15 +1113,71 @@ void SmushPlayer::handleFrameObject(int32 subSize, Common::SeekableReadStream &b
+@@ -1016,15 +1129,71 @@ void SmushPlayer::handleFrameObject(int32 subSize, Common::SeekableReadStream &b
  	handleGameFrameObjectPre(codec, left, top, width, height, subSize - 14);
  
  	int32 chunk_size = subSize - 14;
@@ -3763,7 +3779,7 @@ index 1c6463160f4..62118a7df94 100644
  }
  
  void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
-@@ -1069,7 +1222,18 @@ void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
+@@ -1069,7 +1238,18 @@ void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
  			break;
  		case MKTAG('P','S','A','D'):
  			if (!_compressedFileMode && !isFastForwardingCurrentFrame()) {
@@ -3782,7 +3798,7 @@ index 1c6463160f4..62118a7df94 100644
  				b.seek(-8, SEEK_CUR);
  				b.read(audioChunk, subSize + 8);
  				feedAudio(audioChunk, 0, 127, 0, 0);
-@@ -1121,6 +1285,10 @@ void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
+@@ -1121,6 +1301,10 @@ void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
  		}
  	}
  
@@ -3793,7 +3809,7 @@ index 1c6463160f4..62118a7df94 100644
  	if (_insanity) {
  		_vm->_insane->procPostRendering(_dst, 0, 0, 0, _frame, _nbframes-1);
  	}
-@@ -1220,8 +1388,15 @@ SmushFont *SmushPlayer::getFont(int font) {
+@@ -1220,8 +1404,15 @@ SmushFont *SmushPlayer::getFont(int font) {
  		_sf[font] = new SmushFont(_vm, file_font, _vm->_game.id == GID_DIG && font != 0);
  	}
  
@@ -3809,7 +3825,7 @@ index 1c6463160f4..62118a7df94 100644
  }
  
  void SmushPlayer::parseNextFrame() {
-@@ -1234,6 +1409,34 @@ void SmushPlayer::parseNextFrame() {
+@@ -1234,6 +1425,34 @@ void SmushPlayer::parseNextFrame() {
  			if (!_vm->openFile(*tmp, Common::Path(_seekFile)))
  				error("SmushPlayer: Unable to open file %s", _seekFile.c_str());
  			_base = tmp;
@@ -3844,7 +3860,7 @@ index 1c6463160f4..62118a7df94 100644
  			_base->readUint32BE();
  			_baseSize = _base->readUint32BE();
  
-@@ -1415,8 +1618,21 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
+@@ -1415,8 +1634,21 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
  	_vm->openFile(*file, filename);
  	if (!file->isOpen()) {
  		warning("SmushPlayer::play() File not found %s", filename);
@@ -3866,7 +3882,7 @@ index 1c6463160f4..62118a7df94 100644
  	file->close();
  	delete file;
  
-@@ -1608,8 +1824,20 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
+@@ -1608,8 +1840,20 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
  	CursorMan.showMouse(oldMouseState);
  }
  
@@ -3887,7 +3903,7 @@ index 1c6463160f4..62118a7df94 100644
  
  	if (_imuseDigital)
  		_imuseDigital->setSmushPlayer(this);
-@@ -1658,13 +1886,153 @@ void SmushPlayer::terminateAudio() {
+@@ -1658,13 +1902,155 @@ void SmushPlayer::terminateAudio() {
  		_smushAudioCallbackEnabled = false;
  	}
  
@@ -3941,6 +3957,8 @@ index 1c6463160f4..62118a7df94 100644
 +	_gwArena = nullptr;
 +	_gwArenaLeft = 0;
 +	_gwChunkArena = false;
++	free(_gwTrackBlock);
++	_gwTrackBlock = nullptr;
 +}
 +#endif
 +
@@ -4041,7 +4059,7 @@ index 1c6463160f4..62118a7df94 100644
  int SmushPlayer::isChanActive(int flagId) {
  	return _smushTrackFlags[flagId];
  }
-@@ -1688,6 +2056,12 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
+@@ -1688,6 +2074,12 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
  	_smushTracks[id].subChunkPtr = nullptr;
  	_smushTracks[id].dataSize = 0;
  
@@ -4054,7 +4072,7 @@ index 1c6463160f4..62118a7df94 100644
  	_smushTracks[id].fadeBuf = (uint8 *)malloc(SMUSH_FADE_SIZE);
  	if (!_smushTracks[id].fadeBuf)
  		return -1;
-@@ -1697,6 +2071,7 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
+@@ -1697,6 +2089,7 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
  		return -1;
  
  	memset(_smushTracks[id].blockPtr, 127, _smushTracks[id].blockSize);
@@ -4062,7 +4080,7 @@ index 1c6463160f4..62118a7df94 100644
  	// Track the effective number of tracks, so that if only one fails,
  	// the others can carry on as they should
  	_smushNumTracks++;
-@@ -1747,40 +2122,47 @@ void SmushPlayer::handleSAUDChunk(uint8 *srcBuf, uint32 size, int groupId, int v
+@@ -1747,40 +2140,47 @@ void SmushPlayer::handleSAUDChunk(uint8 *srcBuf, uint32 size, int groupId, int v
  	uint16 flagsAccumulator[SMUSH_MAX_TRACKS];
  
  	if (!index) {
@@ -4121,7 +4139,7 @@ index 1c6463160f4..62118a7df94 100644
  				if (_smushTracks[i].state == TRK_STATE_INACTIVE ||
  					_smushTracks[i].state == TRK_STATE_ENDING   ||
  					_smushTracks[i].flags <= flags) {
-@@ -1853,6 +2235,39 @@ void SmushPlayer::fillAudioTrackInfo(uint8 *srcBuf, uint16 *flagsAccumulator, ui
+@@ -1853,6 +2253,39 @@ void SmushPlayer::fillAudioTrackInfo(uint8 *srcBuf, uint16 *flagsAccumulator, ui
  		}
  	}
  
@@ -4161,7 +4179,7 @@ index 1c6463160f4..62118a7df94 100644
  	if (maxAccId != -1) {
  		for (int i = 0; i < _smushNumTracks; i++) {
  			if (_smushTracks[i].parsedChunks < 255) {
-@@ -1967,10 +2382,10 @@ void SmushPlayer::processDispatches(int16 feedSize) {
+@@ -1967,10 +2400,10 @@ void SmushPlayer::processDispatches(int16 feedSize) {
  
  				_smushDispatch[i].volumeStep = 0;
  			} else if (_smushTracks[i].state == TRK_STATE_PLAYING) {
@@ -4174,7 +4192,7 @@ index 1c6463160f4..62118a7df94 100644
  
  						if (mixInFrameCount > _smushDispatch[i].currentOffset)
  							mixInFrameCount = _smushDispatch[i].currentOffset;
-@@ -2163,8 +2578,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
+@@ -2163,8 +2596,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
  			_smushDispatch[idx].currentOffset = READ_BE_UINT32(buf + 6);
  			_smushDispatch[idx].sampleRate = _smushAudioSampleRate;
  			_smushDispatch[idx].headerPtr += _smushDispatch[idx].headerPtr[1] + 2;
@@ -4185,7 +4203,7 @@ index 1c6463160f4..62118a7df94 100644
  				if (chunk > _smushDispatch[idx].currentOffset) {
  					_smushTracks[idx].state = TRK_STATE_INACTIVE;
  					_smushTracks[idx].groupId = GRP_MASTER;
-@@ -2276,8 +2691,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
+@@ -2276,8 +2709,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
  			_smushDispatch[idx].sampleRate = _smushAudioSampleRate;
  
  			_smushDispatch[idx].headerPtr += _smushDispatch[idx].headerPtr[1] + 2;
@@ -4196,7 +4214,7 @@ index 1c6463160f4..62118a7df94 100644
  				if (chunk > _smushDispatch[idx].currentOffset) {
  					_smushTracks[idx].state = TRK_STATE_INACTIVE;
  					_smushTracks[idx].groupId = GRP_MASTER;
-@@ -2314,8 +2729,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
+@@ -2314,8 +2747,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
  				_smushDispatch[idx].headerPtr = &code[READ_BE_UINT16(&code[18])];
  			}
  
@@ -4208,10 +4226,10 @@ index 1c6463160f4..62118a7df94 100644
  					_smushTracks[idx].state = TRK_STATE_INACTIVE;
  					_smushTracks[idx].groupId = GRP_MASTER;
 diff --git a/engines/scumm/smush/smush_player.h b/engines/scumm/smush/smush_player.h
-index 15975a2aa2d..f58a74bd2b0 100644
+index 15975a2aa2d..11aaa1bc4a6 100644
 --- a/engines/scumm/smush/smush_player.h
 +++ b/engines/scumm/smush/smush_player.h
-@@ -143,6 +143,35 @@ private:
+@@ -143,6 +143,36 @@ private:
  	ScummEngine_v7 *_vm;
  	IMuseDigital *_imuseDigital;
  	Insane *_insane;
@@ -4225,6 +4243,7 @@ index 15975a2aa2d..f58a74bd2b0 100644
 +	int32 _gwChunkSize = 0;
 +	bool _gwCodecKept = false;		// FT: the decoder made at start, never deleted
 +	bool _gwChunkKeep = false;		// the one made at start (FT): kept between videos
++	byte *_gwTrackBlock = nullptr;	// FT: the audio tracks' buffers in one block, for one video
 +	bool _gwChunkArena = false;		// ...and lent to the audio tracks, the videos being in the flash
 +public:
 +	// the heap ran out: those two given back, if no video is playing (made again by the next)
@@ -5498,10 +5517,22 @@ index fd004607df5..9ff556eecc2 100644
  	int32 _gamesSaved = 0;
  	int32 _textCursor;
 diff --git a/engines/sword1/logic.cpp b/engines/sword1/logic.cpp
-index dbc9282a3fb..94b3d0233ff 100644
+index dbc9282a3fb..7653ee1d66d 100644
 --- a/engines/sword1/logic.cpp
 +++ b/engines/sword1/logic.cpp
-@@ -124,6 +124,15 @@ void Logic::newScreen(uint32 screen) {
+@@ -48,7 +48,11 @@ namespace Sword1 {
+ #define SCRIPT_VERSION  13
+ #define LAST_FRAME 999
+ 
++#ifdef GW_SWORD1_SLIM
++uint32 *Logic::_scriptVars = nullptr;
++#else
+ uint32 Logic::_scriptVars[NUM_SCRIPT_VARS];
++#endif
+ 
+ Logic::Logic(SwordEngine *vm, ObjectMan *pObjMan, ResMan *resMan, Screen *pScreen, Mouse *pMouse, Sound *pSound, Menu *pMenu, OSystem *system, Audio::Mixer *mixer)
+ 	: _rnd("sword1") {
+@@ -124,6 +128,15 @@ void Logic::newScreen(uint32 screen) {
  	if (screen == 33)
  		_scriptVars[SAM_RETURNING] = 0;
  
@@ -5517,7 +5548,7 @@ index dbc9282a3fb..94b3d0233ff 100644
  	if (SwordEngine::_systemVars.justRestoredGame) { // if we've just restored a game - we want George to be exactly as saved
  		fnAddHuman(NULL, 0, 0, 0, 0, 0, 0, 0);
  		if (_scriptVars[GEORGE_WALKING]) { // except that if George was walking when we saveed the game
-@@ -1013,7 +1022,13 @@ int Logic::fnPlaySequence(Object *cpt, int32 id, int32 sequenceId, int32 d, int3
+@@ -1013,7 +1026,13 @@ int Logic::fnPlaySequence(Object *cpt, int32 id, int32 sequenceId, int32 d, int3
  	if (SwordEngine::isPsx() && sequenceId == 19) {
  		_control->psxEndCredits();
  	} else {
@@ -5531,7 +5562,7 @@ index dbc9282a3fb..94b3d0233ff 100644
  		if (player) {
  			Common::Error err;
  
-@@ -1237,7 +1252,12 @@ int Logic::fnISpeak(Object *cpt, int32 id, int32 cdt, int32 textNo, int32 spr, i
+@@ -1237,7 +1256,12 @@ int Logic::fnISpeak(Object *cpt, int32 id, int32 cdt, int32 textNo, int32 spr, i
  
  		char *text = _objMan->lockText(textNo);
  		cpt->o_speech_time = strlen(text) + 5;
@@ -5544,6 +5575,22 @@ index dbc9282a3fb..94b3d0233ff 100644
  		_objMan->unlockText(textNo);
  
  		Object *textCpt = _objMan->fetchObject(textCptId);
+diff --git a/engines/sword1/logic.h b/engines/sword1/logic.h
+index 20b298b6b0c..6aa6eaa516b 100644
+--- a/engines/sword1/logic.h
++++ b/engines/sword1/logic.h
+@@ -67,7 +67,11 @@ public:
+ 	bool canShowDebugTextNumber();
+ 	void plotRouteGrid(Object *megaObject);
+ 
++#ifdef GW_SWORD1_SLIM
++	static uint32 *_scriptVars;	// (in the heap from SwordEngine::init() on: 4.7 KB)
++#else
+ 	static uint32 _scriptVars[NUM_SCRIPT_VARS];
++#endif
+ // public for mouse (menu looking)
+ 	int cfnPresetScript(Object *cpt, int32 id, int32 c, int32 d, int32 e, int32 f, int32 z, int32 x);
+ private:
 diff --git a/engines/sword1/memman.h b/engines/sword1/memman.h
 index 83d27f5b0c3..8223b750eba 100644
 --- a/engines/sword1/memman.h
@@ -5855,7 +5902,7 @@ index 999ed4da7c5..cb4d90b7b34 100644
  	MemHandle *resHandle(uint32 id);
  	uint32     resOffset(uint32 id);
 diff --git a/engines/sword1/screen.cpp b/engines/sword1/screen.cpp
-index 67158526c6a..5f1b7ca9c7d 100644
+index 67158526c6a..433497c8f8e 100644
 --- a/engines/sword1/screen.cpp
 +++ b/engines/sword1/screen.cpp
 @@ -36,6 +36,10 @@
@@ -5869,7 +5916,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  namespace Sword1 {
  
  #define SCROLL_FRACTION      16
-@@ -95,10 +99,113 @@ Screen::~Screen() {
+@@ -95,10 +99,116 @@ Screen::~Screen() {
  		quitScreen();
  }
  
@@ -5900,8 +5947,11 @@ index 67158526c6a..5f1b7ca9c7d 100644
 +// decompressTony() straight into the view, a row at a time: a big sprite (a whole
 +// foreground, 120 KB) needs no buffer of its size. False: too wide for the row buffer.
 +bool Screen::gwDrawTony(const uint8 *src, uint32 compSize, int w, int h, int x, int y) {
-+	static uint8 row[1024];
-+	if (w <= 0 || w > (int)sizeof(row))
++	enum { kRow = 1024 };
++	static uint8 *row;	// (in the heap, not static data: see gwMakeRoomDefs)
++	if (!row)
++		row = (uint8 *)malloc(kRow);
++	if (!row || w <= 0 || w > kRow)
 +		return false;
 +	const uint8 *end = src + compSize;
 +	int col = 0, r = 0;
@@ -5983,7 +6033,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  		_system->fillScreen(0);
  	}
  }
-@@ -326,6 +433,9 @@ void Screen::fadePalette() {
+@@ -326,6 +436,9 @@ void Screen::fadePalette() {
  }
  
  bool Screen::showScrollFrame() {
@@ -5993,7 +6043,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  	if ((!_fullRefresh) || Logic::_scriptVars[NEW_PALETTE] || _updatePalette)
  		return false; // don't draw an additional frame if we aren't scrolling or have to change the palette
  	if ((_oldScrollX == Logic::_scriptVars[SCROLL_OFFSET_X]) &&
-@@ -361,6 +471,15 @@ void Screen::updateScreen() {
+@@ -361,6 +474,15 @@ void Screen::updateScreen() {
  		_updatePalette = false;
  	}
  
@@ -6009,7 +6059,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  	uint16 scrlX = (uint16)Logic::_scriptVars[SCROLL_OFFSET_X];
  	uint16 scrlY = (uint16)Logic::_scriptVars[SCROLL_OFFSET_Y];
  	if (_fullRefresh) {
-@@ -508,7 +627,12 @@ void Screen::newScreen(uint32 screen) {
+@@ -508,7 +630,12 @@ void Screen::newScreen(uint32 screen) {
  	if (SwordEngine::isPsx())
  		flushPsxCache();
  
@@ -6022,7 +6072,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  	_screenGrid = (uint8 *)malloc(_gridSizeX * _gridSizeY);
  	memset(_screenGrid, 0, _gridSizeX * _gridSizeY);
  	for (cnt = 0; cnt < _roomDefTable[_currentScreen].totalLayers; cnt++) {
-@@ -552,6 +676,23 @@ void Screen::draw() {
+@@ -552,6 +679,23 @@ void Screen::draw() {
  
  	debug(8, "Screen::draw() -> _currentScreen %u", _currentScreen);
  
@@ -6046,7 +6096,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  	if (_currentScreen == 54) {
  		// rm54 has a BACKGROUND parallax layer in parallax[0]
  		if (_parallax[0] && !SwordEngine::isPsx()) //Avoid drawing this parallax on PSX edition, it gets occluded by background
-@@ -676,6 +817,9 @@ void Screen::processImage(uint32 id) {
+@@ -676,6 +820,9 @@ void Screen::processImage(uint32 id) {
  
  	uint8 *tonyBuf = nullptr;
  	uint8 *hifBuf = nullptr;
@@ -6056,7 +6106,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  	if (SwordEngine::isPsx() && compact->o_type != TYPE_TEXT) { // PSX sprites are compressed with HIF
  		hifBuf = (uint8 *)malloc(_resMan->readUint16(&frameHead->width) * _resMan->readUint16(&frameHead->height) / 2);
  		memset(hifBuf, 0x00, (_resMan->readUint16(&frameHead->width) * _resMan->readUint16(&frameHead->height) / 2));
-@@ -688,9 +832,18 @@ void Screen::processImage(uint32 id) {
+@@ -688,9 +835,18 @@ void Screen::processImage(uint32 id) {
  		decompressRLE0(sprData, _resMan->readUint32(&frameHead->compSize), _rleBuffer);
  		sprData = _rleBuffer;
  	} else if (frameHead->runTimeComp[1] == 'I') { // new type
@@ -6075,7 +6125,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  	}
  
  	uint16 sprSizeX, sprSizeY;
-@@ -737,9 +890,22 @@ void Screen::processImage(uint32 id) {
+@@ -737,9 +893,22 @@ void Screen::processImage(uint32 id) {
  
  	uint16 sprPitch = sprSizeX;
  	uint16 incr;
@@ -6098,7 +6148,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  		if ((!(SwordEngine::isPsx()) || (compact->o_type == TYPE_TEXT)
  		        || (compact->o_resource == LVSFLY) || (!(compact->o_resource == GEORGE_MEGA) && (sprSizeX < 260))))
  			drawSprite(sprData + incr, spriteX, spriteY, sprSizeX, sprSizeY, sprPitch);
-@@ -809,6 +975,13 @@ void Screen::verticalMask(uint16 x, uint16 y, uint16 bWidth, uint16 bHeight) {
+@@ -809,6 +978,13 @@ void Screen::verticalMask(uint16 x, uint16 y, uint16 bWidth, uint16 bHeight) {
  }
  
  void Screen::blitBlockClear(uint16 x, uint16 y, uint8 *data) {
@@ -6112,7 +6162,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  	uint8 *dest = _screenBuf + (y * SCRNGRID_Y) * _scrnSizeX + (x * SCRNGRID_X);
  
  	for (uint8 cnty = 0; cnty < (SwordEngine::isPsx() ? SCRNGRID_Y / 2 : SCRNGRID_Y); cnty++) {
-@@ -868,6 +1041,58 @@ void Screen::renderParallax(uint8 *data) {
+@@ -868,6 +1044,58 @@ void Screen::renderParallax(uint8 *data) {
  
  	if (SwordEngine::isPsx())
  		drawPsxParallax(data, paraScrlX, scrnScrlX, scrnWidth);
@@ -6171,7 +6221,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  	else
  		for (uint16 cnty = 0; cnty < scrnHeight; cnty++) {
  			uint8 *src = data + _resMan->readUint32(lineIndexes + cnty + paraScrlY);
-@@ -913,9 +1138,17 @@ void Screen::renderParallax(uint8 *data) {
+@@ -913,9 +1141,17 @@ void Screen::renderParallax(uint8 *data) {
  				}
  			}
  		}
@@ -6189,7 +6239,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  	uint8 *dest = _screenBuf + (sprY * _scrnSizeX) + sprX;
  
  	for (uint16 cnty = 0; cnty < sprHeight; cnty++) {
-@@ -1508,6 +1741,9 @@ void Screen::showFrame(uint16 x, uint16 y, uint32 resId, uint32 frameNo, const b
+@@ -1508,6 +1744,9 @@ void Screen::showFrame(uint16 x, uint16 y, uint32 resId, uint32 frameNo, const b
  // ------------------- Router debugging code --------------------------------
  
  void Screen::bresenhamLine(int32 x1, int32 y1, int32 x2, int32 y2, uint8 color) {
@@ -6199,7 +6249,7 @@ index 67158526c6a..5f1b7ca9c7d 100644
  	int32 tmpX, tmpY;
  	uint8 *dstPt1, *dstPt2;
  	int32 dx, dy;
-@@ -1567,6 +1803,10 @@ void Screen::bresenhamLine(int32 x1, int32 y1, int32 x2, int32 y2, uint8 color)
+@@ -1567,6 +1806,10 @@ void Screen::bresenhamLine(int32 x1, int32 y1, int32 x2, int32 y2, uint8 color)
  }
  
  void Screen::plotPoint(int32 x, int32 y, uint8 color) {
@@ -6211,16 +6261,28 @@ index 67158526c6a..5f1b7ca9c7d 100644
  		_screenBuf[_scrnSizeX * y + x] = color;
  }
 diff --git a/engines/sword1/screen.h b/engines/sword1/screen.h
-index 7834da2550d..12ce1513fec 100644
+index 7834da2550d..ddb6b08b910 100644
 --- a/engines/sword1/screen.h
 +++ b/engines/sword1/screen.h
-@@ -185,12 +185,28 @@ private:
+@@ -184,13 +184,40 @@ private:
+ 	uint8   _foreLength, _backLength, _sortLength;
  	uint16  _scrnSizeX, _scrnSizeY, _gridSizeX, _gridSizeY;
  
++#ifdef GW_SWORD1_SLIM
++	// Game & Watch: the table lives in the flash, and the copy the game writes to
++	// (fnSetParallax) in the heap from SwordEngine::init() on -- as static data its 6 KB
++	// came out of every other game's heap too (Full Throttle's videos missed them)
++	static const RoomDef _roomDefRom[TOTAL_ROOMS];
++	static RoomDef *_roomDefTable;
++public:
++	static void gwMakeRoomDefs();
++private:
++#else
  	static RoomDef _roomDefTable[TOTAL_ROOMS]; // from ROOMS.C (not const, see fnSetParallax)
++#endif
 +#ifdef GW_SWORD1_SLIM
 +public:
-+	static uint32 gwRoomLayer0(uint32 screen) { return screen < TOTAL_ROOMS ? _roomDefTable[screen].layers[0] : 0; }
++	static uint32 gwRoomLayer0(uint32 screen) { return screen < TOTAL_ROOMS ? _roomDefRom[screen].layers[0] : 0; }
 +private:
 +#endif
  
@@ -6393,11 +6455,50 @@ index 4f97e480bc8..bf4f419991e 100644
  	bool _speechSampleBusy = false;
  
  	// Sound handles
+diff --git a/engines/sword1/staticres.cpp b/engines/sword1/staticres.cpp
+index 3270dcdd379..cd8d43e7e3d 100644
+--- a/engines/sword1/staticres.cpp
++++ b/engines/sword1/staticres.cpp
+@@ -1543,7 +1543,19 @@ const uint32 ObjectMan::_textList[TOTAL_SECTIONS][7] = {
+ };
+ 
+ 
++#ifdef GW_SWORD1_SLIM
++RoomDef *Screen::_roomDefTable = nullptr;
++void Screen::gwMakeRoomDefs() {
++	if (!_roomDefTable)
++		_roomDefTable = (RoomDef *)malloc(sizeof(_roomDefRom));
++	if (!_roomDefTable)
++		error("Broken Sword: no memory for the room table");
++	memcpy(_roomDefTable, _roomDefRom, sizeof(_roomDefRom));
++}
++const RoomDef Screen::_roomDefRom[TOTAL_ROOMS] = {
++#else
+ RoomDef Screen::_roomDefTable[TOTAL_ROOMS] = { // these are NOT const
++#endif
+ 	{
+ 		0,						//total_layers  --- room 0 NOT USED
+ 		0,						//size_x			= width
 diff --git a/engines/sword1/sword1.cpp b/engines/sword1/sword1.cpp
-index 5e550016216..9899cf898a0 100644
+index 5e550016216..321c47f6984 100644
 --- a/engines/sword1/sword1.cpp
 +++ b/engines/sword1/sword1.cpp
-@@ -680,7 +680,12 @@ Common::Error SwordEngine::go() {
+@@ -89,6 +89,14 @@ SwordEngine::~SwordEngine() {
+ Common::Error SwordEngine::init() {
+ 
+ 	initGraphics(640, 480);
++#ifdef GW_SWORD1_SLIM
++	// Game & Watch: tables that were static data, in the heap only while this game runs
++	Screen::gwMakeRoomDefs();
++	if (!Logic::_scriptVars)
++		Logic::_scriptVars = (uint32 *)calloc(NUM_SCRIPT_VARS, sizeof(uint32));
++	if (!Logic::_scriptVars)
++		error("Broken Sword: no memory for the script variables");
++#endif
+ 
+ 	checkCdFiles();
+ 
+@@ -680,7 +688,12 @@ Common::Error SwordEngine::go() {
  		int saveSlot = ConfMan.getInt("save_slot");
  		// Savegames are numbered starting from 1 in the dialog window,
  		// but their filenames are numbered starting from 0.
@@ -6410,7 +6511,7 @@ index 5e550016216..9899cf898a0 100644
  			_control->doRestore();
  			startedFromGMM = true;
  			_systemVars.controlPanelMode = CP_NORMAL;
-@@ -991,6 +996,23 @@ void SwordEngine::askForCd() {
+@@ -991,6 +1004,23 @@ void SwordEngine::askForCd() {
  	}
  }
  
@@ -6434,7 +6535,7 @@ index 5e550016216..9899cf898a0 100644
  uint8 SwordEngine::mainLoop() {
  	_keyPressed.reset();
  	_customType = kActionNone;
-@@ -1005,6 +1027,9 @@ uint8 SwordEngine::mainLoop() {
+@@ -1005,6 +1035,9 @@ uint8 SwordEngine::mainLoop() {
  
  		checkCd();
  
