@@ -522,9 +522,15 @@ void plat_log(const char *msg)
 	printf("%s", msg);
 	for (const char *p = msg; *p; p++) g_log[g_log_len++ % LOG_SIZE] = *p;
 #ifdef SVM_DIAG_TRACE
-	if (g_trace) wdog_refresh();            /* writing the trace is slow: a script loop outlasted the watchdog */
-	static uint32_t saved;                  /* the screen of the reset shows the lines after this */
+#if SVM_DIAG_TRACE + 0 != 2
+	/* (saving the log takes longer than the watchdog allows by itself) */
+	static uint32_t saved;
+	if (g_trace) wdog_refresh();
 	if (g_trace && strchr(msg, '\n') && HAL_GetTick() - saved >= 300) { log_save(); saved = HAL_GetTick(); }
+#endif
+	/* DIAG=-DSVM_DIAG_TRACE=2: the trace on the screen of the reset only (the firmware shows
+	   the last lines printed): nothing here refreshes the watchdog or touches the card, for a
+	   hang that the trace above makes go away */
 #endif
 }
 
