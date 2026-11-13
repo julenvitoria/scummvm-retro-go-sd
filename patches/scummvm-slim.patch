@@ -3516,7 +3516,7 @@ index 3cdc7fcafbc..81c096ff475 100644
  	int _curTable;
  	uint16 _prevSeqNb;
 diff --git a/engines/scumm/smush/smush_player.cpp b/engines/scumm/smush/smush_player.cpp
-index 1c6463160f4..53c9375cff0 100644
+index 1c6463160f4..670b5c3b846 100644
 --- a/engines/scumm/smush/smush_player.cpp
 +++ b/engines/scumm/smush/smush_player.cpp
 @@ -54,6 +54,10 @@
@@ -3530,7 +3530,7 @@ index 1c6463160f4..53c9375cff0 100644
  namespace Scumm {
  
  static const int MAX_STRINGS = 200;
-@@ -220,12 +224,48 @@ void SmushPlayer::timerCallback() {
+@@ -220,12 +224,50 @@ void SmushPlayer::timerCallback() {
  	parseNextFrame();
  }
  
@@ -3538,7 +3538,9 @@ index 1c6463160f4..53c9375cff0 100644
 +bool SmushPlayer::gwReleaseKept() {
 +	// only the chunk buffer: the kept decoder's memory is the room's back buffer between
 +	// videos (gwLendBlock), and freeing it left the game drawing on freed memory
-+	if (_vm->_smushActive || !_gwChunkKeep)
++	// (nor while a video is being set up: init() asking for the tracks' block would take
++	// the frame-object buffer away from the video it is setting up)
++	if (_vm->_smushActive || _gwSettingUp || !_gwChunkKeep)
 +		return false;
 +	{
 +		free(_gwChunkBuf);
@@ -3579,7 +3581,7 @@ index 1c6463160f4..53c9375cff0 100644
  	_deltaGlyphsCodec = 0;
  	_strings = nullptr;
  	_sf[0] = nullptr;
-@@ -308,6 +348,12 @@ SmushPlayer::SmushPlayer(ScummEngine_v7 *scumm, IMuseDigital *imuseDigital, Insa
+@@ -308,6 +350,12 @@ SmushPlayer::SmushPlayer(ScummEngine_v7 *scumm, IMuseDigital *imuseDigital, Insa
  }
  
  SmushPlayer::~SmushPlayer() {
@@ -3592,7 +3594,7 @@ index 1c6463160f4..53c9375cff0 100644
  	delete _IACTchannel;
  	delete _compressedFileSoundHandle;
  	terminateAudio();
-@@ -327,6 +373,31 @@ SmushPlayer::~SmushPlayer() {
+@@ -327,6 +375,40 @@ SmushPlayer::~SmushPlayer() {
  void SmushPlayer::init(int32 speed) {
  	VirtScreen *vs = &_vm->_virtscr[kMainVirtScreen];
  
@@ -3610,6 +3612,14 @@ index 1c6463160f4..53c9375cff0 100644
 +		// hole, and a whole conversation without voice. As many tracks as there is room for.
 +		free(_gwTrackBlock);
 +		_gwTrackBlock = nullptr;
++		_gwSettingUp = true;
++		// the frame-object buffer first, if the game had it back between videos: a video
++		// without it loses frames, one without a track only a sound
++		if (!_gwChunkBuf) {
++			_gwChunkBuf = (byte *)malloc(48 * 1024);
++			_gwChunkSize = _gwChunkBuf ? 48 * 1024 : 0;
++			_gwChunkKeep = _gwChunkBuf != nullptr;
++		}
 +		const uint32 one = SMUSH_FADE_SIZE + 20480;
 +		for (int n = SMUSH_MAX_TRACKS; n >= 2 && !_gwTrackBlock; n--) {
 +			_gwTrackBlock = (byte *)malloc(n * one);
@@ -3618,13 +3628,14 @@ index 1c6463160f4..53c9375cff0 100644
 +				_gwArenaLeft = n * one;
 +			}
 +		}
++		_gwSettingUp = false;
 +	}
 +#endif
 +
  	_frame = 0;
  	_speed = speed;
  	_endOfFile = false;
-@@ -411,8 +482,23 @@ void SmushPlayer::release() {
+@@ -411,8 +493,23 @@ void SmushPlayer::release() {
  	_vm->_virtscr[kMainVirtScreen].pitch = _origPitch;
  	_vm->_gdi->_numStrips = _origNumStrips;
  
@@ -3650,7 +3661,7 @@ index 1c6463160f4..53c9375cff0 100644
  	delete _deltaGlyphsCodec;
  	_deltaGlyphsCodec = 0;
  }
-@@ -652,6 +738,10 @@ void SmushPlayer::handleTextResource(uint32 subType, int32 subSize, Common::Seek
+@@ -652,6 +749,10 @@ void SmushPlayer::handleTextResource(uint32 subType, int32 subSize, Common::Seek
  	char *string = nullptr, *string2 = nullptr;
  	if (subType == MKTAG('T','E','X','T')) {
  		string = (char *)malloc(subSize - 16);
@@ -3661,7 +3672,7 @@ index 1c6463160f4..53c9375cff0 100644
  		str = string;
  		b.read(string, subSize - 16);
  	} else {
-@@ -751,6 +841,12 @@ void SmushPlayer::handleTextResource(uint32 subType, int32 subSize, Common::Seek
+@@ -751,6 +852,12 @@ void SmushPlayer::handleTextResource(uint32 subType, int32 subSize, Common::Seek
  		// Handled by game-specific renderer
  	} else {
  		SmushFont *sf = getFont(fontId);
@@ -3674,7 +3685,7 @@ index 1c6463160f4..53c9375cff0 100644
  		assert(sf != nullptr);
  
  		// The hack that used to be here to prevent bug #2220 is no longer necessary and
-@@ -928,8 +1024,22 @@ void SmushPlayer::decodeFrameObject(int codec, const uint8 *src, int left, int t
+@@ -928,8 +1035,22 @@ void SmushPlayer::decodeFrameObject(int codec, const uint8 *src, int left, int t
  			smushDecodeRLE(_dst, adjustedSrc, left, top, width, height, pitch);
  			break;
  		case SMUSH_CODEC_DELTA_BLOCKS:
@@ -3697,7 +3708,7 @@ index 1c6463160f4..53c9375cff0 100644
  			if (_deltaBlocksCodec)
  				_deltaBlocksCodec->decode(_dst, src);
  			break;
-@@ -958,6 +1068,9 @@ void SmushPlayer::decodeFrameObject(int codec, const uint8 *src, int left, int t
+@@ -958,6 +1079,9 @@ void SmushPlayer::decodeFrameObject(int codec, const uint8 *src, int left, int t
  		if (_frameBuffer == nullptr) {
  			_frameBuffer = (byte *)malloc(_width * _height);
  		}
@@ -3707,7 +3718,7 @@ index 1c6463160f4..53c9375cff0 100644
  		memcpy(_frameBuffer, _dst, _width * _height);
  		_storeFrame = false;
  	}
-@@ -1016,15 +1129,71 @@ void SmushPlayer::handleFrameObject(int32 subSize, Common::SeekableReadStream &b
+@@ -1016,15 +1140,71 @@ void SmushPlayer::handleFrameObject(int32 subSize, Common::SeekableReadStream &b
  	handleGameFrameObjectPre(codec, left, top, width, height, subSize - 14);
  
  	int32 chunk_size = subSize - 14;
@@ -3779,7 +3790,7 @@ index 1c6463160f4..53c9375cff0 100644
  }
  
  void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
-@@ -1069,7 +1238,18 @@ void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
+@@ -1069,7 +1249,18 @@ void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
  			break;
  		case MKTAG('P','S','A','D'):
  			if (!_compressedFileMode && !isFastForwardingCurrentFrame()) {
@@ -3798,7 +3809,7 @@ index 1c6463160f4..53c9375cff0 100644
  				b.seek(-8, SEEK_CUR);
  				b.read(audioChunk, subSize + 8);
  				feedAudio(audioChunk, 0, 127, 0, 0);
-@@ -1121,6 +1301,10 @@ void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
+@@ -1121,6 +1312,10 @@ void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
  		}
  	}
  
@@ -3809,7 +3820,7 @@ index 1c6463160f4..53c9375cff0 100644
  	if (_insanity) {
  		_vm->_insane->procPostRendering(_dst, 0, 0, 0, _frame, _nbframes-1);
  	}
-@@ -1220,8 +1404,15 @@ SmushFont *SmushPlayer::getFont(int font) {
+@@ -1220,8 +1415,15 @@ SmushFont *SmushPlayer::getFont(int font) {
  		_sf[font] = new SmushFont(_vm, file_font, _vm->_game.id == GID_DIG && font != 0);
  	}
  
@@ -3825,7 +3836,7 @@ index 1c6463160f4..53c9375cff0 100644
  }
  
  void SmushPlayer::parseNextFrame() {
-@@ -1234,6 +1425,34 @@ void SmushPlayer::parseNextFrame() {
+@@ -1234,6 +1436,34 @@ void SmushPlayer::parseNextFrame() {
  			if (!_vm->openFile(*tmp, Common::Path(_seekFile)))
  				error("SmushPlayer: Unable to open file %s", _seekFile.c_str());
  			_base = tmp;
@@ -3860,7 +3871,7 @@ index 1c6463160f4..53c9375cff0 100644
  			_base->readUint32BE();
  			_baseSize = _base->readUint32BE();
  
-@@ -1415,8 +1634,21 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
+@@ -1415,8 +1645,21 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
  	_vm->openFile(*file, filename);
  	if (!file->isOpen()) {
  		warning("SmushPlayer::play() File not found %s", filename);
@@ -3882,7 +3893,7 @@ index 1c6463160f4..53c9375cff0 100644
  	file->close();
  	delete file;
  
-@@ -1608,8 +1840,20 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
+@@ -1608,8 +1851,20 @@ void SmushPlayer::play(const char *filename, int32 speed, int32 offset, int32 st
  	CursorMan.showMouse(oldMouseState);
  }
  
@@ -3903,7 +3914,7 @@ index 1c6463160f4..53c9375cff0 100644
  
  	if (_imuseDigital)
  		_imuseDigital->setSmushPlayer(this);
-@@ -1658,13 +1902,155 @@ void SmushPlayer::terminateAudio() {
+@@ -1658,13 +1913,155 @@ void SmushPlayer::terminateAudio() {
  		_smushAudioCallbackEnabled = false;
  	}
  
@@ -4059,7 +4070,7 @@ index 1c6463160f4..53c9375cff0 100644
  int SmushPlayer::isChanActive(int flagId) {
  	return _smushTrackFlags[flagId];
  }
-@@ -1688,6 +2074,12 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
+@@ -1688,6 +2085,12 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
  	_smushTracks[id].subChunkPtr = nullptr;
  	_smushTracks[id].dataSize = 0;
  
@@ -4072,7 +4083,7 @@ index 1c6463160f4..53c9375cff0 100644
  	_smushTracks[id].fadeBuf = (uint8 *)malloc(SMUSH_FADE_SIZE);
  	if (!_smushTracks[id].fadeBuf)
  		return -1;
-@@ -1697,6 +2089,7 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
+@@ -1697,6 +2100,7 @@ int SmushPlayer::addAudioTrack(int32 trackBlockSize, int32 maxBlockSize) {
  		return -1;
  
  	memset(_smushTracks[id].blockPtr, 127, _smushTracks[id].blockSize);
@@ -4080,7 +4091,7 @@ index 1c6463160f4..53c9375cff0 100644
  	// Track the effective number of tracks, so that if only one fails,
  	// the others can carry on as they should
  	_smushNumTracks++;
-@@ -1747,40 +2140,47 @@ void SmushPlayer::handleSAUDChunk(uint8 *srcBuf, uint32 size, int groupId, int v
+@@ -1747,40 +2151,47 @@ void SmushPlayer::handleSAUDChunk(uint8 *srcBuf, uint32 size, int groupId, int v
  	uint16 flagsAccumulator[SMUSH_MAX_TRACKS];
  
  	if (!index) {
@@ -4139,7 +4150,7 @@ index 1c6463160f4..53c9375cff0 100644
  				if (_smushTracks[i].state == TRK_STATE_INACTIVE ||
  					_smushTracks[i].state == TRK_STATE_ENDING   ||
  					_smushTracks[i].flags <= flags) {
-@@ -1853,6 +2253,39 @@ void SmushPlayer::fillAudioTrackInfo(uint8 *srcBuf, uint16 *flagsAccumulator, ui
+@@ -1853,6 +2264,39 @@ void SmushPlayer::fillAudioTrackInfo(uint8 *srcBuf, uint16 *flagsAccumulator, ui
  		}
  	}
  
@@ -4179,7 +4190,7 @@ index 1c6463160f4..53c9375cff0 100644
  	if (maxAccId != -1) {
  		for (int i = 0; i < _smushNumTracks; i++) {
  			if (_smushTracks[i].parsedChunks < 255) {
-@@ -1967,10 +2400,10 @@ void SmushPlayer::processDispatches(int16 feedSize) {
+@@ -1967,10 +2411,10 @@ void SmushPlayer::processDispatches(int16 feedSize) {
  
  				_smushDispatch[i].volumeStep = 0;
  			} else if (_smushTracks[i].state == TRK_STATE_PLAYING) {
@@ -4192,7 +4203,7 @@ index 1c6463160f4..53c9375cff0 100644
  
  						if (mixInFrameCount > _smushDispatch[i].currentOffset)
  							mixInFrameCount = _smushDispatch[i].currentOffset;
-@@ -2163,8 +2596,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
+@@ -2163,8 +2607,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
  			_smushDispatch[idx].currentOffset = READ_BE_UINT32(buf + 6);
  			_smushDispatch[idx].sampleRate = _smushAudioSampleRate;
  			_smushDispatch[idx].headerPtr += _smushDispatch[idx].headerPtr[1] + 2;
@@ -4203,7 +4214,7 @@ index 1c6463160f4..53c9375cff0 100644
  				if (chunk > _smushDispatch[idx].currentOffset) {
  					_smushTracks[idx].state = TRK_STATE_INACTIVE;
  					_smushTracks[idx].groupId = GRP_MASTER;
-@@ -2276,8 +2709,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
+@@ -2276,8 +2720,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
  			_smushDispatch[idx].sampleRate = _smushAudioSampleRate;
  
  			_smushDispatch[idx].headerPtr += _smushDispatch[idx].headerPtr[1] + 2;
@@ -4214,7 +4225,7 @@ index 1c6463160f4..53c9375cff0 100644
  				if (chunk > _smushDispatch[idx].currentOffset) {
  					_smushTracks[idx].state = TRK_STATE_INACTIVE;
  					_smushTracks[idx].groupId = GRP_MASTER;
-@@ -2314,8 +2747,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
+@@ -2314,8 +2758,8 @@ bool SmushPlayer::processAudioCodes(int idx, int32 &tmpFeedSize, int &mixVolume)
  				_smushDispatch[idx].headerPtr = &code[READ_BE_UINT16(&code[18])];
  			}
  
@@ -4226,10 +4237,10 @@ index 1c6463160f4..53c9375cff0 100644
  					_smushTracks[idx].state = TRK_STATE_INACTIVE;
  					_smushTracks[idx].groupId = GRP_MASTER;
 diff --git a/engines/scumm/smush/smush_player.h b/engines/scumm/smush/smush_player.h
-index 15975a2aa2d..11aaa1bc4a6 100644
+index 15975a2aa2d..95f7f0a7b36 100644
 --- a/engines/scumm/smush/smush_player.h
 +++ b/engines/scumm/smush/smush_player.h
-@@ -143,6 +143,36 @@ private:
+@@ -143,6 +143,37 @@ private:
  	ScummEngine_v7 *_vm;
  	IMuseDigital *_imuseDigital;
  	Insane *_insane;
@@ -4243,6 +4254,7 @@ index 15975a2aa2d..11aaa1bc4a6 100644
 +	int32 _gwChunkSize = 0;
 +	bool _gwCodecKept = false;		// FT: the decoder made at start, never deleted
 +	bool _gwChunkKeep = false;		// the one made at start (FT): kept between videos
++	bool _gwSettingUp = false;		// init() is taking a video's buffers: none is given back
 +	byte *_gwTrackBlock = nullptr;	// FT: the audio tracks' buffers in one block, for one video
 +	bool _gwChunkArena = false;		// ...and lent to the audio tracks, the videos being in the flash
 +public:
