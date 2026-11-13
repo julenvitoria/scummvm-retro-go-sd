@@ -228,10 +228,30 @@ static void diag_save(void)
 }
 #endif
 
+static bool g_pal_dirty;
+#ifdef SVM_DIAG_CLUT
+static int g_diag_start, g_diag_count;
+#endif
+
 void plat_set_palette(const uint8_t *rgb, int start, int count)
 {
 	for (int i = 0; i < count && start + i < 256; i++)
 		g_clut[start + i] = ((uint32_t)rgb[3 * i] << 16) | ((uint32_t)rgb[3 * i + 1] << 8) | rgb[3 * i + 2];
+	g_pal_dirty = true;
+#ifdef SVM_DIAG_CLUT
+	g_diag_start = start; g_diag_count = count;
+#endif
+}
+
+/* The palette reaches the panel here: the next time the game asks for the time, waits, reads
+   the buttons or shows a frame -- microseconds later for a game that sets it whole. But Gob
+   fades by setting the 256 colours one at a time, 256 calls for every step of the fade, and
+   making the table 256 times (the search for slots to spare is quadratic) took longer than
+   the watchdog allows: Ween was reset on its first fade. */
+static void pal_flush(void)
+{
+	if (!g_pal_dirty) return;
+	g_pal_dirty = false;
 	build_hw_clut();
 	/* The firmware keeps the table until the next lcd_swap()'s vertical blank and writes it
 	   there, with the frame that swap brings -- the frame drawn for it, through the new
@@ -245,7 +265,7 @@ void plat_set_palette(const uint8_t *rgb, int start, int count)
 #ifdef SVM_DIAG_CLUT
 	if (g_diag_events < 400) {
 		g_diag_events++;
-		diag_add("P %lu %d+%d:", (unsigned long)HAL_GetTick(), start, count);
+		diag_add("P %lu %d+%d:", (unsigned long)HAL_GetTick(), g_diag_start, g_diag_count);
 		for (int i = 0; i < 256; i++)
 			if (g_lut[i] != i) diag_add(" %d>%d", i, g_lut[i]);
 		for (int i = 0; i < 256; i++)
@@ -262,6 +282,7 @@ void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 {
 	log_save_if_new();
 	wdog_refresh();
+	pal_flush();
 	lcd_sleep_while_swap_pending();
 	g_last = pixels; g_last_pitch = pitch; g_last_w = w; g_last_h = h;
 	static uint32_t frames;
@@ -412,6 +433,7 @@ static const char *svm_version(void)
 
 uint32_t plat_buttons(void)
 {
+	pal_flush();
 	static odroid_dialog_choice_t options[] = {
 		{ 400, "", g_voice_value, 1, subtitles_cb },
 		{ 401, "ScummVM", g_version, 0, NULL },        /* which engine image this is (svm_version) */
@@ -454,13 +476,14 @@ uint32_t plat_buttons(void)
 
 /* ---------------------------------------------------------------- time */
 
-uint32_t plat_millis(void) { wdog_refresh(); return HAL_GetTick(); }
+uint32_t plat_millis(void) { wdog_refresh(); pal_flush(); return HAL_GetTick(); }
 /* for long computations inside ScummVM (patches/scummvm-slim.patch: DBOPL's Chip::Setup) */
 void gw_wdog_kick(void) { wdog_refresh(); }
 
 void plat_delay(uint32_t ms)
 {
 	uint32_t t0 = HAL_GetTick();
+	pal_flush();
 	while (HAL_GetTick() - t0 < ms) {
 		wdog_refresh();
 		pump();
