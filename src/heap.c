@@ -41,7 +41,7 @@ enum { HEAP_BIG, HEAP_SMALL, HEAP_SCREEN, HEAPS };
    with the console's heap size: a 64 KB screen failing with 240 KB free). */
 int heap_screen_hint;
 int heap_screen_spill;
-#define MAX_POOLS 6
+#define MAX_POOLS 7
 
 static tlsf_t g_tlsf[HEAPS];
 static struct { uintptr_t lo, hi; int heap; pool_t pool; } g_pool[MAX_POOLS];

@@ -108,7 +108,17 @@ REDEF    := $(AB)/redefine_syms.txt
 ARM_SVM  := $(SVM_SRC:%=$(AB)/svm/%.o) $(OWN_CXX:%=$(AB)/%.o) $(CODECS:%=$(AB)/%.o) $(AB)/gen/dimuse_mixtable.o $(AB)/gen/dimuse_imctable.o
 ARM_OWN  := $(AB)/boot.o $(AB)/platform_core.o $(AB)/osk.o $(AB)/pack.o $(AB)/gw_core_i18n.o $(AB)/heap.o $(AB)/tlsf.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o
 
-core: $(OUT)
+# "make" builds the loader and one image per engine (see below); "make mono" the single .bin
+# with every engine in it, as before
+ENGINES  := scumm sky cge lure sword1
+ENGDEFS_scumm  := -DENABLE_SCUMM=STATIC_PLUGIN -DENABLE_SCUMM_7_8
+ENGDEFS_sky    := -DENABLE_SKY=STATIC_PLUGIN
+ENGDEFS_cge    := -DENABLE_CGE=STATIC_PLUGIN
+ENGDEFS_lure   := -DENABLE_LURE=STATIC_PLUGIN
+ENGDEFS_sword1 := -DENABLE_SWORD1=STATIC_PLUGIN
+ENG_OUT  := $(ENGINES:%=out/scummvm/%.svm)
+core: $(OUT) $(ENG_OUT)
+mono: out/mono/scummvm.bin
 
 $(REDEF): sdk/src/gw_core_bridge_redefine_syms.txt Makefile
 	@mkdir -p $(dir $@)
@@ -178,7 +188,7 @@ $(AB)/scummvm.elf: $(ARM_OWN) $(ARM_SVM) ld/scummvm_core.ld ld/hot_objects.ld
 	    -Wl,--gc-sections -Wl,--emit-relocs -Wl,--no-check-sections -Wl,-Map=$(AB)/scummvm.map \
 	    $(ARM_OWN) $(ARM_SVM) -Wl,--start-group -lsupc++ -lc -lm -lgcc -Wl,--end-group -o $@
 
-$(OUT): $(AB)/scummvm.elf tools/xip_pack.py assets/header.png assets/pad.png
+out/mono/scummvm.bin: $(AB)/scummvm.elf tools/xip_pack.py assets/header.png assets/pad.png
 	@mkdir -p $(dir $@)
 	$(CROSS)objcopy -O binary --only-section=.core_entry --only-section=.data $< $(AB)/ram.bin
 	python3 sdk/tools/pack_core.py --elf $< --bin $(AB)/ram.bin \
@@ -187,6 +197,61 @@ $(OUT): $(AB)/scummvm.elf tools/xip_pack.py assets/header.png assets/pad.png
 	    --core-name "ScummVM (LucasArts)" --version 0.1.0 \
 	    --nm $(CROSS)nm --objcopy $(CROSS)objcopy --out $(AB)/packed.bin
 	python3 tools/xip_pack.py --elf $< --core $(AB)/packed.bin --build-id $(BUILD_ID) --out $@
+
+# ---------------------------------------------------------------- the loader and the engine images
+# out/scummvm.bin is the loader alone (src/stub.c); out/scummvm/<engine>.svm a whole ScummVM
+# with that engine only (src/svm_xip.h). On the card: /cores/scummvm.bin and /cores/scummvm/*.svm
+
+$(AB)/stub.o: src/stub.c src/svm_xip.h $(REDEF)
+	@mkdir -p $(dir $@)
+	$(CROSS)gcc -c $(ARM_C) $< -o $@
+	$(CROSS)objcopy --redefine-syms=$(REDEF) $@
+
+$(AB)/stub.elf: $(AB)/stub.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o ld/scummvm_stub.ld
+	@echo "  LINK $@"
+	@$(CROSS)gcc $(MCU) -nostartfiles -T ld/scummvm_stub.ld -Lsdk/ld -Lld -Wl,--gc-sections -Wl,-Map=$(AB)/stub.map \
+	    $(AB)/stub.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o -Wl,--start-group -lc -lgcc -Wl,--end-group -o $@
+
+$(OUT): $(AB)/stub.elf assets/header.png assets/pad.png
+	@mkdir -p $(dir $@)
+	$(CROSS)objcopy -O binary --only-section=.core_entry --only-section=.data $< $(AB)/stub_ram.bin
+	python3 sdk/tools/pack_core.py --elf $< --bin $(AB)/stub_ram.bin \
+	    --system-name "ScummVM" --dirname scummvm --extensions "scummvm" \
+	    --header-logo assets/header.png --pad-logo assets/pad.png --logo-invert \
+	    --core-name "ScummVM (LucasArts)" --version 0.1.0 \
+	    --nm $(CROSS)nm --objcopy $(CROSS)objcopy --out $@
+
+$(AB)/eng/boot.o $(AB)/eng/platform_core.o: $(AB)/eng/%.o: src/%.c src/platform.h src/pack.h src/svm_xip.h $(REDEF)
+	@mkdir -p $(dir $@)
+	$(CROSS)gcc -c $(ARM_C) -DSVM_ENGINE_IMAGE $< -o $@
+	$(CROSS)objcopy --redefine-syms=$(REDEF) $@
+
+# ScummVM's files that belong to no engine, and each engine's own
+ENG_DIRS    := $(ENGINES:%=engines/%/)
+SVM_COMMON  := $(filter-out $(foreach d,$(ENG_DIRS),$(d)%) base/plugins.cpp,$(SVM_SRC))
+ARM_COMMON  := $(SVM_COMMON:%=$(AB)/svm/%.o) $(OWN_CXX:%=$(AB)/%.o) $(CODECS:%=$(AB)/%.o) $(AB)/gen/dimuse_mixtable.o $(AB)/gen/dimuse_imctable.o
+ARM_ENGOWN  := $(AB)/eng/boot.o $(AB)/eng/platform_core.o $(AB)/osk.o $(AB)/pack.o $(AB)/gw_core_i18n.o $(AB)/heap.o $(AB)/tlsf.o $(AB)/gw_core_bridge.o
+ENGDEFS_ALL := $(foreach e,$(ENGINES),$(ENGDEFS_$(e)))
+
+define ENGINE_RULES
+# the table of plugins, with this engine alone
+$(AB)/eng/$(1)/plugins.o: $(SVM)/base/plugins.cpp Makefile | $(PATCHED)
+	@mkdir -p $$(dir $$@)
+	@$(CROSS)g++ -c $(MCU) $(OPT) $(CXXSTD) -fno-threadsafe-statics $(WARN) $(filter-out $(ENGDEFS_ALL),$(DEFS)) $(ENGDEFS_$(1)) $(INCS) $$< -o $$@
+
+ARM_ENG_$(1) := $$(patsubst %,$(AB)/svm/%.o,$$(filter engines/$(1)/%,$(SVM_SRC)))
+$(AB)/eng/$(1)/scummvm.elf: $(ARM_ENGOWN) $(ARM_COMMON) $$(ARM_ENG_$(1)) $(AB)/eng/$(1)/plugins.o ld/scummvm_engine.ld ld/hot_objects.ld
+	@echo "  LINK $$@"
+	@$(CROSS)g++ $(MCU) -nostartfiles -T ld/scummvm_engine.ld -Lsdk/ld -Lld \
+	    -Wl,--gc-sections -Wl,--emit-relocs -Wl,--no-check-sections -Wl,-Map=$(AB)/eng/$(1)/scummvm.map \
+	    $(ARM_ENGOWN) $(ARM_COMMON) $$(ARM_ENG_$(1)) $(AB)/eng/$(1)/plugins.o -Wl,--start-group -lsupc++ -lc -lm -lgcc -Wl,--end-group -o $$@
+
+out/scummvm/$(1).svm: $(AB)/eng/$(1)/scummvm.elf tools/xip_pack.py
+	@mkdir -p $$(dir $$@)
+	$(CROSS)objcopy -O binary --only-section=.core_entry --only-section=.data $$< $(AB)/eng/$(1)/ram.bin
+	python3 tools/xip_pack.py --elf $$< --engine $(AB)/eng/$(1)/ram.bin --build-id $(BUILD_ID) --out $$@
+endef
+$(foreach e,$(ENGINES),$(eval $(call ENGINE_RULES,$(e))))
 
 clean:
 	rm -rf build out

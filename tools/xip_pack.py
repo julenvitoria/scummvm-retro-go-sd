@@ -21,6 +21,7 @@ import argparse, struct, sys
 R_ARM_ABS32, R_ARM_REL32, R_ARM_TARGET1, R_ARM_PREL31 = 2, 3, 38, 42
 MOVW_MOVT = {43, 44, 45, 46, 47, 48, 49, 50}
 MAGIC = 0x50495853
+ENG_MAGIC = 0x474E4553
 
 
 class Elf:
@@ -66,7 +67,8 @@ class Elf:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--elf', required=True)
-    ap.add_argument('--core', required=True)
+    ap.add_argument('--core', help='the packed core the image is appended to')
+    ap.add_argument('--engine', help='engine image instead (src/svm_xip.h): this RAM image comes first')
     ap.add_argument('--build-id', required=True, type=lambda s: int(s, 0))
     ap.add_argument('--out', required=True)
     a = ap.parse_args()
@@ -74,7 +76,7 @@ def main():
     elf = Elf(open(a.elf, 'rb').read())
     syms = {n: v for n, v, _ in elf.symbols()}
     xip_lo, xip_hi = syms['__xip_start'], syms['__xip_end']
-    ram_lo, ram_hi = syms['__RAM_EMU_START__'], syms['__CORE_CODE_END__']
+    ram_lo, ram_hi = syms['__SVM_RAM_START__' if a.engine else '__RAM_EMU_START__'], syms['__CORE_CODE_END__']
     xi, xs = elf.section('.xip')
     image = bytearray(elf.d[xs['off']:xs['off'] + xs['size']])
     assert xs['addr'] == xip_lo and len(image) == xip_hi - xip_lo, 'unexpected .xip layout'
@@ -146,7 +148,9 @@ def main():
             print('xip_pack: ' + e, file=sys.stderr)
         sys.exit(1)
 
-    core = bytearray(open(a.core, 'rb').read())
+    core = bytearray(open(a.engine or a.core, 'rb').read())
+    if a.engine:
+        assert len(core) == ram_hi - ram_lo, 'RAM image is %d bytes, linked as %d' % (len(core), ram_hi - ram_lo)
     core += b'\0' * (-len(core) % 4096)
     xip_off = len(core)
     core += image
@@ -157,7 +161,11 @@ def main():
     rbits_off = len(core)
     core += ram_bits
     core += b'\0' * (-len(core) % 4)
-    core += struct.pack('<8I', MAGIC, a.build_id, xip_lo, xip_off, len(image), xbits_off, rbits_off, len(ram_bits))
+    if a.engine:
+        core += struct.pack('<12I', ENG_MAGIC, a.build_id, xip_lo, xip_off, len(image), xbits_off, rbits_off, len(ram_bits),
+                            ram_lo, ram_hi - ram_lo, syms['__CORE_BSS_END__'], syms['svm_engine_entry'] | 1)
+    else:
+        core += struct.pack('<8I', MAGIC, a.build_id, xip_lo, xip_off, len(image), xbits_off, rbits_off, len(ram_bits))
     open(a.out, 'wb').write(core)
     print('xip_pack: RAM image %d KB, XIP image %d KB, %d + %d relocations (%d veneers) -> %s (%d KB)' % (
         (ram_hi - ram_lo) // 1024, len(image) // 1024, counts['xip'], counts['ram'], counts['veneer'], a.out,
