@@ -25,7 +25,7 @@ INCS     := -Iconfig -I$(SVM) -I$(SVM)/engines -Isrc
 CXXSTD   := -std=c++11 -fno-exceptions -fcheck-new -fno-operator-names
 WARN     := -Wno-multichar -Wno-reorder -Wno-unknown-pragmas -Wno-unused-parameter
 
-.PHONY: all host core clean
+.PHONY: all host core clean dist
 all: core
 
 # patches/*.patch are applied to the submodule's working tree before anything is compiled
@@ -122,6 +122,12 @@ ENGDEFS_sword1 := -DENABLE_SWORD1=STATIC_PLUGIN
 ENG_OUT  := $(ENGINES:%=out/scummvm/%.svm)
 core: $(OUT) $(ENG_OUT)
 mono: out/mono/scummvm.bin
+
+# The release: out/scummvm-retro-go-sd.zip (unpack at the root of the SD card) and
+# out/versions.md, the loader's version and the id of every engine file in it.
+dist: core
+	@python3 tools/versions.py out --zip out/scummvm-retro-go-sd.zip > out/versions.md
+	@cat out/versions.md
 
 $(REDEF): sdk/src/gw_core_bridge_redefine_syms.txt Makefile
 	@mkdir -p $(dir $@)
