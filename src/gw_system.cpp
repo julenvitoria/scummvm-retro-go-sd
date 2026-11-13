@@ -392,10 +392,11 @@ public:
 	}
 };
 
-extern "C" int gw_scumm_save(int slot);       /* patches/scummvm-slim.patch (saveload.cpp) */
-extern "C" int gw_scumm_load(int slot);
-extern "C" int gw_sky_save(int slot);         /* patches/scummvm-slim.patch (sky.cpp) */
-extern "C" int gw_sky_load(int slot);
+/* (weak: an engine image has only its own engine's -- Makefile, ENGINES) */
+extern "C" int gw_scumm_save(int slot) __attribute__((weak));       /* patches/scummvm-slim.patch (saveload.cpp) */
+extern "C" int gw_scumm_load(int slot) __attribute__((weak));
+extern "C" int gw_sky_save(int slot) __attribute__((weak));         /* patches/scummvm-slim.patch (sky.cpp) */
+extern "C" int gw_sky_load(int slot) __attribute__((weak));
 
 /* which engine is running: the hooks above cast g_engine to their own */
 extern "C" int gw_engine_is(const char *id) {
@@ -427,7 +428,7 @@ static void generic_load_now() {
 /* the firmware's save callback: written now, into path */
 extern "C" int gw_rg_save(const char *path) {
 	Common::strlcpy(g_rgPath, path, sizeof g_rgPath);
-	int ok = gw_engine_is("sky") ? gw_sky_save(RG_SLOT) : gw_engine_is("scumm") ? gw_scumm_save(RG_SLOT) : generic_save(RG_SLOT);
+	int ok = gw_engine_is("sky") && gw_sky_save ? gw_sky_save(RG_SLOT) : gw_engine_is("scumm") && gw_scumm_save ? gw_scumm_save(RG_SLOT) : generic_save(RG_SLOT);
 	if (!ok) plat_log("ScummVM: cannot save right now\n");
 	return ok;
 }
@@ -437,7 +438,7 @@ extern "C" int gw_rg_save(const char *path) {
 extern "C" int gw_rg_load(const char *path) {
 	Common::strlcpy(g_rgPath, path, sizeof g_rgPath);
 	if (!g_engine) { g_loadAtStart = true; return 1; }
-	int ok = gw_engine_is("sky") ? gw_sky_load(RG_SLOT) : gw_engine_is("scumm") ? gw_scumm_load(RG_SLOT) : generic_load(RG_SLOT);
+	int ok = gw_engine_is("sky") && gw_sky_load ? gw_sky_load(RG_SLOT) : gw_engine_is("scumm") && gw_scumm_load ? gw_scumm_load(RG_SLOT) : generic_load(RG_SLOT);
 	if (!ok) plat_log("ScummVM: cannot load right now\n");
 	return ok;
 }

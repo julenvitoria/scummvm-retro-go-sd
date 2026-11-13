@@ -258,8 +258,10 @@ static inline void pump(void) { if (g_pump) g_pump(); }
 
 /* The PAUSE/SET menu's Subtitles option, in games with speech: what Ctrl+T (the keyboard's Txt)
    cycles through. The engine's side is in patches/scummvm-slim.patch (saveload.cpp). */
-int gw_scumm_voice_mode(void);                       /* 0 voice, 1 voice and text, 2 text; -1 none */
-void gw_scumm_set_voice_mode(int mode);
+/* (weak: an engine image without SCUMM has neither -- Makefile, ENGINES) */
+int gw_scumm_voice_mode(void) __attribute__((weak)); /* 0 voice, 1 voice and text, 2 text; -1 none */
+void gw_scumm_set_voice_mode(int mode) __attribute__((weak));
+static int scumm_voice_mode(void) { return gw_scumm_voice_mode ? gw_scumm_voice_mode() : -1; }
 
 static const gw_i18n_entry_t i18n_subtitles[] = { { "en", "Subtitles" }, { "es", "Subtítulos" }, GW_I18N_END };
 static const gw_i18n_entry_t i18n_voice[] = { { "en", "Voice only" }, { "es", "Solo voz" }, GW_I18N_END };
@@ -278,13 +280,13 @@ static void voice_value(char *out, int mode)
 static bool subtitles_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
 	(void)repeat;
-	int mode = gw_scumm_voice_mode();
+	int mode = scumm_voice_mode();
 	if (mode < 0) return false;
 	/* in menu order: voice and text, text only, voice only */
 	if (event == ODROID_DIALOG_NEXT || event == ODROID_DIALOG_ENTER) mode = (mode + 1) % 3;
 	else if (event == ODROID_DIALOG_PREV) mode = (mode + 2) % 3;
 	else { voice_value(option->value, mode); return false; }
-	gw_scumm_set_voice_mode(mode);
+	if (gw_scumm_set_voice_mode) gw_scumm_set_voice_mode(mode);
 	voice_value(option->value, mode);
 	return false;
 }
@@ -297,7 +299,7 @@ uint32_t plat_buttons(void)
 	};
 	static int talkie = -2;                            /* -2: not asked yet */
 	if (talkie == -2 || talkie == -1) {
-		int mode = gw_scumm_voice_mode();             /* -1 until the engine is up, and without speech */
+		int mode = scumm_voice_mode();                /* -1 until the engine is up, and without speech */
 		if (mode >= 0) { talkie = 1; options[0].label = gw_i18n(i18n_subtitles); voice_value(g_voice_value, mode); }
 		else talkie = -1;
 	}
@@ -1082,6 +1084,13 @@ int svm_main(void)
 	heap_add_to(heap, SCREEN_HEAP, 2);
 	heap += SCREEN_HEAP;
 	heap_add(heap, end - heap);
+#ifdef SVM_ENGINE_IMAGE
+	{
+		/* the loader's memory (stub.c): nothing of it runs any more */
+		extern uint8_t *svm_stub_start, *svm_stub_end;
+		if (svm_stub_end > svm_stub_start + 4096) heap_add_to(svm_stub_start, svm_stub_end - svm_stub_start, 1);
+	}
+#endif
 	uint8_t *bonus = NULL;
 	size_t bonus_size = 0;
 	lcd_get_bonus_pool(&bonus, &bonus_size);

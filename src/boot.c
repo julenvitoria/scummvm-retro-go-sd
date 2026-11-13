@@ -45,6 +45,26 @@ static uint32_t g_delta;
 uint32_t svm_xip_delta;                 /* XIP address = linked address + this (for addr2line) */
 int svm_boot_error;                     /* 0 ok; see svm_boot() */
 
+#ifdef SVM_ENGINE_IMAGE
+/* ---- an engine image (svm_xip.h): the loader (stub.c) has already put both parts in place ---- */
+
+int svm_main(void);                     /* platform_core.c */
+uint8_t svm_load_state;                 /* the launcher's "resume": load save_slot at start */
+int8_t svm_save_slot;
+uint8_t *svm_stub_start, *svm_stub_end; /* the loader's RAM: svm_main() adds it to the heap */
+
+int svm_engine_entry(const svm_eng_boot_t *boot)
+{
+	/* (copied: what boot points to is the loader's, which becomes heap) */
+	svm_load_state = boot->load_state;
+	svm_save_slot = boot->save_slot;
+	svm_xip_delta = g_delta = boot->xip_delta;
+	strncpy(svm_core_path, boot->path, sizeof svm_core_path - 1);
+	svm_stub_start = boot->stub_start;
+	svm_stub_end = boot->stub_end;
+	return svm_main();
+}
+#else
 /* ---- 1. which .bin is ours ---- */
 
 static bool read_footer(const char *path, svm_xip_footer_t *f)
@@ -149,6 +169,8 @@ int svm_boot(void)
 	return svm_main();
 }
 
+#endif /* SVM_ENGINE_IMAGE */
+
 /* C++ constructors: their code is in XIP and they allocate, so svm_main() calls this once the
    XIP image is mapped and the heap exists */
 void svm_run_constructors(void)
@@ -156,6 +178,7 @@ void svm_run_constructors(void)
 	for (void (**f)(void) = __svm_init_array_start; f < __svm_init_array_end; f++) (*f)();
 }
 
+#ifndef SVM_ENGINE_IMAGE
 /* entry target (GNW_CORE_ENTRY_TARGET) */
 uint8_t svm_load_state;                 /* the launcher's "resume": load save_slot at start */
 int8_t svm_save_slot;
@@ -167,6 +190,7 @@ int app_main_scummvm(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 	svm_save_slot = save_slot;
 	return svm_boot();
 }
+#endif
 
 /* ---- newlib glue ---- */
 
