@@ -1,8 +1,10 @@
 name: Build ScummVM core
 
-# Builds out/scummvm.bin with make (firmware SDK vendored in sdk/, ScummVM as a submodule with
-# patches/ applied at build time) and keeps it as an artifact; for a tag (a new release)
-# scummvm.bin is also attached to the release.
+# Builds the loader (scummvm.bin) and one image per engine (scummvm/*.svm) with make (firmware
+# SDK vendored in sdk/, ScummVM as a submodule with patches/ applied at build time) and keeps
+# them as an artifact laid out as on the SD card (cores/...), with versions.md: the loader's
+# version and the id of every engine file. For a tag (a new release) the zip to unpack at the
+# root of the SD card is attached to the release and the versions are added to its notes.
 
 on:
   workflow_dispatch:
@@ -11,6 +13,11 @@ on:
 
 permissions:
   contents: write
+
+env:
+  # The compiler the files tested on the console are built with: the build is reproducible,
+  # so the same compiler gives the same files, with the same ids.
+  XPACK: 15.2.1-1.1
 
 jobs:
   build:
@@ -25,26 +32,38 @@ jobs:
       - name: Install tools
         run: |
           python3 -m pip install pillow
-          wget -q -O toolchain.tar.xz \
-            https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/15.2.rel1/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi.tar.xz
-          tar -xf toolchain.tar.xz -C "$RUNNER_TEMP"
-          echo "GCC_PATH=$RUNNER_TEMP/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi/bin" >> "$GITHUB_ENV"
+          wget -q -O toolchain.tar.gz \
+            "https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v$XPACK/xpack-arm-none-eabi-gcc-$XPACK-linux-x64.tar.gz"
+          tar -xf toolchain.tar.gz -C "$RUNNER_TEMP"
+          echo "GCC_PATH=$RUNNER_TEMP/xpack-arm-none-eabi-gcc-$XPACK/bin" >> "$GITHUB_ENV"
 
       - name: Build
-        run: make -j"$(nproc)" core
+        run: make -j"$(nproc)" dist
+
+      - name: Lay out as on the SD card
+        run: |
+          mkdir -p sd && cd sd
+          python3 -c "import zipfile; zipfile.ZipFile('../out/scummvm-retro-go-sd.zip').extractall('.')"
+          cp ../out/versions.md .
+          cat versions.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: scummvm-${{ github.sha }}
-          path: |
-            out/scummvm.bin
-            build/arm/scummvm.elf
-            build/arm/scummvm.map
+          name: scummvm-retro-go-sd-${{ github.sha }}
+          path: sd/
           if-no-files-found: error
+
+      - name: Release files
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cp out/scummvm-retro-go-sd.zip "scummvm-retro-go-sd-${GITHUB_REF_NAME}.zip"
+          { echo; echo "Files in scummvm-retro-go-sd-${GITHUB_REF_NAME}.zip"; echo; cat out/versions.md; } > notes.md
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: out/scummvm.bin
+          files: scummvm-retro-go-sd-${{ github.ref_name }}.zip
+          body_path: notes.md
+          append_body: true
