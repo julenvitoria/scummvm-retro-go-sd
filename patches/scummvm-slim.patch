@@ -466,6 +466,36 @@ index 42e3938002a..6fe92a3c43b 100644
  		break;
  
  	case kGameTypeAdibou1:
+diff --git a/engines/gob/inter.cpp b/engines/gob/inter.cpp
+index b7498135a48..d8d910da86e 100644
+--- a/engines/gob/inter.cpp
++++ b/engines/gob/inter.cpp
+@@ -39,6 +39,14 @@
+ #include "gob/scenery.h"
+ #include "gob/sound/sound.h"
+ 
++#ifdef GW_GOB_SLIM
++// Game & Watch: the console's watchdog resets it after half a second without a sign of life,
++// which the backend gives when the game asks for the time, waits or reads a file. A script
++// may run longer than that between two of those (Ween: saving a game, using a joker), so
++// every instruction of a script is a sign of life too. src/platform_*.c
++extern "C" void gw_wdog_kick(void) __attribute__((weak));
++#endif
++
+ namespace Gob {
+ 
+ Inter::Inter(GobEngine *vm) : _vm(vm), _varStack(1000) {
+@@ -257,6 +265,10 @@ void Inter::funcBlock(int16 retFlag) {
+ 	do {
+ 		if (_terminate)
+ 			break;
++#ifdef GW_GOB_SLIM
++		if (gw_wdog_kick)
++			gw_wdog_kick();
++#endif
+ 
+ 		// WORKAROUND:
+ 		// The EGA, Mac and Windows versions of gob1 doesn't add a delay after
 diff --git a/engines/gob/surface.cpp b/engines/gob/surface.cpp
 index 452492a62f1..310df8737b2 100644
 --- a/engines/gob/surface.cpp
