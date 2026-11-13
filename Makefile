@@ -123,7 +123,12 @@ ENGDEFS_gob    := -DENABLE_GOB=STATIC_PLUGIN
 # an engine whose image has its own build of src/gw_system.cpp (the backend), with these defines
 ENGGFX_gob     := -DGW_GOB_SCREEN
 ENG_OUT  := $(ENGINES:%=out/scummvm/%.svm)
-core: $(OUT) $(ENG_OUT)
+core: $(OUT) $(ENG_OUT) out/scummvm/engines.txt
+
+# the loader's table of engines, next to the images
+out/scummvm/engines.txt: config/engines.txt
+	@mkdir -p $(dir $@)
+	@cp $< $@
 mono: out/mono/scummvm.bin
 
 # The release: out/scummvm-retro-go-sd.zip (unpack at the root of the SD card) and
@@ -219,10 +224,10 @@ $(AB)/stub.o: src/stub.c src/svm_xip.h $(REDEF)
 	$(CROSS)gcc -c $(ARM_C) $< -o $@
 	$(CROSS)objcopy --redefine-syms=$(REDEF) $@
 
-$(AB)/stub.elf: $(AB)/stub.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o ld/scummvm_stub.ld
+$(AB)/stub.elf: $(AB)/stub.o $(AB)/gw_core_i18n.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o ld/scummvm_stub.ld
 	@echo "  LINK $@"
 	@$(CROSS)gcc $(MCU) -nostartfiles -T ld/scummvm_stub.ld -Lsdk/ld -Lld -Wl,--gc-sections -Wl,-Map=$(AB)/stub.map \
-	    $(AB)/stub.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o -Wl,--start-group -lc -lgcc -Wl,--end-group -o $@
+	    $(AB)/stub.o $(AB)/gw_core_i18n.o $(AB)/gw_core_bridge.o $(AB)/gw_core_entry.o -Wl,--start-group -lc -lgcc -Wl,--end-group -o $@
 
 $(OUT): $(AB)/stub.elf assets/header.png assets/pad.png
 	@mkdir -p $(dir $@)

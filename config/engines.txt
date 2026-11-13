@@ -1,0 +1,42 @@
+# Which engine a game is for, by the files in its folder: /cores/scummvm/engines.txt, read by
+# the loader (/cores/scummvm.bin). One "file = engine" per line, the first line that matches
+# wins; a name may have one * and any case, and may be in a subfolder (a/b). The engine is the
+# file /cores/scummvm/<engine>.svm: a game whose engine file is not on the card is told so.
+# Adding an engine: its .svm and its lines here; the loader stays as it is.
+
+clusters/swordres.rif = sword1
+swordres.rif = sword1
+sky.dnr      = sky
+vol.cat      = cge
+disk1.vga    = lure
+disk1.ega    = lure
+intro.stk    = gob
+
+# engines there is no file for yet
+resource.map = sci
+resource.000 = sci
+resmap.000   = sci
+logdir       = agi
+*vol.0       = agi
+queen.1      = queen
+queen.1c     = queen
+gamepc       = agos
+*.gme        = agos
+general.clu  = sword2
+auto00.prc   = cine
+procs00      = cine
+dreamweb.r00 = dreamweb
+touche.dat   = touche
+packet.001   = drascula
+dw.scn       = tinsel
+lan_000.res  = teenagent
+ite.rsc      = saga
+gemcut.pak   = kyra
+gemcut.emc   = kyra
+
+# SCUMM last: its files are named after each game
+*.lfl        = scumm
+*.la0        = scumm
+*.sm0        = scumm
+*.he0        = scumm
+*.000        = scumm
