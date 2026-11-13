@@ -695,6 +695,11 @@ bool gwAdoptScreen(byte *pixels, int pitch, int w, int h)
 bool gwScreenReady()
 {
 	return GWGraphics::_the && GWGraphics::_the->_screen.getPixels() != nullptr;
+#ifndef __arm__       /* the PC test build has every engine (make host-gwheap HOSTX=-DGW_GOB_SCREEN) */
+}
+void gwCopyRectHalf(const byte *, int, int, int, int, int)
+{
+#endif
 #else
 /* patches/scummvm-slim.patch (Broken Sword, screen.cpp): its room picture, already at half
    size, into the half-size screen at (x, y) of that size */
