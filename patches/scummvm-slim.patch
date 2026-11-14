@@ -499,6 +499,32 @@ index 9e3a9775dca..81af3b7e176 100644
  
  	if (!loadLanguageStrings()) {
  		error("Could not setup language data for your version");
+diff --git a/engines/cruise/menu.cpp b/engines/cruise/menu.cpp
+index 9c8260f5065..b443a3c145b 100644
+--- a/engines/cruise/menu.cpp
++++ b/engines/cruise/menu.cpp
+@@ -226,6 +226,21 @@ int processMenu(menuStruct *pMenu) {
+ }
+ 
+ static void handleSaveLoad(bool saveFlag) {
++#ifdef GW_CRUISE_SLIM
++	// Game & Watch: ScummVM's own dialogs are not in this build (their overlay alone is
++	// 128 KB twice over, and the console stopped there): the menu saves to one slot and loads
++	// it back, with nothing asked. Retro-Go's save states are the ones with slots.
++	if (saveFlag) {
++		saveSavegameData(1, "Game & Watch");
++	} else {
++		Common::InSaveFile *f = g_system->getSavefileManager()->openForLoading(CruiseEngine::getSavegameFile(1));
++		if (f) {
++			delete f;
++			loadSavegameData(1);
++		}
++	}
++	return;
++#endif
+ 	if (saveFlag)
+ 		_vm->saveGameDialog();
+ 	else
 diff --git a/engines/gob/gob.cpp b/engines/gob/gob.cpp
 index 42e3938002a..6fe92a3c43b 100644
 --- a/engines/gob/gob.cpp
