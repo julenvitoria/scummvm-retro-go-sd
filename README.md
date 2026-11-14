@@ -166,10 +166,6 @@ Both buttons at once open the game's menu. *Save* there keeps **one** game, with
 questions, and *Load* brings it back; for more than one, use Retro-Go's save states. The
 game asks for its copy protection (the wheel), which ScummVM does not skip.
 
-**Operation Stealth**
-
-The game asks for its copy protection (the colour card), which ScummVM does not skip.
-
 </details>
 
 <details>
@@ -488,10 +484,6 @@ Ween se guarda y se carga desde su propio menú, donde están también los joker
 Los dos botones a la vez abren el menú del juego. *Save* guarda ahí **una sola** partida,
 sin preguntar nada, y *Load* la recupera; para tener varias, usa los save states de
 Retro-Go. El juego pide su protección anticopia (la rueda), que ScummVM no se salta.
-
-**Operation Stealth**
-
-El juego pide su protección anticopia (la carta de colores), que ScummVM no se salta.
 
 </details>
 
