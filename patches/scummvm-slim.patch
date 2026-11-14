@@ -684,6 +684,42 @@ index a6f5a5de08d..643cd093e22 100644
  	CharacterEntry fontParamTable[NUM_FONT_CHARS];
  };
  
+diff --git a/engines/cine/various.cpp b/engines/cine/various.cpp
+index 5e5ad8ad28a..04a672e616d 100644
+--- a/engines/cine/various.cpp
++++ b/engines/cine/various.cpp
+@@ -437,6 +437,19 @@ void CineEngine::makeSystemMenu() {
+ 			break;
+ 		}
+ 		case 4: { // load game
++#ifdef GW_CINE_SLIM
++			{
++				// Game & Watch: one saved game from this menu, without ScummVM's dialogs (they
++				// need two 128 KB layers) or the original's lists and name entry
++				Common::InSaveFile *f = _saveFileMan->openForLoading(getSaveStateName(1));
++				if (f) {
++					delete f;
++					loadGameState(1);
++				}
++				inMenu = false;
++				return;
++			}
++#endif
+ 			if (loadSaveDirectory()) {
+ 				if (!ConfMan.getBool("originalsaveload")) {
+ 					scummVMSaveLoadDialog(false);
+@@ -485,6 +498,11 @@ void CineEngine::makeSystemMenu() {
+ 			break;
+ 		}
+ 		case 5: { // Save game
++#ifdef GW_CINE_SLIM
++			saveGameState(1, "Game & Watch");
++			inMenu = false;
++			return;
++#endif
+ 			loadSaveDirectory();
+ 
+ 			if (!ConfMan.getBool("originalsaveload")) {
 diff --git a/engines/cruise/cruise.cpp b/engines/cruise/cruise.cpp
 index 9e3a9775dca..81af3b7e176 100644
 --- a/engines/cruise/cruise.cpp
