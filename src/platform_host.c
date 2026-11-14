@@ -6,6 +6,8 @@
  *   GW_SHOTS=dir   save the screen as dir/fNNNNN.ppm (NNNNN = time in 1/10 s)
  *   GW_EVERY=ms    ...at most every ms milliseconds (default 1000)
  *   GW_INPUT="t:buttons:ms;..."  hold buttons (letters u d l r a b g t s p) at t ms for ms
+ *   GW_MOUSE="t:x,y;..."  put the pointer at x,y at t ms (clicks are GW_INPUT's b and a)
+ *   GW_SEED=n      ScummVM's random numbers start from n, so a run can be repeated
  *   GW_QUIT=ms     exit after ms milliseconds
  *   GW_NOMAP=a,b   files with one of these in their path are read from the "card", not mapped
  *   GW_SAVES=dir   saves and scummvm.ini (default ./saves)
@@ -180,6 +182,20 @@ static const char *rg_path(void) { static char p[600]; snprintf(p, sizeof p, "%s
 
 /* for the test hooks inside ScummVM, where getenv is a forbidden symbol (GW_SCRIPT, scumm.cpp) */
 const char *gw_test_env(const char *name) { return getenv(name); }
+
+/* GW_MOUSE="t:x,y;...": each entry once, when its time comes */
+int plat_test_mouse(int *x, int *y)
+{
+	static const char *p;
+	static int init;
+	unsigned t; int mx, my;
+	if (!init) { init = 1; p = getenv("GW_MOUSE"); }
+	if (!p || sscanf(p, "%u:%d,%d", &t, &mx, &my) != 3 || plat_millis() < t) return 0;
+	*x = mx; *y = my;
+	p = strchr(p, ';');
+	if (p) p++;
+	return 1;
+}
 
 uint32_t plat_buttons(void)
 {
