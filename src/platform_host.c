@@ -186,7 +186,7 @@ const char *gw_test_env(const char *name) { return getenv(name); }
 
 /* GW_LIVE=file: a test drives the running game by appending lines to the file, looking at
    GW_SHOTS in between -- "m x y" puts the pointer there, "k keys ms" holds buttons (GW_INPUT's
-   letters) for ms from now, "s" makes a Retro-Go save state (GW_SAVES/rg.sav), "q" ends the run. */
+   letters) for ms from now, "s" makes a Retro-Go save state (GW_SAVES/rg.sav), "l" loads it, "q" ends the run. */
 static int g_live_mouse, g_live_x, g_live_y;
 static uint32_t g_live_held, g_live_until;
 static const char *rg_path(void);
@@ -214,6 +214,8 @@ static void live_poll(void)
 				               *k == 's' ? PLAT_SELECT : *k == 'p' ? PLAT_START : 0;
 		} else if (line[0] == 'q')
 			exit(0);
+		else if (line[0] == 'l')
+			fprintf(stderr, "rg load at %u: %d\n", now, gw_rg_load(rg_path()));
 		else if (line[0] == 's')
 			fprintf(stderr, "rg save at %u: %d\n", now, gw_rg_save(rg_path()));
 	}
