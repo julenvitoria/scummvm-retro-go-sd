@@ -518,7 +518,7 @@ index 065e4d49116..cf031c6fcc0 100644
  	delete[] _backBuffer;
  
 diff --git a/engines/cine/part.cpp b/engines/cine/part.cpp
-index 44f6fe680f7..29db449148d 100644
+index 44f6fe680f7..f9ecde93ad7 100644
 --- a/engines/cine/part.cpp
 +++ b/engines/cine/part.cpp
 @@ -129,10 +129,17 @@ void CineEngine::readVolCnf() {
@@ -548,12 +548,36 @@ index 44f6fe680f7..29db449148d 100644
  
  	// Check file name blocks' sizes
  	bool fileNameLenMod11, fileNameLenMod13;
-@@ -175,6 +183,37 @@ void CineEngine::readVolCnf() {
+@@ -175,6 +183,63 @@ void CineEngine::readVolCnf() {
  		fileNameLength = (compressed ? 11 : 13);
  	}
  
 +#ifdef GW_CINE_SLIM
 +	_gwVolNameLen = fileNameLength;
++}
++
++extern "C" void gw_wdog_kick(void) __attribute__((weak));   // src/platform_*.c
++
++// fixVolCnfFileName(src, len) == name, without making three strings for each of the
++// several hundred names: the music asks for fifteen instruments in a row that are in no
++// volume, and the console's watchdog (half a second) caught it there
++static bool gwVolNameIs(const uint8 *src, int len, const char *name) {
++	char tmp[16];
++	int n = 0;
++	if (len == 11) {
++		for (int i = 0; i < 8 && src[i] && src[i] != ' '; i++)
++			tmp[n++] = src[i];
++		if (src[8] && src[8] != ' ') {
++			tmp[n++] = '.';
++			for (int i = 8; i < 11 && src[i] && src[i] != ' '; i++)
++				tmp[n++] = src[i];
++		}
++	} else {
++		for (int i = 0; i < len && src[i]; i++)
++			tmp[n++] = src[i];
++	}
++	tmp[n] = 0;
++	return strcmp(tmp, name) == 0;
 +}
 +
 +VolumeResource CineEngine::gwVolFile(int i) const {
@@ -574,8 +598,10 @@ index 44f6fe680f7..29db449148d 100644
 +	const uint8 *p = _gwVol + 4 + _gwVolFiles * _gwVolEntry;
 +	for (int i = 0; i < _gwVolFiles; ++i) {
 +		int count = READ_BE_UINT32(p) / _gwVolNameLen; p += 4;
++		if (gw_wdog_kick)
++			gw_wdog_kick();
 +		while (count--) {
-+			if (fixVolCnfFileName(p, _gwVolNameLen) == fileName)
++			if (gwVolNameIs(p, _gwVolNameLen, fileName))
 +				found.push_back(gwVolFile(i));
 +			p += _gwVolNameLen;
 +		}
@@ -586,7 +612,7 @@ index 44f6fe680f7..29db449148d 100644
  	p = buf + 4 + resourceFilesCount * entrySize;
  	for (int i = 0; i < resourceFilesCount; ++i) {
  		const VolumeResource& volRes = volumeResourceFiles[i];
-@@ -192,13 +231,20 @@ void CineEngine::readVolCnf() {
+@@ -192,13 +257,20 @@ void CineEngine::readVolCnf() {
  
  	delete[] buf;
  }
@@ -609,7 +635,7 @@ index 44f6fe680f7..29db449148d 100644
  		if (volRes.size() == 2 && scumm_stricmp(volRes[0].name, "rsc12") == 0 &&
  			scumm_stricmp(volRes[1].name, "rsc08") == 0 &&
  			(scumm_stricmp(fileName, "39.PI1") == 0 ||
-@@ -216,6 +262,13 @@ int16 findFileInBundle(const char *fileName) {
+@@ -216,6 +288,13 @@ int16 findFileInBundle(const char *fileName) {
  			}
  		}
  
@@ -623,7 +649,7 @@ index 44f6fe680f7..29db449148d 100644
  		StringToVolumeResourceArrayHashMap::const_iterator it = g_cine->_volumeEntriesMap.find(fileName);
  		if (it == g_cine->_volumeEntriesMap.end()) {
  			warning("Unable to find part file for filename '%s'", fileName);
-@@ -224,6 +277,7 @@ int16 findFileInBundle(const char *fileName) {
+@@ -224,6 +303,7 @@ int16 findFileInBundle(const char *fileName) {
  
  		// Prefer current disk's resource file
  		Common::Array<VolumeResource> volRes = it->_value;
