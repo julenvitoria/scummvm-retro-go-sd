@@ -532,6 +532,11 @@ public:
 	// goes back to a screen of the backend's own.
 	const byte *_adLo = nullptr, *_adHi = nullptr;
 	bool _adopted = false;
+	// (Lure of the Temptress: its screen surface IS the screen, for everything drawn. It
+	// paints its pop-ups straight on the screen so that its surface keeps the room under
+	// them; here they land on that surface, and the room, which it repaints whole every
+	// frame, comes back with the next one)
+	bool _adKeep = false;
 	void dropScreen() {
 		if (_adopted) _screen = Graphics::Surface();
 		else _screen.free();
@@ -548,7 +553,7 @@ public:
 		_adopted = false;
 		return true;
 	}
-	void adoptable(const byte *lo, const byte *hi) {
+	void adoptable(const byte *lo, const byte *hi, bool keep = false) {
 		if (_adopted && (lo != _adLo || hi != _adHi)) {
 			// the engine is about to free the buffer the screen is a window of
 			int w = _screen.w, h = _screen.h;
@@ -565,6 +570,13 @@ public:
 		if (getenv("GW_NO_ADOPT")) lo = hi = nullptr;     // PC test build: the screen stays a copy, to compare
 #endif
 		_adLo = lo; _adHi = hi;
+		_adKeep = keep && lo;
+		if (_adKeep && _screen.w > 0 && lo + _screen.w * _screen.h <= hi) {
+			int w = _screen.w, h = _screen.h;
+			dropScreen();
+			_screen.init(w, h, w, const_cast<byte *>(lo), Graphics::PixelFormat::createFormatCLUT8());
+			_adopted = true;
+		}
 	}
 	bool ensureScreen() {
 		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0)
@@ -669,7 +681,7 @@ public:
 					return;
 				}
 			}
-			if (_adopted && !unadopt()) return;   // (no memory for a screen: this is not drawn)
+			if (_adopted && !_adKeep && !unadopt()) return;   // (no memory for a screen: this is not drawn)
 		}
 		if (!_sh) {
 			if (!ensureScreen()) return;
@@ -696,10 +708,10 @@ public:
 			for (int i = 0; i < w2; i++) d[i] = src[2 * i];
 		}
 	}
-	Graphics::Surface *lockScreen() override { unadopt(); ensureScreen(); return &_screen; }   // the caller writes to it
+	Graphics::Surface *lockScreen() override { if (!_adKeep) unadopt(); ensureScreen(); return &_screen; }   // the caller writes to it
 	void fillScreen(uint32 col) override { fillScreen(Common::Rect(_screen.w << _sh, _screen.h << _sh), col); }
 	void fillScreen(const Common::Rect &r, uint32 col) override {
-		if (_adopted && !unadopt()) return;
+		if (_adopted && !_adKeep && !unadopt()) return;
 		if (!ensureScreen()) return;
 		if (!_sh) { _screen.fillRect(r, col); return; }
 		Common::Rect h((r.left + 1) >> 1, (r.top + 1) >> 1, (r.right + 1) >> 1, (r.bottom + 1) >> 1);
@@ -760,7 +772,8 @@ bool gwAdoptScreen(byte *pixels, int pitch, int w, int h)
 }
 
 /* ...and has the backend a screen to draw on right now? */
-void gwAdoptable(const byte *, const byte *) {}    /* (SCUMM v7's hook: not in the Gob image) */
+void gwAdoptable(const byte *, const byte *) {}    /* (SCUMM v7's and Lure's hooks: not in the Gob image) */
+void gwAdoptWhole(const byte *, uint32) {}
 
 bool gwScreenReady()
 {
@@ -780,6 +793,8 @@ bool gwAdoptScreen(byte *, int, int, int) { return false; }
 /* patches/scummvm-slim.patch (SCUMM v7, gfx.cpp): the buffer of the game's main screen, a
    window of which may be shown as it is; NULL before the engine frees it */
 void gwAdoptable(const byte *lo, const byte *hi) { if (g_gwGfx) g_gwGfx->adoptable(lo, hi); }
+/* (Lure, screen.cpp) its screen surface, 320x200, is the screen */
+void gwAdoptWhole(const byte *p, uint32 size) { if (g_gwGfx) g_gwGfx->adoptable(p, p ? p + size : nullptr, true); }
 bool gwScreenReady() { return g_gwGfx && g_gwGfx->_screen.getPixels() != nullptr; }
 void gwCopyRectHalf(const byte *buf, int pitch, int x, int y, int w, int h)
 {

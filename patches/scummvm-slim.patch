@@ -1145,6 +1145,24 @@ index a0b44d96af9..cb6b93d8e95 100644
  
  	byte *data() { return _data; }
  	uint32 size() { return _size; }
+diff --git a/engines/lure/menu.cpp b/engines/lure/menu.cpp
+index 1fbcec31ad3..ead89d683c3 100644
+--- a/engines/lure/menu.cpp
++++ b/engines/lure/menu.cpp
+@@ -134,7 +134,13 @@ uint8 Menu::execute() {
+ 					// If necessary, remove prior menu
+ 					if (_selectedMenu) {
+ 						toggleHighlight(_selectedMenu);
++#ifdef GW_LURE_SLIM
++						// Game & Watch: the screen surface is the screen (screen.cpp), so the
++						// menu just closed is on it: the room is painted again instead
++						Room::getReference().update();
++#else
+ 						screen.updateArea(0, 0, FULL_SCREEN_WIDTH, _surfaceMenu->height() + 8);
++#endif
+ 						delete _surfaceMenu;
+ 						_surfaceMenu = nullptr;
+ 						_selectedIndex = 0;
 diff --git a/engines/lure/res.cpp b/engines/lure/res.cpp
 index 03d12318fd6..bd9c1460073 100644
 --- a/engines/lure/res.cpp
@@ -1531,6 +1549,39 @@ index a0af1e16585..2e7e4595641 100644
  	void leaveRoom();
  	uint8 numLayers() { return _numLayers; }
  	uint16 hotspotId() { return _hotspotId; }
+diff --git a/engines/lure/screen.cpp b/engines/lure/screen.cpp
+index 7e4e76d98a6..d776064efdc 100644
+--- a/engines/lure/screen.cpp
++++ b/engines/lure/screen.cpp
+@@ -28,6 +28,10 @@
+ 
+ #include "graphics/paletteman.h"
+ 
++#ifdef GW_LURE_SLIM
++void gwAdoptWhole(const byte *p, uint32 size);	// src/gw_system.cpp
++#endif
++
+ namespace Lure {
+ 
+ static Screen *int_disk = nullptr;
+@@ -43,9 +47,17 @@ Screen::Screen(OSystem &system): _system(system),
+ 	int_disk = this;
+ 	_screen->empty();
+ 	_system.getPaletteManager()->setPalette(_palette->data(), 0, GAME_COLORS);
++#ifdef GW_LURE_SLIM
++	// Game & Watch: this surface is the screen, where the backend kept a copy of it: 64 KB,
++	// what saving and loading from the game's menu and starting again were short of
++	gwAdoptWhole(screen_raw(), FULL_SCREEN_WIDTH * FULL_SCREEN_HEIGHT);
++#endif
+ }
+ 
+ Screen::~Screen() {
++#ifdef GW_LURE_SLIM
++	gwAdoptWhole(nullptr, 0);
++#endif
+ 	delete _screen;
+ 	delete _palette;
+ }
 diff --git a/engines/lure/surface.cpp b/engines/lure/surface.cpp
 index 8b664cbd5c9..48a2b4fd406 100644
 --- a/engines/lure/surface.cpp
