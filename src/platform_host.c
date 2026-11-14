@@ -7,6 +7,7 @@
  *   GW_EVERY=ms    ...at most every ms milliseconds (default 1000)
  *   GW_INPUT="t:buttons:ms;..."  hold buttons (letters u d l r a b g t s p) at t ms for ms
  *   GW_MOUSE="t:x,y;..."  put the pointer at x,y at t ms (clicks are GW_INPUT's b and a)
+ *   GW_LIVE=file   a test drives the running game by appending lines to file (see live_poll)
  *   GW_SEED=n      ScummVM's random numbers start from n, so a run can be repeated
  *   GW_QUIT=ms     exit after ms milliseconds
  *   GW_NOMAP=a,b   files with one of these in their path are read from the "card", not mapped
@@ -183,9 +184,46 @@ static const char *rg_path(void) { static char p[600]; snprintf(p, sizeof p, "%s
 /* for the test hooks inside ScummVM, where getenv is a forbidden symbol (GW_SCRIPT, scumm.cpp) */
 const char *gw_test_env(const char *name) { return getenv(name); }
 
+/* GW_LIVE=file: a test drives the running game by appending lines to the file, looking at
+   GW_SHOTS in between -- "m x y" puts the pointer there, "k keys ms" holds buttons (GW_INPUT's
+   letters) for ms from now, "s" makes a Retro-Go save state (GW_SAVES/rg.sav), "q" ends the run. */
+static int g_live_mouse, g_live_x, g_live_y;
+static uint32_t g_live_held, g_live_until;
+static const char *rg_path(void);
+static void live_poll(void)
+{
+	static long off;
+	static uint32_t next;
+	const char *path = getenv("GW_LIVE");
+	uint32_t now = plat_millis();
+	if (!path || now < next) return;
+	next = now + 30;
+	FILE *f = fopen(path, "r");
+	char line[64];
+	if (!f) return;
+	fseek(f, off, SEEK_SET);
+	while (fgets(line, sizeof line, f) && strchr(line, '\n')) {
+		char keys[16]; unsigned ms;
+		off = ftell(f);
+		if (sscanf(line, "m %d %d", &g_live_x, &g_live_y) == 2) g_live_mouse = 1;
+		else if (sscanf(line, "k %15[a-z] %u", keys, &ms) == 2) {
+			g_live_held = 0; g_live_until = now + ms;
+			for (char *k = keys; *k; k++)
+				g_live_held |= *k == 'u' ? PLAT_UP : *k == 'd' ? PLAT_DOWN : *k == 'l' ? PLAT_LEFT : *k == 'r' ? PLAT_RIGHT :
+				               *k == 'a' ? PLAT_A : *k == 'b' ? PLAT_B : *k == 'g' ? PLAT_GAME : *k == 't' ? PLAT_TIME :
+				               *k == 's' ? PLAT_SELECT : *k == 'p' ? PLAT_START : 0;
+		} else if (line[0] == 'q')
+			exit(0);
+		else if (line[0] == 's')
+			fprintf(stderr, "rg save at %u: %d\n", now, gw_rg_save(rg_path()));
+	}
+	fclose(f);
+}
+
 /* GW_MOUSE="t:x,y;...": each entry once, when its time comes */
 int plat_test_mouse(int *x, int *y)
 {
+	if (g_live_mouse) { g_live_mouse = 0; *x = g_live_x; *y = g_live_y; return 1; }
 	static const char *p;
 	static int init;
 	unsigned t; int mx, my;
@@ -228,6 +266,8 @@ uint32_t plat_buttons(void)
 			fprintf(stderr, "rg load at %u (heap %u KB): %d\n", now, heap_used ? heap_used() / 1024 : 0, gw_rg_load(rg_path()));
 		}
 	}
+	live_poll();
+	if (now < g_live_until) held |= g_live_held;
 	while (p && *p) {
 		unsigned t, len; char keys[16];
 		if (sscanf(p, "%u:%15[a-z]:%u", &t, keys, &len) != 3) break;

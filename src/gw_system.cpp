@@ -358,9 +358,11 @@ class GWSaveFileManager : public DefaultSaveFileManager {
 	static Common::String zonePath() { return Common::String(plat_save_path()) + "/sword1_zone.sav"; }
 	static bool zone(const Common::String &name) { return name.equalsIgnoreCase("sword1.098"); }
 	static bool redirected(const Common::String &name) {
-		// (SCUMM's <target>.s99, Beneath a Steel Sky's SKY-VM.099, the other engines' <name>.099)
+		// (SCUMM's <target>.s99, Beneath a Steel Sky's SKY-VM.099, the other engines' <name>.099,
+		// Operation Stealth's os.99)
 		return g_rgPath[0] && (name.hasSuffix(Common::String::format(".s%02d", RG_SLOT)) ||
-		                       name.hasSuffix(Common::String::format(".%03d", RG_SLOT)));
+		                       name.hasSuffix(Common::String::format(".%03d", RG_SLOT)) ||
+		                       name.hasSuffix(Common::String::format(".%d", RG_SLOT)));
 	}
 public:
 	GWSaveFileManager() : DefaultSaveFileManager(Common::Path(plat_save_path())) {}
