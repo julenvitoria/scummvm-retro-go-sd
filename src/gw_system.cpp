@@ -851,6 +851,11 @@ static void pumpAudio() { if (g_mixerManager) g_mixerManager->pump(); }
 
 /* ================================================================ system */
 
+#ifndef __arm__
+extern "C" const char *gw_test_env(const char *name);
+extern "C" int plat_test_mouse(int *x, int *y);
+#endif
+
 class OSystem_GW : public ModularMixerBackend, public ModularGraphicsBackend, Common::EventSource {
 	uint32 _held = 0;              // buttons seen last poll
 	int _mx16 = 160 << 4, _my16 = 100 << 4;
@@ -874,6 +879,12 @@ public:
 		for (const char *k : vol) ConfMan.setInt(k, 255, Common::ConfigManager::kTransientDomain);
 		// subtitles on unless a game was switched to voice only (Ctrl+T, the keyboard's Txt key)
 		ConfMan.registerDefault("subtitles", true);
+#ifndef __arm__       /* the PC test build: GW_SEED, a run that can be repeated */
+		{
+			if (gw_test_env("GW_SEED"))
+				ConfMan.setInt("random_seed", atoi(gw_test_env("GW_SEED")), Common::ConfigManager::kTransientDomain);
+		}
+#endif
 		BaseBackend::initBackend();
 	}
 
@@ -916,6 +927,16 @@ public:
 				plat_redraw();
 			return;
 		}
+#ifndef __arm__       /* the PC test build: GW_MOUSE puts the pointer at a place (platform_host.c) */
+		{
+			int tx, ty;
+			if (plat_test_mouse(&tx, &ty)) {
+				GWGraphics *g = gfx();
+				g->_mouseX = tx; g->_mouseY = ty;
+				push(Common::EVENT_MOUSEMOVE);
+			}
+		}
+#endif
 		// D-pad: a mouse that speeds up while held. Driven by time, not by polls: ScummVM polls
 		// far more often on the console than in an emulator, and a per-poll step sent the
 		// pointer flying to the edges. 60 px/s at first, up to 240 px/s after ~0.7 s.
