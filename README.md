@@ -150,6 +150,26 @@ first launch.
   the menu. *Restart* in the in-game panel does the same.
 - The game is drawn at half size, as the screen shows it, so nothing is lost.
 
+**Loom** (CD talkie)
+
+Copy the CD's files with its audio track as `track1.mp3` (or `track1.flac`) in the same
+folder: the speech and the music are that one track.
+
+**Gobliiins and Ween: The Prophecy**
+
+These two have no Retro-Go save states. Gobliiins is saved with its level codes; Ween is
+saved and loaded from its own menu, where the jokers are too.
+
+**Cruise for a Corpse**
+
+Both buttons at once open the game's menu. *Save* there keeps **one** game, with no
+questions, and *Load* brings it back; for more than one, use Retro-Go's save states. The
+game asks for its copy protection (the wheel), which ScummVM does not skip.
+
+**Operation Stealth**
+
+The game asks for its copy protection (the colour card), which ScummVM does not skip.
+
 </details>
 
 <details>
@@ -452,6 +472,26 @@ arranque.
 - Al viajar a una zona que no está en la flash, el juego **se guarda solo y vuelve al menú**
   con un aviso. Vuelve a entrar: se copia esa zona y sigues justo donde estabas.
 - El juego se dibuja a la mitad de tamaño, como lo muestra la pantalla, así que no se pierde nada.
+
+**Loom** (CD con voces)
+
+Copia los archivos del CD con su pista de audio como `track1.mp3` (o `track1.flac`) en la
+misma carpeta: las voces y la música son esa única pista.
+
+**Gobliiins y Ween: The Prophecy**
+
+Estos dos no tienen save states de Retro-Go. Gobliiins se guarda con sus códigos de nivel;
+Ween se guarda y se carga desde su propio menú, donde están también los jokers.
+
+**Cruise for a Corpse**
+
+Los dos botones a la vez abren el menú del juego. *Save* guarda ahí **una sola** partida,
+sin preguntar nada, y *Load* la recupera; para tener varias, usa los save states de
+Retro-Go. El juego pide su protección anticopia (la rueda), que ScummVM no se salta.
+
+**Operation Stealth**
+
+El juego pide su protección anticopia (la carta de colores), que ScummVM no se salta.
 
 </details>
 
