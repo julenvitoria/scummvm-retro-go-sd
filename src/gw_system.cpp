@@ -35,6 +35,8 @@
 
 /* ================================================================ files */
 
+extern "C" void gw_wdog_kick(void);          /* src/platform_*.c */
+
 /* A file in external flash (on the PC: in memory). Reads give the file's original bytes even
    when the copy is stored decrypted (key != 0, see plat_map_file), so detection's MD5s and the
    engine's own XOR see what they expect; gwDirectResource() hands out the stored bytes. */
@@ -65,6 +67,10 @@ public:
 		return true;
 	}
 	uint32 read(void *buf, uint32 n) override {
+		// (every file call refreshes the watchdog, as on the card -- platform_core.c, plat_stat:
+		// with all its files in flash, Operation Stealth loaded a saved game over a running one,
+		// dozens of resources unpacked one after another, without a single call that did)
+		gw_wdog_kick();
 		if (n > _size - _pos) { n = _size - _pos; _eos = true; }
 		memcpy(buf, _data + _pos, n);
 		if (_key) for (byte *b = (byte *)buf, *e = b + n; b < e; b++) *b ^= _key;
