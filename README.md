@@ -17,15 +17,15 @@ No games are included, nor will they be: bring your own.
 | File | Engine | Version / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/scumm.svm` | scumm | `CFB37A4C` |
-| `/cores/scummvm/sky.svm` | sky | `4D815499` |
-| `/cores/scummvm/cge.svm` | cge | `DC24A039` |
-| `/cores/scummvm/lure.svm` | lure | `424F8D0C` |
-| `/cores/scummvm/sword1.svm` | sword1 | `F8C16369` |
-| `/cores/scummvm/gob.svm` | gob | `5704B5F8` |
+| `/cores/scummvm/scumm.svm` | scumm | `D87F0DC3` |
+| `/cores/scummvm/sky.svm` | sky | `2E1DAAD1` |
+| `/cores/scummvm/cge.svm` | cge | `55CA35E9` |
+| `/cores/scummvm/lure.svm` | lure | `E80647BE` |
+| `/cores/scummvm/sword1.svm` | sword1 | `2EC2D2AF` |
+| `/cores/scummvm/gob.svm` | gob | `BE69EED0` |
 
 The PAUSE menu inside a game shows these on its *ScummVM* line, for example
-`scumm CFB37A4C L3`: engine, id of the engine file, loader version. The id changes only when
+`scumm D87F0DC3 L3`: engine, id of the engine file, loader version. The id changes only when
 the file changes, so an update replaces just the files whose id is new. Every release lists
 its own in its notes.
 
@@ -261,7 +261,7 @@ If a game goes back to the Retro-Go menu, the reason is shown on screen and writ
   `/cores/scummvm/engines.txt`. To choose it yourself, add a line `engine=sky` (or `scumm`,
   `cge`, `lure`, `sword1`, `gob`) to the game's `.scummvm` file.
 - Which files are on the card: the PAUSE menu inside a game has a *ScummVM* line such as
-  `scumm CFB37A4C L3` — the engine, the id of that engine file and the loader's version.
+  `scumm D87F0DC3 L3` — the engine, the id of that engine file and the loader's version.
   The log's first lines say the same. Each release lists its ids.
 
 </details>
@@ -327,15 +327,15 @@ No incluye juegos ni los incluirá: usa los tuyos.
 | Fichero | Motor | Versión / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/scumm.svm` | scumm | `CFB37A4C` |
-| `/cores/scummvm/sky.svm` | sky | `4D815499` |
-| `/cores/scummvm/cge.svm` | cge | `DC24A039` |
-| `/cores/scummvm/lure.svm` | lure | `424F8D0C` |
-| `/cores/scummvm/sword1.svm` | sword1 | `F8C16369` |
-| `/cores/scummvm/gob.svm` | gob | `5704B5F8` |
+| `/cores/scummvm/scumm.svm` | scumm | `D87F0DC3` |
+| `/cores/scummvm/sky.svm` | sky | `2E1DAAD1` |
+| `/cores/scummvm/cge.svm` | cge | `55CA35E9` |
+| `/cores/scummvm/lure.svm` | lure | `E80647BE` |
+| `/cores/scummvm/sword1.svm` | sword1 | `2EC2D2AF` |
+| `/cores/scummvm/gob.svm` | gob | `BE69EED0` |
 
 El menú de PAUSE dentro de un juego los muestra en la línea *ScummVM*, por ejemplo
-`scumm CFB37A4C L3`: motor, identificador del fichero de motor y versión del cargador. El
+`scumm D87F0DC3 L3`: motor, identificador del fichero de motor y versión del cargador. El
 identificador solo cambia cuando cambia el fichero, así que una actualización sustituye solo
 los ficheros con identificador nuevo. Cada versión publica los suyos en sus notas.
 
@@ -565,7 +565,7 @@ Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escr
   `/cores/scummvm/engines.txt`. Para elegirlo a mano, añade una línea `engine=sky` (o
   `scumm`, `cge`, `lure`, `sword1`, `gob`) al fichero `.scummvm` del juego.
 - Qué ficheros hay en la tarjeta: el menú de PAUSE dentro de un juego tiene una línea
-  *ScummVM* como `scumm CFB37A4C L3` — el motor, el identificador de ese fichero de motor y
+  *ScummVM* como `scumm D87F0DC3 L3` — el motor, el identificador de ese fichero de motor y
   la versión del cargador. Las primeras líneas del log dicen lo mismo. Cada versión publica
   sus identificadores.
 
