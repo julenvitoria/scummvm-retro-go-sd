@@ -434,6 +434,44 @@ index 05a40b5eab1..a81823d2927 100644
  }
  
  //--------------------------------------------------------------------------
+diff --git a/engines/cine/gfx.cpp b/engines/cine/gfx.cpp
+index 065e4d49116..cf031c6fcc0 100644
+--- a/engines/cine/gfx.cpp
++++ b/engines/cine/gfx.cpp
+@@ -35,6 +35,10 @@
+ #include "graphics/cursorman.h"
+ #include "graphics/primitives.h"
+ 
++#ifdef GW_CINE_SLIM
++void gwAdoptable(const byte *lo, const byte *hi);	// src/gw_system.cpp
++#endif
++
+ namespace Cine {
+ 
+ byte *collisionPage;
+@@ -503,6 +507,12 @@ FWRenderer::FWRenderer() : _savedBackBuffers(), _background(nullptr), _backupPal
+ 
+ 	memset(_backBuffer, 0, _screenSize);
+ 	memset(_bgName, 0, sizeof(_bgName));
++#ifdef GW_CINE_SLIM
++	// Game & Watch: the back buffer is shown as it is, where the backend kept a copy of the
++	// screen (src/gw_system.cpp, gwAdoptable): 64 KB, and the intro of Operation Stealth
++	// stopped for 24 KB
++	gwAdoptable(_backBuffer, _backBuffer + _screenSize);
++#endif
+ }
+ 
+ void FWRenderer::removeSavedBackBuffers() {
+@@ -518,6 +528,9 @@ void FWRenderer::removeSavedBackBuffers() {
+  * Destroy renderer
+  */
+ FWRenderer::~FWRenderer() {
++#ifdef GW_CINE_SLIM
++	gwAdoptable(nullptr, nullptr);
++#endif
+ 	delete[] _background;
+ 	delete[] _backBuffer;
+ 
 diff --git a/engines/cruise/cruise.cpp b/engines/cruise/cruise.cpp
 index 9e3a9775dca..81af3b7e176 100644
 --- a/engines/cruise/cruise.cpp
