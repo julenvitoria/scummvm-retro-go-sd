@@ -108,6 +108,7 @@ static void repaint(void)
 }
 
 void plat_redraw(void) { if (g_last) plat_present(g_last, g_last_pitch, g_last_w, g_last_h); }
+void plat_forget_frame(void) { g_last = NULL; }
 
 static uint32_t dist(uint32_t a, uint32_t b)
 {

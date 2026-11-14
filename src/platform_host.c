@@ -46,6 +46,7 @@ void plat_log(const char *msg)
 }
 void plat_fatal(void) { exit(1); }
 void plat_redraw(void) {}
+void plat_forget_frame(void) {}
 
 void plat_quit(void) { exit(0); }
 const char *plat_game_path(void) { return g_game; }
@@ -176,6 +177,9 @@ int gw_rg_save(const char *path);
 int gw_rg_load(const char *path);
 int gw_rg_load_at_start(void);
 static const char *rg_path(void) { static char p[600]; snprintf(p, sizeof p, "%s/rg.sav", g_saves); return p; }
+
+/* for the test hooks inside ScummVM, where getenv is a forbidden symbol (GW_SCRIPT, scumm.cpp) */
+const char *gw_test_env(const char *name) { return getenv(name); }
 
 uint32_t plat_buttons(void)
 {
