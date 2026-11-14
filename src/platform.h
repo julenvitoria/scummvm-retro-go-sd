@@ -29,6 +29,7 @@ void     plat_set_palette(const uint8_t *rgb, int start, int count);
 /* show a w x h frame (pitch bytes per line); the cursor is already drawn into it */
 void     plat_redraw(void);                         /* the last frame again (the on-screen keyboard changed) */
 void     plat_present(const uint8_t *pixels, int pitch, int w, int h);
+void     plat_forget_frame(void);                   /* the last frame's pixels are about to be freed: no repaint from them */
 
 /* ---- input ---- */
 enum {

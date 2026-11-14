@@ -522,7 +522,55 @@ public:
 	}
 #else
 	GWGraphics();
-	~GWGraphics() override { _screen.free(); free(_cursor); }
+	~GWGraphics() override { dropScreen(); free(_cursor); }
+
+	// gwAdoptable(): SCUMM v7 (Full Throttle) shows its main screen's own buffer, a window of
+	// it, instead of a copy -- 64 KB the game needs for its bike fights and the sound of its
+	// videos. The engine only says where that buffer is; copyRectToScreen() sees a rectangle
+	// come from it at the place it has in a window of the screen's size, and makes that
+	// window the screen. Anything else drawn (an effect that moves the picture, lockScreen)
+	// goes back to a screen of the backend's own.
+	const byte *_adLo = nullptr, *_adHi = nullptr;
+	bool _adopted = false;
+	void dropScreen() {
+		if (_adopted) _screen = Graphics::Surface();
+		else _screen.free();
+		_adopted = false;
+	}
+	// the screen is the backend's own again, with what the window showed (false: no memory)
+	bool unadopt() {
+		if (!_adopted) return true;
+		Graphics::Surface own;
+		own.create(_screen.w, _screen.h, Graphics::PixelFormat::createFormatCLUT8());
+		if (!own.getPixels()) return false;
+		own.copyRectToSurface(_screen.getPixels(), _screen.pitch, 0, 0, _screen.w, _screen.h);
+		_screen = own;
+		_adopted = false;
+		return true;
+	}
+	void adoptable(const byte *lo, const byte *hi) {
+		if (_adopted && (lo != _adLo || hi != _adHi)) {
+			// the engine is about to free the buffer the screen is a window of
+			int w = _screen.w, h = _screen.h;
+			if (!unadopt()) {
+				dropScreen();
+				_screen.w = w; _screen.h = h;      // (made again when something draws on it)
+			}
+			if (_screen.getPixels())
+				plat_present((const uint8_t *)_screen.getPixels(), _screen.pitch, _screen.w, _screen.h);
+			else
+				plat_forget_frame();
+		}
+#ifndef __arm__
+		if (getenv("GW_NO_ADOPT")) lo = hi = nullptr;     // PC test build: the screen stays a copy, to compare
+#endif
+		_adLo = lo; _adHi = hi;
+	}
+	bool ensureScreen() {
+		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0)
+			_screen.create(_screen.w, _screen.h, Graphics::PixelFormat::createFormatCLUT8());
+		return _screen.getPixels() != nullptr;
+	}
 #endif
 
 	// Broken Sword is 640x480; the panel shows every other pixel of such a game anyway
@@ -540,7 +588,7 @@ public:
 #else
 		_sh = w > 320 && ConfMan.get("engineid").equalsIgnoreCase("sword1") ? 1 : 0;
 		if (_screen.w != (int)(w >> _sh) || _screen.h != (int)(h >> _sh)) {
-			_screen.free();
+			dropScreen();
 			_screen.create(w >> _sh, h >> _sh, Graphics::PixelFormat::createFormatCLUT8());
 #endif
 		}
@@ -606,7 +654,25 @@ public:
 		if (!_screen.getPixels() && r.contains(Common::Rect(_screen.w, _screen.h))) { _fill = col & 0xff; return; }
 		if (drawable()) _screen.fillRect(r, col);
 #else
+		if (!_sh && _adLo) {
+			const byte *src = (const byte *)buf;
+			if (src >= _adLo && src < _adHi && x >= 0 && y >= 0 && x + w <= _screen.w && y + h <= _screen.h) {
+				// where the screen's first pixel is, if this rectangle is at its place
+				const byte *base = src - y * pitch - x;
+				if (base >= _adLo && base + (_screen.h - 1) * pitch + _screen.w <= _adHi) {
+					if (!_adopted || base != _screen.getPixels() || pitch != _screen.pitch) {
+						int sw = _screen.w, sh = _screen.h;
+						dropScreen();
+						_screen.init(sw, sh, pitch, const_cast<byte *>(base), Graphics::PixelFormat::createFormatCLUT8());
+						_adopted = true;
+					}
+					return;
+				}
+			}
+			if (_adopted && !unadopt()) return;   // (no memory for a screen: this is not drawn)
+		}
 		if (!_sh) {
+			if (!ensureScreen()) return;
 			// clipped to the screen (ScummVM asserts on a rect outside it, and stops): a
 			// warning instead, with the sizes, to find who asked for it
 			if (x < 0 || y < 0 || x + w > _screen.w || y + h > _screen.h) {
@@ -630,9 +696,11 @@ public:
 			for (int i = 0; i < w2; i++) d[i] = src[2 * i];
 		}
 	}
-	Graphics::Surface *lockScreen() override { return &_screen; }
-	void fillScreen(uint32 col) override { _screen.fillRect(Common::Rect(_screen.w, _screen.h), col); }
+	Graphics::Surface *lockScreen() override { unadopt(); ensureScreen(); return &_screen; }   // the caller writes to it
+	void fillScreen(uint32 col) override { fillScreen(Common::Rect(_screen.w << _sh, _screen.h << _sh), col); }
 	void fillScreen(const Common::Rect &r, uint32 col) override {
+		if (_adopted && !unadopt()) return;
+		if (!ensureScreen()) return;
 		if (!_sh) { _screen.fillRect(r, col); return; }
 		Common::Rect h((r.left + 1) >> 1, (r.top + 1) >> 1, (r.right + 1) >> 1, (r.bottom + 1) >> 1);
 		h.clip(Common::Rect(_screen.w, _screen.h));
@@ -692,6 +760,8 @@ bool gwAdoptScreen(byte *pixels, int pitch, int w, int h)
 }
 
 /* ...and has the backend a screen to draw on right now? */
+void gwAdoptable(const byte *, const byte *) {}    /* (SCUMM v7's hook: not in the Gob image) */
+
 bool gwScreenReady()
 {
 	return GWGraphics::_the && GWGraphics::_the->_screen.getPixels() != nullptr;
@@ -707,6 +777,9 @@ static GWGraphics *g_gwGfx;
 GWGraphics::GWGraphics() { memset(_pal, 0, sizeof _pal); g_gwGfx = this; }
 /* (Gob's hooks, for a build with every engine in it: its screen stays the backend's copy) */
 bool gwAdoptScreen(byte *, int, int, int) { return false; }
+/* patches/scummvm-slim.patch (SCUMM v7, gfx.cpp): the buffer of the game's main screen, a
+   window of which may be shown as it is; NULL before the engine frees it */
+void gwAdoptable(const byte *lo, const byte *hi) { if (g_gwGfx) g_gwGfx->adoptable(lo, hi); }
 bool gwScreenReady() { return g_gwGfx && g_gwGfx->_screen.getPixels() != nullptr; }
 void gwCopyRectHalf(const byte *buf, int pitch, int x, int y, int w, int h)
 {
