@@ -434,6 +434,51 @@ index 05a40b5eab1..a81823d2927 100644
  }
  
  //--------------------------------------------------------------------------
+diff --git a/engines/cine/cine.cpp b/engines/cine/cine.cpp
+index d3464f34c9c..d13d4b84059 100644
+--- a/engines/cine/cine.cpp
++++ b/engines/cine/cine.cpp
+@@ -298,6 +298,10 @@ Common::Error CineEngine::run() {
+ 
+ 		delete renderer;
+ 		delete[] collisionPage;
++#ifdef GW_CINE_SLIM
++		delete[] _gwVol;
++		_gwVol = nullptr;
++#endif
+ 		delete _scriptInfo;
+ 	} while (_restartRequested);
+ 
+diff --git a/engines/cine/cine.h b/engines/cine/cine.h
+index b8c4729d565..8be497eb896 100644
+--- a/engines/cine/cine.h
++++ b/engines/cine/cine.h
+@@ -179,7 +179,15 @@ public:
+ 
+ 	Common::RandomSource _rnd;
+ 
++#ifdef GW_CINE_SLIM
++	// The unpacked vol.cnf is kept as it is and searched: the map of every file
++	// name to an array of resource files took over 150 KB of the heap.
++	byte *_gwVol = nullptr;
++	int _gwVolFiles = 0, _gwVolEntry = 0, _gwVolNameLen = 0;
++	Common::Array<VolumeResource> gwVolFind(const char *fileName) const;
++#else
+ 	StringToVolumeResourceArrayHashMap _volumeEntriesMap;
++#endif
+ 
+ 	TextHandler _textHandler;
+ 
+@@ -207,6 +215,9 @@ private:
+ 		Common::String desc, bool isAutosave);
+ 	void mainLoop(int bootScriptIdx);
+ 	void readVolCnf();
++#ifdef GW_CINE_SLIM
++	VolumeResource gwVolFile(int i) const;
++#endif
+ 	Common::String getTargetSaveStateName(Common::String target, int slot) const;
+ 
+ 	bool _preLoad;
 diff --git a/engines/cine/gfx.cpp b/engines/cine/gfx.cpp
 index 065e4d49116..cf031c6fcc0 100644
 --- a/engines/cine/gfx.cpp
@@ -471,6 +516,173 @@ index 065e4d49116..cf031c6fcc0 100644
 +#endif
  	delete[] _background;
  	delete[] _backBuffer;
+ 
+diff --git a/engines/cine/part.cpp b/engines/cine/part.cpp
+index 44f6fe680f7..29db449148d 100644
+--- a/engines/cine/part.cpp
++++ b/engines/cine/part.cpp
+@@ -129,10 +129,17 @@ void CineEngine::readVolCnf() {
+ 		error("Error while unpacking 'vol.cnf' data");
+ 	}
+ 	delete[] packedBuf;
+-	Common::Array<VolumeResource> volumeResourceFiles;
+ 	uint8 *p = buf;
+ 	int resourceFilesCount = READ_BE_INT16(p); p += 2;
+ 	int entrySize = READ_BE_INT16(p); p += 2;
++#ifdef GW_CINE_SLIM
++	delete[] _gwVol;
++	_gwVol = buf;
++	_gwVolFiles = resourceFilesCount;
++	_gwVolEntry = entrySize;
++	p += resourceFilesCount * entrySize;
++#else
++	Common::Array<VolumeResource> volumeResourceFiles;
+ 	for (int i = 0; i < resourceFilesCount; ++i) {
+ 		Common::MemoryReadStream readS(p, 0x14);
+ 		VolumeResource res;
+@@ -144,6 +151,7 @@ void CineEngine::readVolCnf() {
+ 		volumeResourceFiles.push_back(res);
+ 		p += entrySize;
+ 	}
++#endif
+ 
+ 	// Check file name blocks' sizes
+ 	bool fileNameLenMod11, fileNameLenMod13;
+@@ -175,6 +183,37 @@ void CineEngine::readVolCnf() {
+ 		fileNameLength = (compressed ? 11 : 13);
+ 	}
+ 
++#ifdef GW_CINE_SLIM
++	_gwVolNameLen = fileNameLength;
++}
++
++VolumeResource CineEngine::gwVolFile(int i) const {
++	const uint8 *p = _gwVol + 4 + i * _gwVolEntry;
++	VolumeResource res;
++	memcpy(res.name, p, sizeof(res.name));
++	res.name[sizeof(res.name) - 1] = 0;
++	res.pNamesList = READ_BE_UINT32(p + 10);
++	res.diskNum = (int16)READ_BE_UINT16(p + 14);
++	res.sizeOfNamesList = READ_BE_UINT32(p + 16);
++	return res;
++}
++
++Common::Array<VolumeResource> CineEngine::gwVolFind(const char *fileName) const {
++	Common::Array<VolumeResource> found;
++	if (!_gwVol)
++		return found;
++	const uint8 *p = _gwVol + 4 + _gwVolFiles * _gwVolEntry;
++	for (int i = 0; i < _gwVolFiles; ++i) {
++		int count = READ_BE_UINT32(p) / _gwVolNameLen; p += 4;
++		while (count--) {
++			if (fixVolCnfFileName(p, _gwVolNameLen) == fileName)
++				found.push_back(gwVolFile(i));
++			p += _gwVolNameLen;
++		}
++	}
++	return found;
++}
++#else
+ 	p = buf + 4 + resourceFilesCount * entrySize;
+ 	for (int i = 0; i < resourceFilesCount; ++i) {
+ 		const VolumeResource& volRes = volumeResourceFiles[i];
+@@ -192,13 +231,20 @@ void CineEngine::readVolCnf() {
+ 
+ 	delete[] buf;
+ }
++#endif
+ 
+ int16 findFileInBundle(const char *fileName) {
+ 	// HACK: Fix underwater background palette by reading it from correct file
+ 	if (hacksEnabled && g_cine->getGameType() == Cine::GType_OS &&
+ 		scumm_stricmp(currentPrcName, "SOUSMAR2.PRC") == 0 &&
+-		g_cine->_volumeEntriesMap.contains(fileName)) {
+-		Common::Array<VolumeResource> volRes = g_cine->_volumeEntriesMap.find(fileName)->_value;
++		true) {
++#ifdef GW_CINE_SLIM
++		Common::Array<VolumeResource> volRes = g_cine->gwVolFind(fileName);
++#else
++		Common::Array<VolumeResource> volRes;
++		if (g_cine->_volumeEntriesMap.contains(fileName))
++			volRes = g_cine->_volumeEntriesMap.find(fileName)->_value;
++#endif
+ 		if (volRes.size() == 2 && scumm_stricmp(volRes[0].name, "rsc12") == 0 &&
+ 			scumm_stricmp(volRes[1].name, "rsc08") == 0 &&
+ 			(scumm_stricmp(fileName, "39.PI1") == 0 ||
+@@ -216,6 +262,13 @@ int16 findFileInBundle(const char *fileName) {
+ 			}
+ 		}
+ 
++#ifdef GW_CINE_SLIM
++		Common::Array<VolumeResource> volRes = g_cine->gwVolFind(fileName);
++		if (volRes.empty()) {
++			warning("Unable to find part file for filename '%s'", fileName);
++			return -1;
++		}
++#else
+ 		StringToVolumeResourceArrayHashMap::const_iterator it = g_cine->_volumeEntriesMap.find(fileName);
+ 		if (it == g_cine->_volumeEntriesMap.end()) {
+ 			warning("Unable to find part file for filename '%s'", fileName);
+@@ -224,6 +277,7 @@ int16 findFileInBundle(const char *fileName) {
+ 
+ 		// Prefer current disk's resource file
+ 		Common::Array<VolumeResource> volRes = it->_value;
++#endif
+ 		VolumeResource match = volRes[0];
+ 		for (uint i = 0; i < volRes.size(); i++) {
+ 			if (volRes[i].diskNum == currentDisk) {
+diff --git a/engines/cine/texte.cpp b/engines/cine/texte.cpp
+index e51b6465296..c3ec4733497 100644
+--- a/engines/cine/texte.cpp
++++ b/engines/cine/texte.cpp
+@@ -55,7 +55,7 @@ void loadTextData(const char *filename) {
+ 	const uint entrySize = fileHandle.readUint16BE();  // Observed values: 8.
+ 	const uint entryCount = fileHandle.readUint16BE(); // Observed values: 624, 680, 720, 744.
+ 	const uint fontDataSize = entryCount * entrySize;  // Observed values: 4992, 5440, 5760, 5952.
+-	const uint numChars = entryCount / entrySize;      // Observed values: 78, 85, 90, 93.
++	uint numChars = entryCount / entrySize;      // Observed values: 78, 85, 90, 93.
+ 	const uint bytesPerChar = fontDataSize / numChars; // Observed values: 64.
+ 	static const uint bytesPerRow = FONT_WIDTH / 2;    // The input font data is 4-bit so it takes only half the space
+ 
+@@ -63,6 +63,10 @@ void loadTextData(const char *filename) {
+ 		warning("loadTextData: file '%s' (entrySize = %d, entryCount = %d) is of incorrect size %d", filename, entrySize, entryCount, (int)fileHandle.size());
+ 	}
+ 
++#ifdef GW_CINE_SLIM
++	if (numChars > GW_FONT_GLYPHS)
++		numChars = GW_FONT_GLYPHS;
++#endif
+ 	Common::Array<byte> source;
+ 	source.resize(fontDataSize);
+ 	fileHandle.read(source.begin(), fontDataSize);
+@@ -807,6 +811,10 @@ void loadPoldatDat(const char *fname) {
+ 		for (int i = 0; i < NUM_FONT_CHARS; i++) {
+ 			g_cine->_textHandler.fontParamTable[i].characterIdx   = in.readByte();
+ 			g_cine->_textHandler.fontParamTable[i].characterWidth = in.readByte();
++#ifdef GW_CINE_SLIM
++			if (g_cine->_textHandler.fontParamTable[i].characterIdx >= GW_FONT_GLYPHS)
++				g_cine->_textHandler.fontParamTable[i].characterWidth = 0; // not a glyph we hold: not drawn
++#endif
+ 		}
+ 		in.close();
+ 	} else {
+diff --git a/engines/cine/texte.h b/engines/cine/texte.h
+index a6f5a5de08d..643cd093e22 100644
+--- a/engines/cine/texte.h
++++ b/engines/cine/texte.h
+@@ -45,7 +45,13 @@ struct CharacterEntry {
+ };
+ 
+ struct TextHandler {
++#ifdef GW_CINE_SLIM
++	// No font has more than 93 glyphs; 256 of them were 64 KB inside the engine object.
++#define GW_FONT_GLYPHS 96
++	byte textTable[GW_FONT_GLYPHS][2][FONT_WIDTH *FONT_HEIGHT];
++#else
+ 	byte textTable[NUM_FONT_CHARS][2][FONT_WIDTH *FONT_HEIGHT];
++#endif
+ 	CharacterEntry fontParamTable[NUM_FONT_CHARS];
+ };
  
 diff --git a/engines/cruise/cruise.cpp b/engines/cruise/cruise.cpp
 index 9e3a9775dca..81af3b7e176 100644
