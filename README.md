@@ -57,7 +57,9 @@ its own in its notes.
 | Macintosh versions | — | ❌ | |
 | FM-Towns versions | — | ❌ | |
 
-In development, not in this core yet: Cruise for a Corpse, Operation Stealth.
+Being tested, as engine files of their own (`cine.svm`, `cruise.svm`): Operation Stealth and
+Cruise for a Corpse. Both ask for their copy protection (the colour card, the wheel), which
+ScummVM does not skip.
 
 Open a section:
 
@@ -367,7 +369,9 @@ los ficheros con identificador nuevo. Cada versión publica los suyos en sus not
 | Versiones de Macintosh | — | ❌ | |
 | Versiones de FM-Towns | — | ❌ | |
 
-En desarrollo, todavía no en este core: Cruise for a Corpse, Operation Stealth.
+En pruebas, como ficheros de motor propios (`cine.svm`, `cruise.svm`): Operation Stealth y
+Cruise for a Corpse. Los dos piden su protección anticopia (la carta de colores, la ruleta),
+que ScummVM no se salta.
 
 Abre una sección:
 
