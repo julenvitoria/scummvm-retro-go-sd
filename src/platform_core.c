@@ -432,6 +432,9 @@ static const char *svm_version(void)
 	return g_version;
 }
 
+static void files_before_sleep(void);
+static void files_after_sleep(void);
+
 uint32_t plat_buttons(void)
 {
 	pal_flush();
@@ -456,14 +459,17 @@ uint32_t plat_buttons(void)
 	if (menu) diag_save();
 #endif
 	if (menu) pcm_audio_set(0, 0);                       /* silence while the menu is open */
+	if (js.values[ODROID_INPUT_POWER]) files_before_sleep();
 	common_emu_input_loop(&js, menu_options, &repaint);  /* PAUSE/SET menu, power, volume... */
 	if (menu) lcd_set_clut(g_hw, 256);                 /* the menu used part of the CLUT */
-	if (js.values[ODROID_INPUT_POWER] && g_audio_on) {
-		/* the power button: on its way to sleep the firmware stopped the SAI's DMA
-		   (audio_stop_playing) and nothing started it again on waking, so the game went on
-		   without sound until it was started anew */
-		audio_start_playing(AUDIO_RATE / 60);
-		pcm_audio_enable(1);
+	if (js.values[ODROID_INPUT_POWER]) {
+		/* the power button: the firmware put the console to sleep and woke it in there
+		   (GW_EnterDeepSleep). On the way it started the SAI's DMA anew, which drops a
+		   homebrew's hold on it (pcm_owns = 0: the game went on without sound), and it
+		   unmounted the card and mounted it again, which leaves every open file dead (Broken
+		   Sword's speech and music stopped). Both are taken up again here. */
+		if (g_audio_on) pcm_audio_enable(1);
+		files_after_sleep();
 	}
 	if (g_audio_on) pcm_audio_set(common_emu_sound_get_volume(), 1);   /* the menu may change it */
 	uint32_t b = 0;
@@ -611,6 +617,31 @@ bool plat_list_dir(const char *path, void (*cb)(const char *, bool, uint32_t, vo
 }
 
 bool plat_mkdir(const char *path) { wdog_refresh(); return rg_storage_mkdir(path); }
+/* The files open for reading, so they can be opened again after the power button: the card
+   is unmounted for the sleep, and a file opened before it reads nothing after it. */
+#define MAX_OPEN 16
+static struct { FILE *f; char *path; long pos; } g_open[MAX_OPEN];
+
+static void files_before_sleep(void)
+{
+	for (int i = 0; i < MAX_OPEN; i++)
+		if (g_open[i].f) g_open[i].pos = ftell(g_open[i].f);
+}
+
+static void files_after_sleep(void)
+{
+	for (int i = 0; i < MAX_OPEN; i++) {
+		if (!g_open[i].f) continue;
+		wdog_refresh();
+		if (freopen(g_open[i].path, "rb", g_open[i].f) && g_open[i].pos >= 0)
+			fseek(g_open[i].f, g_open[i].pos, SEEK_SET);
+		else {
+			logf_("ScummVM: cannot open %s again after the sleep\n", g_open[i].path);
+			g_open[i].f = NULL;        /* (freopen closed it: fclose must not see it) */
+		}
+	}
+}
+
 void *plat_fopen(const char *path, const char *mode)
 {
 	wdog_refresh();
@@ -619,13 +650,27 @@ void *plat_fopen(const char *path, const char *mode)
 #endif
 	FILE *f = fopen(path, mode);
 	if (!f && mode[0] == 'r') logf_("ScummVM: cannot open %s\n", path);
+	if (f && mode[0] == 'r')
+		for (int i = 0; i < MAX_OPEN; i++)
+			if (!g_open[i].f) {
+				char *p = strdup(path);
+				if (p) { g_open[i].f = f; g_open[i].path = p; }
+				break;
+			}
 	return f;
 }
 uint32_t plat_fread(void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fread(buf, 1, n, (FILE *)f); }
 uint32_t plat_fwrite(const void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fwrite(buf, 1, n, (FILE *)f); }
 bool plat_fseek(void *f, int32_t off, int whence) { wdog_refresh(); return fseek((FILE *)f, off, whence) == 0; }
 int32_t plat_ftell(void *f) { return (int32_t)ftell((FILE *)f); }
-void plat_fclose(void *f) { wdog_refresh(); fclose((FILE *)f); wdog_refresh(); }
+void plat_fclose(void *f)
+{
+	wdog_refresh();
+	for (int i = 0; i < MAX_OPEN; i++)
+		if (g_open[i].f == f) { free(g_open[i].path); g_open[i].f = NULL; g_open[i].path = NULL; break; }
+	fclose((FILE *)f);
+	wdog_refresh();
+}
 
 /* The game's files, cached in external flash before ScummVM starts (the firmware unmaps the
    flash while it writes it, and most of ScummVM runs from there). */
