@@ -27,5 +27,11 @@ falta comprobar.
 - Full Throttle: la voz se entrecorta en algunos vídeos (el usuario prefiere dejarlo así de
   momento). Posible tabla de 38 KB de `Sound::setupSfxFile` con las voces comprimidas.
 - Decodificador OGG y Loom FM-Towns: para el final.
-- Motores futuros: AGI primero, SCI después.
+- Motores futuros: solo juegos de puntero, sin escribir órdenes (en la Game & Watch no hay
+  teclado y el teclado en pantalla no sirve para jugar). Decidido el 2026-11-15.
+  - Fuera: AGI (todo de escribir salvo Manhunter, Black Cauldron y los infantiles) y la primera
+    generación de SCI (SCI0: King's Quest 4, Space Quest 3, Larry 2 y 3, el remake de KQ1).
+    El trabajo de AGI queda en la rama `agi`, sin fusionar.
+  - Orden propuesto: Queen, Drascula, Teenagent, Dreamweb, AGOS (Simon, Elvira), Kyra; SCI1 y
+    SCI1.1 (de ratón: KQ5, SQ4, el remake de Larry 1) al final, por la memoria.
 - Beneath a Steel Sky: podría usar la adopción de pantalla como Lure.
