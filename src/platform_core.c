@@ -458,6 +458,13 @@ uint32_t plat_buttons(void)
 	if (menu) pcm_audio_set(0, 0);                       /* silence while the menu is open */
 	common_emu_input_loop(&js, menu_options, &repaint);  /* PAUSE/SET menu, power, volume... */
 	if (menu) lcd_set_clut(g_hw, 256);                 /* the menu used part of the CLUT */
+	if (js.values[ODROID_INPUT_POWER] && g_audio_on) {
+		/* the power button: on its way to sleep the firmware stopped the SAI's DMA
+		   (audio_stop_playing) and nothing started it again on waking, so the game went on
+		   without sound until it was started anew */
+		audio_start_playing(AUDIO_RATE / 60);
+		pcm_audio_enable(1);
+	}
 	if (g_audio_on) pcm_audio_set(common_emu_sound_get_volume(), 1);   /* the menu may change it */
 	uint32_t b = 0;
 	if (js.values[ODROID_INPUT_UP]) b |= PLAT_UP;
