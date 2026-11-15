@@ -49,7 +49,7 @@ static int next_frame(rd_t *r, mp3_t *m, int decode, int *rate, int *channels)
 	for (;;) {
 		if (m->in_len - m->in_pos < 2048) refill(r, m);
 		if (m->in_len == m->in_pos) return 0;
-		mp3dec_frame_info_t info;
+		mp3dec_frame_info_t info = { 0 };   /* minimp3 leaves the rest unset for some frames */
 		uint32_t start = r->pos - (m->in_len - m->in_pos);
 		g_scratch = &m->scratch;
 		int n = mp3dec_decode_frame(&m->dec, m->in + m->in_pos, (int)(m->in_len - m->in_pos), decode ? m->pcm : NULL, &info);
@@ -59,7 +59,7 @@ static int next_frame(rd_t *r, mp3_t *m, int decode, int *rate, int *channels)
 			continue;
 		}
 		m->in_pos += info.frame_bytes;
-		if (n <= 0 && decode && info.layer) {
+		if (n <= 0 && decode && info.layer && (info.channels == 1 || info.channels == 2) && info.hz) {
 			/* a frame whose bit reservoir is in frames not decoded (right after a seek): its
 			   time still counts, as silence, or the position drifts by a frame */
 			n = info.hz >= 32000 ? 1152 : 576;          /* layer III: MPEG-1 / MPEG-2 and 2.5 */
