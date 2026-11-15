@@ -281,6 +281,32 @@ index 70081d8f0f7..d24a71a4b74 100644
  
  	// cache management
  	void cacheDirectoryRecursive(FSNode node, int depth, const Path& prefix) const;
+diff --git a/engines/agi/saveload.cpp b/engines/agi/saveload.cpp
+index c6e0e39e66a..6084b3840b1 100644
+--- a/engines/agi/saveload.cpp
++++ b/engines/agi/saveload.cpp
+@@ -955,8 +955,10 @@ bool AgiEngine::loadGameAutomatic() {
+ bool AgiEngine::loadGameDialog() {
+ 	int16 restoreGameSlotId = 0;
+ 
++#ifndef GW_AGI_SLIM   // Game & Watch: the game's own list (ScummVM's dialog needs two 128 KB layers)
+ 	if (!ConfMan.getBool("originalsaveload"))
+ 		return scummVMSaveLoadDialog(false);
++#endif
+ 
+ 	restoreGameSlotId = _systemUI->askForRestoreGameSlot();
+ 	if (restoreGameSlotId >= 0) {
+@@ -997,8 +999,10 @@ bool AgiEngine::saveGameDialog() {
+ 	int16 saveGameSlotId = 0;
+ 	Common::String slotDescription;
+ 
++#ifndef GW_AGI_SLIM   // Game & Watch: the game's own list (ScummVM's dialog needs two 128 KB layers)
+ 	if (!ConfMan.getBool("originalsaveload"))
+ 		return scummVMSaveLoadDialog(true);
++#endif
+ 
+ 	saveGameSlotId = _systemUI->askForSaveGameSlot();
+ 	if (saveGameSlotId >= 0) {
 diff --git a/engines/cge/bitmap.cpp b/engines/cge/bitmap.cpp
 index 868dad8fa68..0fc18f32ae7 100644
 --- a/engines/cge/bitmap.cpp
