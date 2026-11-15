@@ -460,6 +460,32 @@ index 05a40b5eab1..a81823d2927 100644
  }
  
  //--------------------------------------------------------------------------
+diff --git a/engines/cine/anim.cpp b/engines/cine/anim.cpp
+index 36b75f6fb52..b7f58d1ba72 100644
+--- a/engines/cine/anim.cpp
++++ b/engines/cine/anim.cpp
+@@ -353,6 +353,21 @@ void AnimData::load(byte *d, int type, uint16 w, uint16 h, int16 file,
+ 	case ANIM_MASKSPRITE:
+ 		_bpp = 4;
+ 		_size = w * h * 2;
++#ifdef GW_CINE_SLIM
++		// Game & Watch: Operation Stealth never looks at this mask (its renderer draws with
++		// the object's transparent colour, and what is under the pointer is told by colour
++		// too); it was as large as the sprite itself, a third of the heap in some scenes.
++		_data = new byte[_size];
++		_realWidth = w * 2;
++		assert(_data);
++		gfxConvertSpriteToRaw(_data, d, w, h);
++		if (g_cine->getGameType() != Cine::GType_OS) {
++			_mask = new byte[_size];
++			assert(_mask);
++			generateMask(_data, _mask, _size, transparent);
++		}
++		break;
++#endif
+ 		_data = new byte[_size];
+ 		_mask = new byte[_size];
+ 		_realWidth = w * 2;
 diff --git a/engines/cine/cine.cpp b/engines/cine/cine.cpp
 index d3464f34c9c..d13d4b84059 100644
 --- a/engines/cine/cine.cpp
@@ -684,10 +710,24 @@ index 44f6fe680f7..f9ecde93ad7 100644
  		for (uint i = 0; i < volRes.size(); i++) {
  			if (volRes[i].diskNum == currentDisk) {
 diff --git a/engines/cine/saveload.cpp b/engines/cine/saveload.cpp
-index 39f15834465..d98d9467c87 100644
+index 39f15834465..4197b38de74 100644
 --- a/engines/cine/saveload.cpp
 +++ b/engines/cine/saveload.cpp
-@@ -1018,6 +1018,14 @@ void CineEngine::makeSave(const Common::String &saveFileName, uint32 playtime,
+@@ -829,7 +829,13 @@ bool CineEngine::makeLoad(const Common::String &saveName) {
+ 		// Hopefully devices with more limited memory can also cope with this memory allocation.
+ 		saveSize = 256 * 1024;
+ 	}
++#ifdef GW_CINE_SLIM
++	// Game & Watch: the file is read where it is, not from a copy of all of it in memory
++	// (85 KB held while every resource of the saved game is loaded)
++	Common::SharedPtr<Common::SeekableReadStream> in = saveFile;
++#else
+ 	Common::SharedPtr<Common::SeekableReadStream> in(saveFile->readStream(saveSize));
++#endif
+ 
+ 	// Try to detect the used savegame format
+ 	enum CineSaveGameFormat saveGameFormat = detectSaveGameFormat(*in);
+@@ -1018,6 +1024,14 @@ void CineEngine::makeSave(const Common::String &saveFileName, uint32 playtime,
  		}
  	}
  
@@ -702,7 +742,7 @@ index 39f15834465..d98d9467c87 100644
  	renderer->saveBackBuffer(BEFORE_TAKING_THUMBNAIL);
  	if (!isAutosave && renderer->hasSavedBackBuffer(BEFORE_OPENING_MENU)) {
  		renderer->popSavedBackBuffer(BEFORE_OPENING_MENU);
-@@ -1026,6 +1034,7 @@ void CineEngine::makeSave(const Common::String &saveFileName, uint32 playtime,
+@@ -1026,6 +1040,7 @@ void CineEngine::makeSave(const Common::String &saveFileName, uint32 playtime,
  	getMetaEngine()->appendExtendedSave(fHandle.get(), playtime, desc, isAutosave);
  
  	renderer->restoreSavedBackBuffer(BEFORE_TAKING_THUMBNAIL);
