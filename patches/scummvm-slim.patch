@@ -281,6 +281,32 @@ index 70081d8f0f7..d24a71a4b74 100644
  
  	// cache management
  	void cacheDirectoryRecursive(FSNode node, int depth, const Path& prefix) const;
+diff --git a/engines/agi/saveload.cpp b/engines/agi/saveload.cpp
+index c6e0e39e66a..6084b3840b1 100644
+--- a/engines/agi/saveload.cpp
++++ b/engines/agi/saveload.cpp
+@@ -955,8 +955,10 @@ bool AgiEngine::loadGameAutomatic() {
+ bool AgiEngine::loadGameDialog() {
+ 	int16 restoreGameSlotId = 0;
+ 
++#ifndef GW_AGI_SLIM   // Game & Watch: the game's own list (ScummVM's dialog needs two 128 KB layers)
+ 	if (!ConfMan.getBool("originalsaveload"))
+ 		return scummVMSaveLoadDialog(false);
++#endif
+ 
+ 	restoreGameSlotId = _systemUI->askForRestoreGameSlot();
+ 	if (restoreGameSlotId >= 0) {
+@@ -997,8 +999,10 @@ bool AgiEngine::saveGameDialog() {
+ 	int16 saveGameSlotId = 0;
+ 	Common::String slotDescription;
+ 
++#ifndef GW_AGI_SLIM   // Game & Watch: the game's own list (ScummVM's dialog needs two 128 KB layers)
+ 	if (!ConfMan.getBool("originalsaveload"))
+ 		return scummVMSaveLoadDialog(true);
++#endif
+ 
+ 	saveGameSlotId = _systemUI->askForSaveGameSlot();
+ 	if (saveGameSlotId >= 0) {
 diff --git a/engines/cge/bitmap.cpp b/engines/cge/bitmap.cpp
 index 868dad8fa68..0fc18f32ae7 100644
 --- a/engines/cge/bitmap.cpp
@@ -434,6 +460,451 @@ index 05a40b5eab1..a81823d2927 100644
  }
  
  //--------------------------------------------------------------------------
+diff --git a/engines/cine/anim.cpp b/engines/cine/anim.cpp
+index 36b75f6fb52..b7f58d1ba72 100644
+--- a/engines/cine/anim.cpp
++++ b/engines/cine/anim.cpp
+@@ -353,6 +353,21 @@ void AnimData::load(byte *d, int type, uint16 w, uint16 h, int16 file,
+ 	case ANIM_MASKSPRITE:
+ 		_bpp = 4;
+ 		_size = w * h * 2;
++#ifdef GW_CINE_SLIM
++		// Game & Watch: Operation Stealth never looks at this mask (its renderer draws with
++		// the object's transparent colour, and what is under the pointer is told by colour
++		// too); it was as large as the sprite itself, a third of the heap in some scenes.
++		_data = new byte[_size];
++		_realWidth = w * 2;
++		assert(_data);
++		gfxConvertSpriteToRaw(_data, d, w, h);
++		if (g_cine->getGameType() != Cine::GType_OS) {
++			_mask = new byte[_size];
++			assert(_mask);
++			generateMask(_data, _mask, _size, transparent);
++		}
++		break;
++#endif
+ 		_data = new byte[_size];
+ 		_mask = new byte[_size];
+ 		_realWidth = w * 2;
+diff --git a/engines/cine/cine.cpp b/engines/cine/cine.cpp
+index d3464f34c9c..d13d4b84059 100644
+--- a/engines/cine/cine.cpp
++++ b/engines/cine/cine.cpp
+@@ -298,6 +298,10 @@ Common::Error CineEngine::run() {
+ 
+ 		delete renderer;
+ 		delete[] collisionPage;
++#ifdef GW_CINE_SLIM
++		delete[] _gwVol;
++		_gwVol = nullptr;
++#endif
+ 		delete _scriptInfo;
+ 	} while (_restartRequested);
+ 
+diff --git a/engines/cine/cine.h b/engines/cine/cine.h
+index b8c4729d565..8be497eb896 100644
+--- a/engines/cine/cine.h
++++ b/engines/cine/cine.h
+@@ -179,7 +179,15 @@ public:
+ 
+ 	Common::RandomSource _rnd;
+ 
++#ifdef GW_CINE_SLIM
++	// The unpacked vol.cnf is kept as it is and searched: the map of every file
++	// name to an array of resource files took over 150 KB of the heap.
++	byte *_gwVol = nullptr;
++	int _gwVolFiles = 0, _gwVolEntry = 0, _gwVolNameLen = 0;
++	Common::Array<VolumeResource> gwVolFind(const char *fileName) const;
++#else
+ 	StringToVolumeResourceArrayHashMap _volumeEntriesMap;
++#endif
+ 
+ 	TextHandler _textHandler;
+ 
+@@ -207,6 +215,9 @@ private:
+ 		Common::String desc, bool isAutosave);
+ 	void mainLoop(int bootScriptIdx);
+ 	void readVolCnf();
++#ifdef GW_CINE_SLIM
++	VolumeResource gwVolFile(int i) const;
++#endif
+ 	Common::String getTargetSaveStateName(Common::String target, int slot) const;
+ 
+ 	bool _preLoad;
+diff --git a/engines/cine/gfx.cpp b/engines/cine/gfx.cpp
+index 065e4d49116..cf031c6fcc0 100644
+--- a/engines/cine/gfx.cpp
++++ b/engines/cine/gfx.cpp
+@@ -35,6 +35,10 @@
+ #include "graphics/cursorman.h"
+ #include "graphics/primitives.h"
+ 
++#ifdef GW_CINE_SLIM
++void gwAdoptable(const byte *lo, const byte *hi);	// src/gw_system.cpp
++#endif
++
+ namespace Cine {
+ 
+ byte *collisionPage;
+@@ -503,6 +507,12 @@ FWRenderer::FWRenderer() : _savedBackBuffers(), _background(nullptr), _backupPal
+ 
+ 	memset(_backBuffer, 0, _screenSize);
+ 	memset(_bgName, 0, sizeof(_bgName));
++#ifdef GW_CINE_SLIM
++	// Game & Watch: the back buffer is shown as it is, where the backend kept a copy of the
++	// screen (src/gw_system.cpp, gwAdoptable): 64 KB, and the intro of Operation Stealth
++	// stopped for 24 KB
++	gwAdoptable(_backBuffer, _backBuffer + _screenSize);
++#endif
+ }
+ 
+ void FWRenderer::removeSavedBackBuffers() {
+@@ -518,6 +528,9 @@ void FWRenderer::removeSavedBackBuffers() {
+  * Destroy renderer
+  */
+ FWRenderer::~FWRenderer() {
++#ifdef GW_CINE_SLIM
++	gwAdoptable(nullptr, nullptr);
++#endif
+ 	delete[] _background;
+ 	delete[] _backBuffer;
+ 
+diff --git a/engines/cine/part.cpp b/engines/cine/part.cpp
+index 44f6fe680f7..f9ecde93ad7 100644
+--- a/engines/cine/part.cpp
++++ b/engines/cine/part.cpp
+@@ -129,10 +129,17 @@ void CineEngine::readVolCnf() {
+ 		error("Error while unpacking 'vol.cnf' data");
+ 	}
+ 	delete[] packedBuf;
+-	Common::Array<VolumeResource> volumeResourceFiles;
+ 	uint8 *p = buf;
+ 	int resourceFilesCount = READ_BE_INT16(p); p += 2;
+ 	int entrySize = READ_BE_INT16(p); p += 2;
++#ifdef GW_CINE_SLIM
++	delete[] _gwVol;
++	_gwVol = buf;
++	_gwVolFiles = resourceFilesCount;
++	_gwVolEntry = entrySize;
++	p += resourceFilesCount * entrySize;
++#else
++	Common::Array<VolumeResource> volumeResourceFiles;
+ 	for (int i = 0; i < resourceFilesCount; ++i) {
+ 		Common::MemoryReadStream readS(p, 0x14);
+ 		VolumeResource res;
+@@ -144,6 +151,7 @@ void CineEngine::readVolCnf() {
+ 		volumeResourceFiles.push_back(res);
+ 		p += entrySize;
+ 	}
++#endif
+ 
+ 	// Check file name blocks' sizes
+ 	bool fileNameLenMod11, fileNameLenMod13;
+@@ -175,6 +183,63 @@ void CineEngine::readVolCnf() {
+ 		fileNameLength = (compressed ? 11 : 13);
+ 	}
+ 
++#ifdef GW_CINE_SLIM
++	_gwVolNameLen = fileNameLength;
++}
++
++extern "C" void gw_wdog_kick(void) __attribute__((weak));   // src/platform_*.c
++
++// fixVolCnfFileName(src, len) == name, without making three strings for each of the
++// several hundred names: the music asks for fifteen instruments in a row that are in no
++// volume, and the console's watchdog (half a second) caught it there
++static bool gwVolNameIs(const uint8 *src, int len, const char *name) {
++	char tmp[16];
++	int n = 0;
++	if (len == 11) {
++		for (int i = 0; i < 8 && src[i] && src[i] != ' '; i++)
++			tmp[n++] = src[i];
++		if (src[8] && src[8] != ' ') {
++			tmp[n++] = '.';
++			for (int i = 8; i < 11 && src[i] && src[i] != ' '; i++)
++				tmp[n++] = src[i];
++		}
++	} else {
++		for (int i = 0; i < len && src[i]; i++)
++			tmp[n++] = src[i];
++	}
++	tmp[n] = 0;
++	return strcmp(tmp, name) == 0;
++}
++
++VolumeResource CineEngine::gwVolFile(int i) const {
++	const uint8 *p = _gwVol + 4 + i * _gwVolEntry;
++	VolumeResource res;
++	memcpy(res.name, p, sizeof(res.name));
++	res.name[sizeof(res.name) - 1] = 0;
++	res.pNamesList = READ_BE_UINT32(p + 10);
++	res.diskNum = (int16)READ_BE_UINT16(p + 14);
++	res.sizeOfNamesList = READ_BE_UINT32(p + 16);
++	return res;
++}
++
++Common::Array<VolumeResource> CineEngine::gwVolFind(const char *fileName) const {
++	Common::Array<VolumeResource> found;
++	if (!_gwVol)
++		return found;
++	const uint8 *p = _gwVol + 4 + _gwVolFiles * _gwVolEntry;
++	for (int i = 0; i < _gwVolFiles; ++i) {
++		int count = READ_BE_UINT32(p) / _gwVolNameLen; p += 4;
++		if (gw_wdog_kick)
++			gw_wdog_kick();
++		while (count--) {
++			if (gwVolNameIs(p, _gwVolNameLen, fileName))
++				found.push_back(gwVolFile(i));
++			p += _gwVolNameLen;
++		}
++	}
++	return found;
++}
++#else
+ 	p = buf + 4 + resourceFilesCount * entrySize;
+ 	for (int i = 0; i < resourceFilesCount; ++i) {
+ 		const VolumeResource& volRes = volumeResourceFiles[i];
+@@ -192,13 +257,20 @@ void CineEngine::readVolCnf() {
+ 
+ 	delete[] buf;
+ }
++#endif
+ 
+ int16 findFileInBundle(const char *fileName) {
+ 	// HACK: Fix underwater background palette by reading it from correct file
+ 	if (hacksEnabled && g_cine->getGameType() == Cine::GType_OS &&
+ 		scumm_stricmp(currentPrcName, "SOUSMAR2.PRC") == 0 &&
+-		g_cine->_volumeEntriesMap.contains(fileName)) {
+-		Common::Array<VolumeResource> volRes = g_cine->_volumeEntriesMap.find(fileName)->_value;
++		true) {
++#ifdef GW_CINE_SLIM
++		Common::Array<VolumeResource> volRes = g_cine->gwVolFind(fileName);
++#else
++		Common::Array<VolumeResource> volRes;
++		if (g_cine->_volumeEntriesMap.contains(fileName))
++			volRes = g_cine->_volumeEntriesMap.find(fileName)->_value;
++#endif
+ 		if (volRes.size() == 2 && scumm_stricmp(volRes[0].name, "rsc12") == 0 &&
+ 			scumm_stricmp(volRes[1].name, "rsc08") == 0 &&
+ 			(scumm_stricmp(fileName, "39.PI1") == 0 ||
+@@ -216,6 +288,13 @@ int16 findFileInBundle(const char *fileName) {
+ 			}
+ 		}
+ 
++#ifdef GW_CINE_SLIM
++		Common::Array<VolumeResource> volRes = g_cine->gwVolFind(fileName);
++		if (volRes.empty()) {
++			warning("Unable to find part file for filename '%s'", fileName);
++			return -1;
++		}
++#else
+ 		StringToVolumeResourceArrayHashMap::const_iterator it = g_cine->_volumeEntriesMap.find(fileName);
+ 		if (it == g_cine->_volumeEntriesMap.end()) {
+ 			warning("Unable to find part file for filename '%s'", fileName);
+@@ -224,6 +303,7 @@ int16 findFileInBundle(const char *fileName) {
+ 
+ 		// Prefer current disk's resource file
+ 		Common::Array<VolumeResource> volRes = it->_value;
++#endif
+ 		VolumeResource match = volRes[0];
+ 		for (uint i = 0; i < volRes.size(); i++) {
+ 			if (volRes[i].diskNum == currentDisk) {
+diff --git a/engines/cine/saveload.cpp b/engines/cine/saveload.cpp
+index 39f15834465..4197b38de74 100644
+--- a/engines/cine/saveload.cpp
++++ b/engines/cine/saveload.cpp
+@@ -829,7 +829,13 @@ bool CineEngine::makeLoad(const Common::String &saveName) {
+ 		// Hopefully devices with more limited memory can also cope with this memory allocation.
+ 		saveSize = 256 * 1024;
+ 	}
++#ifdef GW_CINE_SLIM
++	// Game & Watch: the file is read where it is, not from a copy of all of it in memory
++	// (85 KB held while every resource of the saved game is loaded)
++	Common::SharedPtr<Common::SeekableReadStream> in = saveFile;
++#else
+ 	Common::SharedPtr<Common::SeekableReadStream> in(saveFile->readStream(saveSize));
++#endif
+ 
+ 	// Try to detect the used savegame format
+ 	enum CineSaveGameFormat saveGameFormat = detectSaveGameFormat(*in);
+@@ -1018,6 +1024,14 @@ void CineEngine::makeSave(const Common::String &saveFileName, uint32 playtime,
+ 		}
+ 	}
+ 
++#ifdef GW_CINE_SLIM
++	// Game & Watch: no copy of the screen (64 KB) around the thumbnail. The game's menu closes
++	// after a save, so its image need not come back; with no room for the copy, new[] gave
++	// nothing and the screen was copied to address 0 (a hard fault a moment later).
++	if (!isAutosave && renderer->hasSavedBackBuffer(BEFORE_OPENING_MENU))
++		renderer->popSavedBackBuffer(BEFORE_OPENING_MENU);
++	getMetaEngine()->appendExtendedSave(fHandle.get(), playtime, desc, isAutosave);
++#else
+ 	renderer->saveBackBuffer(BEFORE_TAKING_THUMBNAIL);
+ 	if (!isAutosave && renderer->hasSavedBackBuffer(BEFORE_OPENING_MENU)) {
+ 		renderer->popSavedBackBuffer(BEFORE_OPENING_MENU);
+@@ -1026,6 +1040,7 @@ void CineEngine::makeSave(const Common::String &saveFileName, uint32 playtime,
+ 	getMetaEngine()->appendExtendedSave(fHandle.get(), playtime, desc, isAutosave);
+ 
+ 	renderer->restoreSavedBackBuffer(BEFORE_TAKING_THUMBNAIL);
++#endif
+ 
+ 	setMouseCursor(MOUSE_CURSOR_NORMAL);
+ }
+diff --git a/engines/cine/texte.cpp b/engines/cine/texte.cpp
+index e51b6465296..c3ec4733497 100644
+--- a/engines/cine/texte.cpp
++++ b/engines/cine/texte.cpp
+@@ -55,7 +55,7 @@ void loadTextData(const char *filename) {
+ 	const uint entrySize = fileHandle.readUint16BE();  // Observed values: 8.
+ 	const uint entryCount = fileHandle.readUint16BE(); // Observed values: 624, 680, 720, 744.
+ 	const uint fontDataSize = entryCount * entrySize;  // Observed values: 4992, 5440, 5760, 5952.
+-	const uint numChars = entryCount / entrySize;      // Observed values: 78, 85, 90, 93.
++	uint numChars = entryCount / entrySize;      // Observed values: 78, 85, 90, 93.
+ 	const uint bytesPerChar = fontDataSize / numChars; // Observed values: 64.
+ 	static const uint bytesPerRow = FONT_WIDTH / 2;    // The input font data is 4-bit so it takes only half the space
+ 
+@@ -63,6 +63,10 @@ void loadTextData(const char *filename) {
+ 		warning("loadTextData: file '%s' (entrySize = %d, entryCount = %d) is of incorrect size %d", filename, entrySize, entryCount, (int)fileHandle.size());
+ 	}
+ 
++#ifdef GW_CINE_SLIM
++	if (numChars > GW_FONT_GLYPHS)
++		numChars = GW_FONT_GLYPHS;
++#endif
+ 	Common::Array<byte> source;
+ 	source.resize(fontDataSize);
+ 	fileHandle.read(source.begin(), fontDataSize);
+@@ -807,6 +811,10 @@ void loadPoldatDat(const char *fname) {
+ 		for (int i = 0; i < NUM_FONT_CHARS; i++) {
+ 			g_cine->_textHandler.fontParamTable[i].characterIdx   = in.readByte();
+ 			g_cine->_textHandler.fontParamTable[i].characterWidth = in.readByte();
++#ifdef GW_CINE_SLIM
++			if (g_cine->_textHandler.fontParamTable[i].characterIdx >= GW_FONT_GLYPHS)
++				g_cine->_textHandler.fontParamTable[i].characterWidth = 0; // not a glyph we hold: not drawn
++#endif
+ 		}
+ 		in.close();
+ 	} else {
+diff --git a/engines/cine/texte.h b/engines/cine/texte.h
+index a6f5a5de08d..643cd093e22 100644
+--- a/engines/cine/texte.h
++++ b/engines/cine/texte.h
+@@ -45,7 +45,13 @@ struct CharacterEntry {
+ };
+ 
+ struct TextHandler {
++#ifdef GW_CINE_SLIM
++	// No font has more than 93 glyphs; 256 of them were 64 KB inside the engine object.
++#define GW_FONT_GLYPHS 96
++	byte textTable[GW_FONT_GLYPHS][2][FONT_WIDTH *FONT_HEIGHT];
++#else
+ 	byte textTable[NUM_FONT_CHARS][2][FONT_WIDTH *FONT_HEIGHT];
++#endif
+ 	CharacterEntry fontParamTable[NUM_FONT_CHARS];
+ };
+ 
+diff --git a/engines/cine/various.cpp b/engines/cine/various.cpp
+index 5e5ad8ad28a..cb92978c3b1 100644
+--- a/engines/cine/various.cpp
++++ b/engines/cine/various.cpp
+@@ -437,6 +437,20 @@ void CineEngine::makeSystemMenu() {
+ 			break;
+ 		}
+ 		case 4: { // load game
++#ifdef GW_CINE_SLIM
++			{
++				// Game & Watch: one saved game from this menu, without ScummVM's dialogs (they
++				// need two 128 KB layers) or the original's lists and name entry
++				Common::InSaveFile *f = _saveFileMan->openForLoading(getSaveStateName(1));
++				renderer->popSavedBackBuffer(BEFORE_OPENING_MENU);
++				if (f) {
++					delete f;
++					loadGameState(1);
++				}
++				inMenu = false;
++				return;
++			}
++#endif
+ 			if (loadSaveDirectory()) {
+ 				if (!ConfMan.getBool("originalsaveload")) {
+ 					scummVMSaveLoadDialog(false);
+@@ -485,6 +499,11 @@ void CineEngine::makeSystemMenu() {
+ 			break;
+ 		}
+ 		case 5: { // Save game
++#ifdef GW_CINE_SLIM
++			saveGameState(1, "Game & Watch");   // (makeSave takes the menu's copy of the screen)
++			inMenu = false;
++			return;
++#endif
+ 			loadSaveDirectory();
+ 
+ 			if (!ConfMan.getBool("originalsaveload")) {
+@@ -552,6 +571,11 @@ void CineEngine::makeSystemMenu() {
+ 			break;
+ 		}
+ 
++#ifdef GW_CINE_SLIM
++		// Game & Watch: the copy of the screen from before the menu is 64 KB, and nothing but
++		// a save uses it (it was kept for the rest of the game)
++		renderer->removeSavedBackBuffer(BEFORE_OPENING_MENU);
++#endif
+ 		inMenu = false;
+ 	}
+ }
+diff --git a/engines/cruise/cruise.cpp b/engines/cruise/cruise.cpp
+index 9e3a9775dca..81af3b7e176 100644
+--- a/engines/cruise/cruise.cpp
++++ b/engines/cruise/cruise.cpp
+@@ -33,6 +33,10 @@
+ #include "cruise/gfxModule.h"
+ #include "cruise/staticres.h"
+ 
++#ifdef GW_CRUISE_SLIM
++void gwAdoptable(const byte *lo, const byte *hi);	// src/gw_system.cpp
++#endif
++
+ namespace Cruise {
+ 
+ //SoundDriver *g_soundDriver;
+@@ -84,6 +88,11 @@ bool CruiseEngine::hasFeature(EngineFeature f) const {
+ Common::Error CruiseEngine::run() {
+ 	// Initialize backend
+ 	initGraphics(320, 200);
++#ifdef GW_CRUISE_SLIM
++	// Game & Watch: the engine's screen is shown as it is, where the backend kept a copy of
++	// it (src/gw_system.cpp, gwAdoptable): 64 KB of the 640 this engine's heap has
++	gwAdoptable(globalScreen, globalScreen + 320 * 200);
++#endif
+ 
+ 	if (!loadLanguageStrings()) {
+ 		error("Could not setup language data for your version");
+diff --git a/engines/cruise/menu.cpp b/engines/cruise/menu.cpp
+index 9c8260f5065..b443a3c145b 100644
+--- a/engines/cruise/menu.cpp
++++ b/engines/cruise/menu.cpp
+@@ -226,6 +226,21 @@ int processMenu(menuStruct *pMenu) {
+ }
+ 
+ static void handleSaveLoad(bool saveFlag) {
++#ifdef GW_CRUISE_SLIM
++	// Game & Watch: ScummVM's own dialogs are not in this build (their overlay alone is
++	// 128 KB twice over, and the console stopped there): the menu saves to one slot and loads
++	// it back, with nothing asked. Retro-Go's save states are the ones with slots.
++	if (saveFlag) {
++		saveSavegameData(1, "Game & Watch");
++	} else {
++		Common::InSaveFile *f = g_system->getSavefileManager()->openForLoading(CruiseEngine::getSavegameFile(1));
++		if (f) {
++			delete f;
++			loadSavegameData(1);
++		}
++	}
++	return;
++#endif
+ 	if (saveFlag)
+ 		_vm->saveGameDialog();
+ 	else
 diff --git a/engines/gob/gob.cpp b/engines/gob/gob.cpp
 index 42e3938002a..6fe92a3c43b 100644
 --- a/engines/gob/gob.cpp
@@ -776,10 +1247,10 @@ index 41c92f338a3..f3e18c5fe9c 100644
  	AnimationSequence(uint16 screenId, Palette &palette,  bool fadeIn, int frameDelay = 7,
  		const AnimSoundSequence *soundList = NULL, uint8 loops = 1);
 diff --git a/engines/lure/decode.cpp b/engines/lure/decode.cpp
-index cfbc1d5c516..cd6cb6c0402 100644
+index cfbc1d5c516..791d2bf259e 100644
 --- a/engines/lure/decode.cpp
 +++ b/engines/lure/decode.cpp
-@@ -37,6 +37,12 @@ namespace Lure {
+@@ -37,6 +37,18 @@ namespace Lure {
   * Write a single byte to the output buffer
   */
  void PictureDecoder::writeByte(MemoryBlock *dest, byte v) {
@@ -789,10 +1260,16 @@ index cfbc1d5c516..cd6cb6c0402 100644
 +		return;
 +	}
 +#endif
++#ifdef GW_LURE_SLIM
++	if (_gwDest && outputOffset >= dest->size()) {	// gwEgaDecodeInto(): cut at the block's end
++		outputOffset++;
++		return;
++	}
++#endif
  	if (outputOffset == dest->size())
  		error("Decoded data exceeded allocated output buffer size");
  	dest->data()[outputOffset++] = v;
-@@ -46,6 +52,13 @@ void PictureDecoder::writeByte(MemoryBlock *dest, byte v) {
+@@ -46,6 +58,20 @@ void PictureDecoder::writeByte(MemoryBlock *dest, byte v) {
   * Writes out a specified byte a given number of times to the output
   */
  void PictureDecoder::writeBytes(MemoryBlock *dest, byte v, uint16 numBytes) {
@@ -803,10 +1280,61 @@ index cfbc1d5c516..cd6cb6c0402 100644
 +		return;
 +	}
 +#endif
++#ifdef GW_LURE_SLIM
++	if (_gwDest) {
++		while (numBytes--)
++			writeByte(dest, v);
++		return;
++	}
++#endif
  	if (outputOffset + numBytes > dest->size())
  		error("Decoded data exceeded allocated output buffer size");
  	dest->setBytes(v, outputOffset, numBytes);
-@@ -226,6 +239,161 @@ MemoryBlock *PictureDecoder::egaDecode(MemoryBlock *src, uint32 maxOutputSize) {
+@@ -105,8 +131,21 @@ MemoryBlock *PictureDecoder::decode(MemoryBlock *src, uint32 maxOutputSize) {
+ #define READ_BIT_DX { bitFlag = (dx & 0x8000) != 0; dx <<= 1; if (--bitCtr == 0) { dx = (dx & 0xff00) | DSSI(); bitCtr = 8; } }
+ #define READ_BITS(loops) for (int ctr = 0; ctr < loops; ++ctr) READ_BIT_DX
+ 
++#ifdef GW_LURE_SLIM
++void PictureDecoder::gwEgaDecodeInto(MemoryBlock *src, MemoryBlock *dest, uint32 offset) {
++	_gwDest = dest;
++	_gwDestOffset = offset;
++	egaDecode(src, 0);
++	_gwDest = nullptr;
++}
++#endif
++
+ MemoryBlock *PictureDecoder::egaDecode(MemoryBlock *src, uint32 maxOutputSize) {
++#ifdef GW_LURE_SLIM
++	MemoryBlock *dest = _gwDest ? _gwDest : Memory::allocate(maxOutputSize);
++#else
+ 	MemoryBlock *dest = Memory::allocate(maxOutputSize);
++#endif
+ 	byte popTable[32 + 128];
+ 	uint8 al;
+ 	bool bitFlag;
+@@ -131,6 +170,10 @@ MemoryBlock *PictureDecoder::egaDecode(MemoryBlock *src, uint32 maxOutputSize) {
+ 	// ok, on to the real thing
+ 
+ 	outputOffset = 0;
++#ifdef GW_LURE_SLIM
++	if (_gwDest)
++		outputOffset = _gwDestOffset;
++#endif
+ 	al = dx >> 11;
+ 	writeByte(dest, al);
+ 	READ_BITS(5);
+@@ -218,6 +261,10 @@ MemoryBlock *PictureDecoder::egaDecode(MemoryBlock *src, uint32 maxOutputSize) {
+ 	}
+ 
+ 	// Resize the output to be the number of outputed bytes and return it
++#ifdef GW_LURE_SLIM
++	if (_gwDest)
++		return dest;
++#endif
+ 	if (outputOffset < dest->size()) dest->reallocate(outputOffset);
+ 
+ 	return dest;
+@@ -226,6 +273,161 @@ MemoryBlock *PictureDecoder::egaDecode(MemoryBlock *src, uint32 maxOutputSize) {
  // vgaDecode
  // Takes care of decoding a compressed vga screen
  
@@ -968,7 +1496,7 @@ index cfbc1d5c516..cd6cb6c0402 100644
  MemoryBlock *PictureDecoder::vgaDecode(MemoryBlock *src, uint32 maxOutputSize) {
  	MemoryBlock *dest = Memory::allocate(maxOutputSize);
  
-@@ -298,6 +466,7 @@ MemoryBlock *PictureDecoder::vgaDecode(MemoryBlock *src, uint32 maxOutputSize) {
+@@ -298,6 +500,7 @@ MemoryBlock *PictureDecoder::vgaDecode(MemoryBlock *src, uint32 maxOutputSize) {
  	if (outputOffset < dest->size()) dest->reallocate(outputOffset);
  	return dest;
  }
@@ -977,18 +1505,25 @@ index cfbc1d5c516..cd6cb6c0402 100644
  /*--------------------------------------------------------------------------*/
  /* AnimationDecoder class                                                   */
 diff --git a/engines/lure/decode.h b/engines/lure/decode.h
-index 69d7e7e765c..0e7a1451d7c 100644
+index 69d7e7e765c..e2ed0ef370d 100644
 --- a/engines/lure/decode.h
 +++ b/engines/lure/decode.h
-@@ -48,8 +48,29 @@ public:
+@@ -48,7 +48,35 @@ public:
  	MemoryBlock *decode(MemoryBlock *src, uint32 maxOutputSize  = SCREEN_SIZE + 1);
  	MemoryBlock *egaDecode(MemoryBlock *src, uint32 maxOutputSize);
  	MemoryBlock *vgaDecode(MemoryBlock *src, uint32 maxOutputSize);
 +#ifdef GW_LURE_SLIM
 +	void gwVgaLoop(MemoryBlock *src, MemoryBlock *dest);
++	// Game & Watch: a 5-bit picture unpacked into a block there already is, from 'offset' on
++	// and no further than its end, where egaDecode() makes a block of 64001 bytes for it --
++	// which the console does not have in one piece once a room is loaded
++	void gwEgaDecodeInto(MemoryBlock *src, MemoryBlock *dest, uint32 offset);
++private:
++	MemoryBlock *_gwDest = nullptr;
++	uint32 _gwDestOffset = 0;
 +#endif
- };
- 
++};
++
 +#ifdef GW_LURE_SLIM
 +// Game & Watch: the VGA unpacker one byte at a time. The packing has no back references, so
 +// an animation (up to 190 KB unpacked) is unpacked as it is shown and never held
@@ -1004,12 +1539,11 @@ index 69d7e7e765c..0e7a1451d7c 100644
 +	uint32 pos = 0;		// bytes handed out
 +	void start(MemoryBlock *src);
 +	int next();		// -1 at the end
-+};
+ };
 +#endif
-+
+ 
  class AnimationDecoder {
  public:
- 	static void rcl(uint16 &value, bool &carry);
 diff --git a/engines/lure/disk.cpp b/engines/lure/disk.cpp
 index 571cc43954e..d306b7126bd 100644
 --- a/engines/lure/disk.cpp
@@ -1145,6 +1679,24 @@ index a0b44d96af9..cb6b93d8e95 100644
  
  	byte *data() { return _data; }
  	uint32 size() { return _size; }
+diff --git a/engines/lure/menu.cpp b/engines/lure/menu.cpp
+index 1fbcec31ad3..ead89d683c3 100644
+--- a/engines/lure/menu.cpp
++++ b/engines/lure/menu.cpp
+@@ -134,7 +134,13 @@ uint8 Menu::execute() {
+ 					// If necessary, remove prior menu
+ 					if (_selectedMenu) {
+ 						toggleHighlight(_selectedMenu);
++#ifdef GW_LURE_SLIM
++						// Game & Watch: the screen surface is the screen (screen.cpp), so the
++						// menu just closed is on it: the room is painted again instead
++						Room::getReference().update();
++#else
+ 						screen.updateArea(0, 0, FULL_SCREEN_WIDTH, _surfaceMenu->height() + 8);
++#endif
+ 						delete _surfaceMenu;
+ 						_surfaceMenu = nullptr;
+ 						_selectedIndex = 0;
 diff --git a/engines/lure/res.cpp b/engines/lure/res.cpp
 index 03d12318fd6..bd9c1460073 100644
 --- a/engines/lure/res.cpp
@@ -1257,7 +1809,7 @@ index b6fcb86373b..f572fbf6561 100644
  class HotspotAnimData {
  public:
 diff --git a/engines/lure/room.cpp b/engines/lure/room.cpp
-index d51af5d0599..6004a2d3c71 100644
+index d51af5d0599..f0608d7bad5 100644
 --- a/engines/lure/room.cpp
 +++ b/engines/lure/room.cpp
 @@ -28,6 +28,7 @@
@@ -1282,7 +1834,7 @@ index d51af5d0599..6004a2d3c71 100644
  	Disk &disk = Disk::getReference();
  	byte *screenData = data().data();
  	int cellY;
-@@ -46,10 +53,68 @@ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
+@@ -46,10 +53,72 @@ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
  
  	// Load up the screen data
  	MemoryBlock *rawData = disk.getEntry(screenId);
@@ -1343,9 +1895,13 @@ index d51af5d0599..6004a2d3c71 100644
 +		free(strip);
 +	} else if (!gwBgScreen) {
 +		// unpacked as loadScreen() does: the picture, from the line below the menu bar on
++		// ... onto the screen surface, which the room about to be painted covers whole: there
++		// is no second screen's worth of memory in one piece to unpack it into
 +		PictureDecoder decoder;
-+		gwTmp = decoder.egaDecode(rawData, FULL_SCREEN_HEIGHT * FULL_SCREEN_WIDTH + 1);
-+		screenData = gwTmp->data() - MENUBAR_Y_SIZE * FULL_SCREEN_WIDTH;
++		MemoryBlock &gwScratch = Screen::getReference().screen().data();
++		gwScratch.empty();
++		decoder.gwEgaDecodeInto(rawData, &gwScratch, 0);
++		screenData = gwScratch.data() - MENUBAR_Y_SIZE * FULL_SCREEN_WIDTH;
 +	}
 +#else
 +	loadScreen(rawData);
@@ -1353,7 +1909,7 @@ index d51af5d0599..6004a2d3c71 100644
  	delete rawData;
  
  	_paletteId = (screenId & 0xffe0) - 1;
-@@ -66,6 +131,9 @@ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
+@@ -66,6 +135,9 @@ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
  	}
  
  	// Loop through each cell of the screen
@@ -1363,7 +1919,7 @@ index d51af5d0599..6004a2d3c71 100644
  	for (cellY = 0; cellY < NUM_VERT_RECTS; ++cellY) {
  		for (int cellX = 0; cellX < NUM_HORIZ_RECTS; ++cellX) {
  			bool hasPixels = false;
-@@ -90,8 +158,43 @@ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
+@@ -90,8 +162,43 @@ RoomLayer::RoomLayer(uint16 screenId, bool backgroundLayer):
  				hasPixels ? cellIndex++ : 0xff;
  		}
  	}
@@ -1407,7 +1963,7 @@ index d51af5d0599..6004a2d3c71 100644
  /*--------------------------------------------------------------------------*/
  
  Room::Room(): _screen(Screen::getReference()) {
-@@ -342,7 +445,13 @@ void Room::addCell(int16 xp, int16 yp, int layerNum) {
+@@ -342,7 +449,13 @@ void Room::addCell(int16 xp, int16 yp, int layerNum) {
  	RoomLayer *layer = _layers[layerNum];
  
  	int index = ((yp * RECT_SIZE + MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH) + (xp * RECT_SIZE);
@@ -1421,7 +1977,7 @@ index d51af5d0599..6004a2d3c71 100644
  	byte *destPos = s.data().data() + index;
  
  	for (int yCtr = 0; yCtr < RECT_SIZE; ++yCtr) {
-@@ -352,7 +461,7 @@ void Room::addCell(int16 xp, int16 yp, int layerNum) {
+@@ -352,7 +465,7 @@ void Room::addCell(int16 xp, int16 yp, int layerNum) {
  		}
  
  		// Move to start of next cell line
@@ -1430,7 +1986,7 @@ index d51af5d0599..6004a2d3c71 100644
  		destPos += FULL_SCREEN_WIDTH - RECT_SIZE;
  	}
  }
-@@ -370,15 +479,23 @@ void Room::blockMerge() {
+@@ -370,15 +483,23 @@ void Room::blockMerge() {
  						_layers[layerNum2]->isOccupied(xp + NUM_EDGE_RECTS, yp + NUM_EDGE_RECTS)) {
  						// Copy the rect from the later layer onto the earlier layer
  						int offset = (yp * RECT_SIZE + MENUBAR_Y_SIZE) * FULL_SCREEN_WIDTH + (xp * RECT_SIZE);
@@ -1456,7 +2012,7 @@ index d51af5d0599..6004a2d3c71 100644
  						}
  					}
  				}
-@@ -432,6 +549,20 @@ void Room::update() {
+@@ -432,6 +553,20 @@ void Room::update() {
  	HotspotList::iterator i;
  
  	// Copy the background to the temporary screen surface
@@ -1477,7 +2033,7 @@ index d51af5d0599..6004a2d3c71 100644
  	_layers[0]->copyTo(&s);
  
  	// Handle first layer (layer 3)
-@@ -772,6 +903,22 @@ void Room::saveToStream(Common::WriteStream *stream) {
+@@ -772,6 +907,22 @@ void Room::saveToStream(Common::WriteStream *stream) {
  	stream->writeUint16LE(_cursorState);
  }
  
@@ -1531,8 +2087,41 @@ index a0af1e16585..2e7e4595641 100644
  	void leaveRoom();
  	uint8 numLayers() { return _numLayers; }
  	uint16 hotspotId() { return _hotspotId; }
+diff --git a/engines/lure/screen.cpp b/engines/lure/screen.cpp
+index 7e4e76d98a6..d776064efdc 100644
+--- a/engines/lure/screen.cpp
++++ b/engines/lure/screen.cpp
+@@ -28,6 +28,10 @@
+ 
+ #include "graphics/paletteman.h"
+ 
++#ifdef GW_LURE_SLIM
++void gwAdoptWhole(const byte *p, uint32 size);	// src/gw_system.cpp
++#endif
++
+ namespace Lure {
+ 
+ static Screen *int_disk = nullptr;
+@@ -43,9 +47,17 @@ Screen::Screen(OSystem &system): _system(system),
+ 	int_disk = this;
+ 	_screen->empty();
+ 	_system.getPaletteManager()->setPalette(_palette->data(), 0, GAME_COLORS);
++#ifdef GW_LURE_SLIM
++	// Game & Watch: this surface is the screen, where the backend kept a copy of it: 64 KB,
++	// what saving and loading from the game's menu and starting again were short of
++	gwAdoptWhole(screen_raw(), FULL_SCREEN_WIDTH * FULL_SCREEN_HEIGHT);
++#endif
+ }
+ 
+ Screen::~Screen() {
++#ifdef GW_LURE_SLIM
++	gwAdoptWhole(nullptr, 0);
++#endif
+ 	delete _screen;
+ 	delete _palette;
+ }
 diff --git a/engines/lure/surface.cpp b/engines/lure/surface.cpp
-index 8b664cbd5c9..48a2b4fd406 100644
+index 8b664cbd5c9..d51d88eb046 100644
 --- a/engines/lure/surface.cpp
 +++ b/engines/lure/surface.cpp
 @@ -48,7 +48,7 @@ static const byte char95[8] = {0x40, 0x20, 0x00, 0x60, 0x90, 0x90, 0x60, 0x00};
@@ -1544,7 +2133,7 @@ index 8b664cbd5c9..48a2b4fd406 100644
  	int_dialog_frame = disk.getEntry(DIALOG_RESOURCE_ID);
  
  	if (LureEngine::getReference().getLanguage() == Common::IT_ITA) {
-@@ -229,6 +229,23 @@ void Surface::loadScreen(MemoryBlock *rawData) {
+@@ -229,6 +229,31 @@ void Surface::loadScreen(MemoryBlock *rawData) {
  	bool is5Bit = (v & 0xfffe) == 0x140;
  	MemoryBlock *tmpScreen;
  
@@ -1565,10 +2154,38 @@ index 8b664cbd5c9..48a2b4fd406 100644
 +		return;
 +	}
 +#endif
++#ifdef GW_LURE_SLIM
++	if (is5Bit && _data->size() >= FULL_SCREEN_HEIGHT * FULL_SCREEN_WIDTH) {
++		// and so is a 5-bit one (gwEgaDecodeInto)
++		empty();
++		decoder.gwEgaDecodeInto(rawData, _data, MENUBAR_Y_SIZE * FULL_SCREEN_WIDTH);
++		return;
++	}
++#endif
  	if (is5Bit)
  		// 5-bit decompression
  		tmpScreen = decoder.egaDecode(rawData, FULL_SCREEN_HEIGHT * FULL_SCREEN_WIDTH + 1);
-@@ -1461,7 +1478,7 @@ AudioInitIcon::AudioInitIcon() : _visible(false) {
+@@ -1193,9 +1218,19 @@ bool RestartRestoreDialog::show() {
+ 		mouse.cursorOn();
+ 
+ 		// Load the restore/restart screen image
++#ifdef GW_LURE_SLIM
++		// Game & Watch: unpacked onto the screen itself (loadScreen), not through a second
++		// one: "Failed allocating memory block!" starting again after dying
++		{
++			MemoryBlock *gwBlock = Disk::getReference().getEntry(RESTART_RESOURCE_ID);
++			screen.screen().loadScreen(gwBlock);
++			delete gwBlock;
++		}
++#else
+ 		Surface *s = Surface::getScreen(RESTART_RESOURCE_ID);
+ 		s->copyTo(&screen.screen(), 0, MENUBAR_Y_SIZE);
+ 		delete s;
++#endif
+ 
+ 		res.activeHotspots().clear();
+ 		Hotspot *btnHotspot = new Hotspot();
+@@ -1461,7 +1496,7 @@ AudioInitIcon::AudioInitIcon() : _visible(false) {
  		_iconSurface = nullptr;
  	} else {
  		// Load icon
@@ -7087,10 +7704,17 @@ index 5cc7d430465..8b8ea11dbfb 100644
  	Common::Point _mouseCoord;
  	uint16 _mouseState;
 diff --git a/graphics/scaler/thumbnail_intern.cpp b/graphics/scaler/thumbnail_intern.cpp
-index 11f20630172..3ea13a589b1 100644
+index 11f20630172..30c70cd9831 100644
 --- a/graphics/scaler/thumbnail_intern.cpp
 +++ b/graphics/scaler/thumbnail_intern.cpp
-@@ -232,6 +232,31 @@ static bool createThumbnail(Graphics::Surface &out, Graphics::Surface &in) {
+@@ -229,9 +229,41 @@ static bool createThumbnail(Graphics::Surface &out, Graphics::Surface &in) {
+ 	return true;
+ }
+ 
++#ifdef GW_SWORD1_SLIM
++extern bool gwScreenPeek;      // src/gw_system.cpp
++#endif
++
  bool createThumbnailFromScreen(Graphics::Surface *surf) {
  	assert(surf);
  
@@ -7098,7 +7722,10 @@ index 11f20630172..3ea13a589b1 100644
 +	// Game & Watch: a paletted screen straight to the thumbnail's size, every so many pixels,
 +	// without a copy of the whole screen in RGB565 first (640x480: 600 KB)
 +	if (g_system->getScreenFormat().bytesPerPixel == 1) {
++		// (only read here: the backend need not make the screen its own copy for it, 64 KB)
++		gwScreenPeek = true;
 +		Graphics::Surface *scr = g_system->lockScreen();
++		gwScreenPeek = false;
 +		if (!scr || !scr->w || !scr->h) {
 +			if (scr)
 +				g_system->unlockScreen();

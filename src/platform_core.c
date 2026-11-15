@@ -432,6 +432,9 @@ static const char *svm_version(void)
 	return g_version;
 }
 
+static char g_game_path[160];                 /* the .scummvm file that was picked */
+void gw_card_files_drop(void);                /* src/gw_system.cpp */
+
 uint32_t plat_buttons(void)
 {
 	pal_flush();
@@ -456,8 +459,24 @@ uint32_t plat_buttons(void)
 	if (menu) diag_save();
 #endif
 	if (menu) pcm_audio_set(0, 0);                       /* silence while the menu is open */
+	/* The firmware may put the console to sleep inside common_emu_input_loop (the power button,
+	   released, or pressed together with PAUSE/SET) and wake it in there. For the sleep it closes
+	   every open file and unmounts the card (sdcard_deinit: file_table_close_all), so the FILEs
+	   ScummVM still holds are dead -- and their descriptor numbers are given out again to the
+	   next files opened, so a dead one would then read ANOTHER file (Broken Sword after the
+	   power button: no speech, a buzz for music). It also starts the SAI's DMA anew, which
+	   drops this core's hold on the sound (pcm_owns). There is no telling from here that it
+	   slept, but it takes over half a second, as the PAUSE/SET menu does: after any long stay
+	   in there the files on the card are closed, to be opened again where they were when
+	   next read (GWCardFile), and the sound is taken up again. */
+	uint32_t t0 = HAL_GetTick();
 	common_emu_input_loop(&js, menu_options, &repaint);  /* PAUSE/SET menu, power, volume... */
-	if (menu) lcd_set_clut(g_hw, 256);                 /* the menu used part of the CLUT */
+	bool away = HAL_GetTick() - t0 > 250;
+	if (menu || away) lcd_set_clut(g_hw, 256);          /* the menu used part of the CLUT */
+	if (away) {
+		gw_card_files_drop();
+		if (g_audio_on) pcm_audio_enable(1);
+	}
 	if (g_audio_on) pcm_audio_set(common_emu_sound_get_volume(), 1);   /* the menu may change it */
 	uint32_t b = 0;
 	if (js.values[ODROID_INPUT_UP]) b |= PLAT_UP;
@@ -1141,6 +1160,7 @@ static void find_game(const char *picked)
 		logf_("ScummVM: options game=%s %s %s\n", g_opt_game, g_opt_platform, g_opt_language);
 
 	logf_("ScummVM: picked %s, it says \"%s\"\n", picked, t);
+	snprintf(g_game_path, sizeof g_game_path, "%s", picked);
 	if (*t) {
 		if (*t == '/') snprintf(g_game, sizeof g_game, "%s", t);
 		else snprintf(g_game, sizeof g_game, GAMES_DIR "/%s", t);
@@ -1166,8 +1186,39 @@ int gw_rg_save(const char *path);
 int gw_rg_load(const char *path);
 int gw_rg_load_at_start(void);
 
-static bool rg_save(const char *path) { return path && gw_rg_save(path); }
-static bool rg_load(const char *path) { return path && gw_rg_load(path); }
+/* The firmware keeps ONE file for the state it saves when the power button puts the console
+   to sleep (/saves/off.sav), whatever the game, and after a crash it starts the last game with
+   that file -- which may be another game's (Operation Stealth was handed Soltys' and stopped
+   on it). Whose it is goes in a file beside ScummVM's saves, and another game's is not loaded. */
+#define OFF_ID SAVE_DIR "/off.id"
+static bool is_off_state(const char *path)
+{
+	size_t n = strlen(path);
+	return n >= 8 && !strcasecmp(path + n - 8, "/off.sav");
+}
+static bool rg_save(const char *path)
+{
+	if (!path || !gw_rg_save(path)) return false;
+	if (is_off_state(path)) {
+		FILE *f = fopen(OFF_ID, "wb");
+		if (f) { fwrite(g_game_path, 1, strlen(g_game_path), f); fclose(f); }
+	}
+	return true;
+}
+static bool rg_load(const char *path)
+{
+	if (!path) return false;
+	if (is_off_state(path)) {
+		char id[sizeof g_game_path] = "";
+		FILE *f = fopen(OFF_ID, "rb");
+		if (f) { size_t n = fread(id, 1, sizeof id - 1, f); id[n] = 0; fclose(f); }
+		if (strcmp(id, g_game_path)) {
+			logf_("ScummVM: the power-off state is another game's (%s), not loaded\n", id);
+			return false;
+		}
+	}
+	return gw_rg_load(path);
+}
 
 /* the slot's preview: the game's frame without the menu on top */
 static void *rg_screenshot(void)
