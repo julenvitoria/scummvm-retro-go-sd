@@ -482,6 +482,8 @@ extern "C" int heap_screen_spill;       /* src/heap.c: may everything use the SC
 
 static int g_gwGain = 5;                /* output gain in eighths (GWMixer::pump) */
 
+bool gwScreenPeek;        /* the thumbnail only reads the screen it locks (thumbnail_intern.cpp) */
+
 class GWGraphics : public NullGraphicsManager {
 public:
 	Graphics::Surface _screen;
@@ -737,7 +739,7 @@ public:
 	}
 	// the caller writes to it -- with no memory for a copy of its own, the engine's buffer the
 	// screen is a window of (a thumbnail only reads it; Operation Stealth stopped there)
-	Graphics::Surface *lockScreen() override { if (!_adKeep) unadopt(); ensureScreen(); return &_screen; }
+	Graphics::Surface *lockScreen() override { if (!_adKeep && !gwScreenPeek) unadopt(); ensureScreen(); return &_screen; }
 	void fillScreen(uint32 col) override { fillScreen(Common::Rect(_screen.w << _sh, _screen.h << _sh), col); }
 	void fillScreen(const Common::Rect &r, uint32 col) override {
 		if (_adopted && !_adKeep && !unadopt()) return;
