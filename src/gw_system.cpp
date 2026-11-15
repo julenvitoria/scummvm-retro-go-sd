@@ -554,8 +554,7 @@ public:
 	bool unadopt() {
 		if (!_adopted) return true;
 		Graphics::Surface own;
-		own.create(_screen.w, _screen.h, Graphics::PixelFormat::createFormatCLUT8());
-		if (!own.getPixels()) return false;
+		if (!gwCreate(own, _screen.w, _screen.h)) return false;
 		own.copyRectToSurface(_screen.getPixels(), _screen.pitch, 0, 0, _screen.w, _screen.h);
 		_screen = own;
 		_adopted = false;
@@ -588,8 +587,15 @@ public:
 	}
 	bool ensureScreen() {
 		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0)
-			_screen.create(_screen.w, _screen.h, Graphics::PixelFormat::createFormatCLUT8());
+			gwCreate(_screen, _screen.w, _screen.h);
 		return _screen.getPixels() != nullptr;
+	}
+	// Surface::create() without its assert: false when there is no memory for it
+	static bool gwCreate(Graphics::Surface &s, int w, int h) {
+		byte *p = (byte *)calloc(w * h, 1);
+		if (!p) { s.w = w; s.h = h; return false; }
+		s.init(w, h, w, p, Graphics::PixelFormat::createFormatCLUT8());
+		return true;
 	}
 #endif
 
@@ -716,7 +722,9 @@ public:
 			for (int i = 0; i < w2; i++) d[i] = src[2 * i];
 		}
 	}
-	Graphics::Surface *lockScreen() override { if (!_adKeep) unadopt(); ensureScreen(); return &_screen; }   // the caller writes to it
+	// the caller writes to it -- with no memory for a copy of its own, the engine's buffer the
+	// screen is a window of (a thumbnail only reads it; Operation Stealth stopped there)
+	Graphics::Surface *lockScreen() override { if (!_adKeep) unadopt(); ensureScreen(); return &_screen; }
 	void fillScreen(uint32 col) override { fillScreen(Common::Rect(_screen.w << _sh, _screen.h << _sh), col); }
 	void fillScreen(const Common::Rect &r, uint32 col) override {
 		if (_adopted && !_adKeep && !unadopt()) return;
@@ -887,6 +895,9 @@ public:
 		for (const char *k : vol) ConfMan.setInt(k, 255, Common::ConfigManager::kTransientDomain);
 		// subtitles on unless a game was switched to voice only (Ctrl+T, the keyboard's Txt key)
 		ConfMan.registerDefault("subtitles", true);
+		// no autosave: every five minutes the engine saved to its slot 0 by itself, a thumbnail
+		// and a copy of the screen in the middle of the game (Operation Stealth ran out of memory)
+		ConfMan.setInt("autosave_period", 0, Common::ConfigManager::kTransientDomain);
 #ifndef __arm__       /* the PC test build: GW_SEED, a run that can be repeated */
 		{
 			if (gw_test_env("GW_SEED"))
