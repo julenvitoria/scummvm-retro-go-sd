@@ -459,10 +459,16 @@ uint32_t plat_buttons(void)
 	if (menu) diag_save();
 #endif
 	if (menu) pcm_audio_set(0, 0);                       /* silence while the menu is open */
-	if (js.values[ODROID_INPUT_POWER]) files_before_sleep();
+	/* The firmware sleeps inside common_emu_input_loop when the power button is RELEASED (a
+	   long hold is its panic reset), or at once when it is pressed together with PAUSE/SET. */
+	static bool power_was;
+	bool power = js.values[ODROID_INPUT_POWER];
+	bool sleeping = (!power && power_was) || (power && !power_was && menu);
+	power_was = power;
+	if (sleeping) files_before_sleep();
 	common_emu_input_loop(&js, menu_options, &repaint);  /* PAUSE/SET menu, power, volume... */
-	if (menu) lcd_set_clut(g_hw, 256);                 /* the menu used part of the CLUT */
-	if (js.values[ODROID_INPUT_POWER]) {
+	if (menu || sleeping) lcd_set_clut(g_hw, 256);     /* the menu used part of the CLUT */
+	if (sleeping) {
 		/* the power button: the firmware put the console to sleep and woke it in there
 		   (GW_EnterDeepSleep). On the way it started the SAI's DMA anew, which drops a
 		   homebrew's hold on it (pcm_owns = 0: the game went on without sound), and it
