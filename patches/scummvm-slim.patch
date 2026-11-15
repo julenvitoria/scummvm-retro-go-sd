@@ -657,6 +657,20 @@ index 44f6fe680f7..f9ecde93ad7 100644
  		VolumeResource match = volRes[0];
  		for (uint i = 0; i < volRes.size(); i++) {
  			if (volRes[i].diskNum == currentDisk) {
+diff --git a/engines/cine/saveload.cpp b/engines/cine/saveload.cpp
+index 39f15834465..6aedd2be0cd 100644
+--- a/engines/cine/saveload.cpp
++++ b/engines/cine/saveload.cpp
+@@ -1026,6 +1026,9 @@ void CineEngine::makeSave(const Common::String &saveFileName, uint32 playtime,
+ 	getMetaEngine()->appendExtendedSave(fHandle.get(), playtime, desc, isAutosave);
+ 
+ 	renderer->restoreSavedBackBuffer(BEFORE_TAKING_THUMBNAIL);
++#ifdef GW_CINE_SLIM
++	renderer->removeSavedBackBuffer(BEFORE_TAKING_THUMBNAIL);   // Game & Watch: 64 KB, used just above
++#endif
+ 
+ 	setMouseCursor(MOUSE_CURSOR_NORMAL);
+ }
 diff --git a/engines/cine/texte.cpp b/engines/cine/texte.cpp
 index e51b6465296..c3ec4733497 100644
 --- a/engines/cine/texte.cpp
@@ -711,10 +725,10 @@ index a6f5a5de08d..643cd093e22 100644
  };
  
 diff --git a/engines/cine/various.cpp b/engines/cine/various.cpp
-index 5e5ad8ad28a..04a672e616d 100644
+index 5e5ad8ad28a..cb92978c3b1 100644
 --- a/engines/cine/various.cpp
 +++ b/engines/cine/various.cpp
-@@ -437,6 +437,19 @@ void CineEngine::makeSystemMenu() {
+@@ -437,6 +437,20 @@ void CineEngine::makeSystemMenu() {
  			break;
  		}
  		case 4: { // load game
@@ -723,6 +737,7 @@ index 5e5ad8ad28a..04a672e616d 100644
 +				// Game & Watch: one saved game from this menu, without ScummVM's dialogs (they
 +				// need two 128 KB layers) or the original's lists and name entry
 +				Common::InSaveFile *f = _saveFileMan->openForLoading(getSaveStateName(1));
++				renderer->popSavedBackBuffer(BEFORE_OPENING_MENU);
 +				if (f) {
 +					delete f;
 +					loadGameState(1);
@@ -734,18 +749,30 @@ index 5e5ad8ad28a..04a672e616d 100644
  			if (loadSaveDirectory()) {
  				if (!ConfMan.getBool("originalsaveload")) {
  					scummVMSaveLoadDialog(false);
-@@ -485,6 +498,11 @@ void CineEngine::makeSystemMenu() {
+@@ -485,6 +499,11 @@ void CineEngine::makeSystemMenu() {
  			break;
  		}
  		case 5: { // Save game
 +#ifdef GW_CINE_SLIM
-+			saveGameState(1, "Game & Watch");
++			saveGameState(1, "Game & Watch");   // (makeSave takes the menu's copy of the screen)
 +			inMenu = false;
 +			return;
 +#endif
  			loadSaveDirectory();
  
  			if (!ConfMan.getBool("originalsaveload")) {
+@@ -552,6 +571,11 @@ void CineEngine::makeSystemMenu() {
+ 			break;
+ 		}
+ 
++#ifdef GW_CINE_SLIM
++		// Game & Watch: the copy of the screen from before the menu is 64 KB, and nothing but
++		// a save uses it (it was kept for the rest of the game)
++		renderer->removeSavedBackBuffer(BEFORE_OPENING_MENU);
++#endif
+ 		inMenu = false;
+ 	}
+ }
 diff --git a/engines/cruise/cruise.cpp b/engines/cruise/cruise.cpp
 index 9e3a9775dca..81af3b7e176 100644
 --- a/engines/cruise/cruise.cpp
