@@ -114,14 +114,27 @@ public:
 			if (s.owner == this) { plat_fclose(s.f); s.owner = nullptr; s.f = nullptr; }
 	}
 	uint32 readAt(uint32 pos, void *buf, uint32 n) {
-		Slot *s = slot();
-		if (!s) return 0;
-		if (s->pos != pos && !plat_fseek(s->f, (int32_t)pos, SEEK_SET)) { s->pos = 0xffffffff; return 0; }
-		uint32 got = plat_fread(buf, n, s->f);
-		s->pos = pos + got;
-		return got;
+		for (int attempt = 0; attempt < 2; attempt++) {
+			Slot *s = slot();
+			if (!s) return 0;
+			if (s->pos == pos || plat_fseek(s->f, (int32_t)pos, SEEK_SET)) {
+				uint32 got = plat_fread(buf, n, s->f);
+				s->pos = pos + got;
+				if (got || !n) return got;
+			}
+			// nothing read where there is something to read: the handles are dead (the firmware
+			// closed them for a sleep that was not noticed). All of them anew, and once more.
+			dropAll();
+		}
+		return 0;
+	}
+	// every really open file closed; each is opened again where it was when it is next read
+	static void dropAll() {
+		for (auto &s : _slots)
+			if (s.owner) { plat_fclose(s.f); s.owner = nullptr; s.f = nullptr; }
 	}
 };
+extern "C" void gw_card_files_drop(void) { GWCardFile::dropAll(); }
 GWCardFile::Slot GWCardFile::_slots[GW_CARD_OPEN];
 uint32 GWCardFile::_clock;
 
