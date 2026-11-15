@@ -12,20 +12,22 @@ Version 1.4.1 and earlier cannot load cores from `/cores/`.
 
 No games are included, nor will they be: bring your own.
 
-### Current version: v0.2.0
+### Current version: v0.3.0
 
 | File | Engine | Version / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/scumm.svm` | scumm | `D87F0DC3` |
-| `/cores/scummvm/sky.svm` | sky | `2E1DAAD1` |
-| `/cores/scummvm/cge.svm` | cge | `55CA35E9` |
-| `/cores/scummvm/lure.svm` | lure | `E80647BE` |
-| `/cores/scummvm/sword1.svm` | sword1 | `2EC2D2AF` |
-| `/cores/scummvm/gob.svm` | gob | `BE69EED0` |
+| `/cores/scummvm/scumm.svm` | scumm | `81580623` |
+| `/cores/scummvm/sky.svm` | sky | `56AB98DC` |
+| `/cores/scummvm/cge.svm` | cge | `B3774F1B` |
+| `/cores/scummvm/lure.svm` | lure | `36D6F3E0` |
+| `/cores/scummvm/sword1.svm` | sword1 | `573CD5C1` |
+| `/cores/scummvm/gob.svm` | gob | `5F7E3661` |
+| `/cores/scummvm/cine.svm` | cine | `B84B4D50` |
+| `/cores/scummvm/cruise.svm` | cruise | `0D2B402B` |
 
 The PAUSE menu inside a game shows these on its *ScummVM* line, for example
-`scumm D87F0DC3 L3`: engine, id of the engine file, loader version. The id changes only when
+`scumm 81580623 L3`: engine, id of the engine file, loader version. The id changes only when
 the file changes, so an update replaces just the files whose id is new. Every release lists
 its own in its notes.
 
@@ -52,14 +54,12 @@ its own in its notes.
 | Broken Sword: The Shadow of the Templars | Sword1 | ✅ | no cutscene videos; see the notes |
 | Gobliiins | Gob | ✅ | no saving: the game uses level codes |
 | Ween: The Prophecy | Gob | ✅ | saves from its own menu, not from Retro-Go's |
+| Cruise for a Corpse | Cruise | ✅ | its menu keeps one game; more with Retro-Go's save states |
+| Operation Stealth | Cine | ✅ | its menu keeps one game; more with Retro-Go's save states |
 | The Dig | SCUMM | ❌ | too big for the flash |
 | The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
 | Macintosh versions | — | ❌ | |
 | FM-Towns versions | — | ❌ | |
-
-Being tested, as engine files of their own (`cine.svm`, `cruise.svm`): Operation Stealth and
-Cruise for a Corpse. Both ask for their copy protection (the colour card, the wheel), which
-ScummVM does not skip.
 
 Open a section:
 
@@ -284,7 +284,7 @@ If a game goes back to the Retro-Go menu, the reason is shown on screen and writ
   `/cores/scummvm/engines.txt`. To choose it yourself, add a line `engine=sky` (or `scumm`,
   `cge`, `lure`, `sword1`, `gob`) to the game's `.scummvm` file.
 - Which files are on the card: the PAUSE menu inside a game has a *ScummVM* line such as
-  `scumm D87F0DC3 L3` — the engine, the id of that engine file and the loader's version.
+  `scumm 81580623 L3` — the engine, the id of that engine file and the loader's version.
   The log's first lines say the same. Each release lists its ids.
 
 </details>
@@ -345,20 +345,22 @@ La 1.4.1 y anteriores no pueden cargar cores desde `/cores/`.
 
 No incluye juegos ni los incluirá: usa los tuyos.
 
-### Versión actual: v0.2.0
+### Versión actual: v0.3.0
 
 | Fichero | Motor | Versión / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/scumm.svm` | scumm | `D87F0DC3` |
-| `/cores/scummvm/sky.svm` | sky | `2E1DAAD1` |
-| `/cores/scummvm/cge.svm` | cge | `55CA35E9` |
-| `/cores/scummvm/lure.svm` | lure | `E80647BE` |
-| `/cores/scummvm/sword1.svm` | sword1 | `2EC2D2AF` |
-| `/cores/scummvm/gob.svm` | gob | `BE69EED0` |
+| `/cores/scummvm/scumm.svm` | scumm | `81580623` |
+| `/cores/scummvm/sky.svm` | sky | `56AB98DC` |
+| `/cores/scummvm/cge.svm` | cge | `B3774F1B` |
+| `/cores/scummvm/lure.svm` | lure | `36D6F3E0` |
+| `/cores/scummvm/sword1.svm` | sword1 | `573CD5C1` |
+| `/cores/scummvm/gob.svm` | gob | `5F7E3661` |
+| `/cores/scummvm/cine.svm` | cine | `B84B4D50` |
+| `/cores/scummvm/cruise.svm` | cruise | `0D2B402B` |
 
 El menú de PAUSE dentro de un juego los muestra en la línea *ScummVM*, por ejemplo
-`scumm D87F0DC3 L3`: motor, identificador del fichero de motor y versión del cargador. El
+`scumm 81580623 L3`: motor, identificador del fichero de motor y versión del cargador. El
 identificador solo cambia cuando cambia el fichero, así que una actualización sustituye solo
 los ficheros con identificador nuevo. Cada versión publica los suyos en sus notas.
 
@@ -385,14 +387,12 @@ los ficheros con identificador nuevo. Cada versión publica los suyos en sus not
 | Broken Sword: La leyenda de los templarios | Sword1 | ✅ | sin vídeos; mira las notas |
 | Gobliiins | Gob | ✅ | no guarda partidas: el juego usa códigos de nivel |
 | Ween: The Prophecy | Gob | ✅ | se guarda desde su propio menú, no desde el de Retro-Go |
+| Cruise for a Corpse | Cruise | ✅ | su menú guarda una partida; más, con los save states de Retro-Go |
+| Operation Stealth | Cine | ✅ | su menú guarda una partida; más, con los save states de Retro-Go |
 | The Dig | SCUMM | ❌ | no cabe en la flash |
 | The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
 | Versiones de Macintosh | — | ❌ | |
 | Versiones de FM-Towns | — | ❌ | |
-
-En pruebas, como ficheros de motor propios (`cine.svm`, `cruise.svm`): Operation Stealth y
-Cruise for a Corpse. Los dos piden su protección anticopia (la carta de colores, la ruleta),
-que ScummVM no se salta.
 
 Abre una sección:
 
@@ -612,7 +612,7 @@ Si un juego vuelve al menú de Retro-Go, el motivo sale en pantalla y queda escr
   `/cores/scummvm/engines.txt`. Para elegirlo a mano, añade una línea `engine=sky` (o
   `scumm`, `cge`, `lure`, `sword1`, `gob`) al fichero `.scummvm` del juego.
 - Qué ficheros hay en la tarjeta: el menú de PAUSE dentro de un juego tiene una línea
-  *ScummVM* como `scumm D87F0DC3 L3` — el motor, el identificador de ese fichero de motor y
+  *ScummVM* como `scumm 81580623 L3` — el motor, el identificador de ese fichero de motor y
   la versión del cargador. Las primeras líneas del log dicen lo mismo. Cada versión publica
   sus identificadores.
 
