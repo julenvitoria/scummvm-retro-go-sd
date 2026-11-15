@@ -11,6 +11,12 @@ vol.cat      = cge
 disk1.vga    = lure
 disk1.ega    = lure
 intro.stk    = gob
+procs00      = cine
+procs0       = cine
+procs1       = cine
+part01       = cine
+demo_os      = cine
+d1           = cruise
 
 # engines there is no file for yet
 resource.map = sci
@@ -23,8 +29,6 @@ queen.1c     = queen
 gamepc       = agos
 *.gme        = agos
 general.clu  = sword2
-auto00.prc   = cine
-procs00      = cine
 dreamweb.r00 = dreamweb
 touche.dat   = touche
 packet.001   = drascula

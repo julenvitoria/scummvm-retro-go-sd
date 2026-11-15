@@ -35,6 +35,8 @@
 
 /* ================================================================ files */
 
+extern "C" void gw_wdog_kick(void);          /* src/platform_*.c */
+
 /* A file in external flash (on the PC: in memory). Reads give the file's original bytes even
    when the copy is stored decrypted (key != 0, see plat_map_file), so detection's MD5s and the
    engine's own XOR see what they expect; gwDirectResource() hands out the stored bytes. */
@@ -65,6 +67,10 @@ public:
 		return true;
 	}
 	uint32 read(void *buf, uint32 n) override {
+		// (every file call refreshes the watchdog, as on the card -- platform_core.c, plat_stat:
+		// with all its files in flash, Operation Stealth loaded a saved game over a running one,
+		// dozens of resources unpacked one after another, without a single call that did)
+		gw_wdog_kick();
 		if (n > _size - _pos) { n = _size - _pos; _eos = true; }
 		memcpy(buf, _data + _pos, n);
 		if (_key) for (byte *b = (byte *)buf, *e = b + n; b < e; b++) *b ^= _key;
@@ -108,14 +114,27 @@ public:
 			if (s.owner == this) { plat_fclose(s.f); s.owner = nullptr; s.f = nullptr; }
 	}
 	uint32 readAt(uint32 pos, void *buf, uint32 n) {
-		Slot *s = slot();
-		if (!s) return 0;
-		if (s->pos != pos && !plat_fseek(s->f, (int32_t)pos, SEEK_SET)) { s->pos = 0xffffffff; return 0; }
-		uint32 got = plat_fread(buf, n, s->f);
-		s->pos = pos + got;
-		return got;
+		for (int attempt = 0; attempt < 2; attempt++) {
+			Slot *s = slot();
+			if (!s) return 0;
+			if (s->pos == pos || plat_fseek(s->f, (int32_t)pos, SEEK_SET)) {
+				uint32 got = plat_fread(buf, n, s->f);
+				s->pos = pos + got;
+				if (got || !n) return got;
+			}
+			// nothing read where there is something to read: the handles are dead (the firmware
+			// closed them for a sleep that was not noticed). All of them anew, and once more.
+			dropAll();
+		}
+		return 0;
+	}
+	// every really open file closed; each is opened again where it was when it is next read
+	static void dropAll() {
+		for (auto &s : _slots)
+			if (s.owner) { plat_fclose(s.f); s.owner = nullptr; s.f = nullptr; }
 	}
 };
+extern "C" void gw_card_files_drop(void) { GWCardFile::dropAll(); }
 GWCardFile::Slot GWCardFile::_slots[GW_CARD_OPEN];
 uint32 GWCardFile::_clock;
 
@@ -358,9 +377,11 @@ class GWSaveFileManager : public DefaultSaveFileManager {
 	static Common::String zonePath() { return Common::String(plat_save_path()) + "/sword1_zone.sav"; }
 	static bool zone(const Common::String &name) { return name.equalsIgnoreCase("sword1.098"); }
 	static bool redirected(const Common::String &name) {
-		// (SCUMM's <target>.s99, Beneath a Steel Sky's SKY-VM.099, the other engines' <name>.099)
+		// (SCUMM's <target>.s99, Beneath a Steel Sky's SKY-VM.099, the other engines' <name>.099,
+		// Operation Stealth's os.99)
 		return g_rgPath[0] && (name.hasSuffix(Common::String::format(".s%02d", RG_SLOT)) ||
-		                       name.hasSuffix(Common::String::format(".%03d", RG_SLOT)));
+		                       name.hasSuffix(Common::String::format(".%03d", RG_SLOT)) ||
+		                       name.hasSuffix(Common::String::format(".%d", RG_SLOT)));
 	}
 public:
 	GWSaveFileManager() : DefaultSaveFileManager(Common::Path(plat_save_path())) {}
@@ -461,6 +482,8 @@ extern "C" int heap_screen_spill;       /* src/heap.c: may everything use the SC
 
 static int g_gwGain = 5;                /* output gain in eighths (GWMixer::pump) */
 
+bool gwScreenPeek;        /* the thumbnail only reads the screen it locks (thumbnail_intern.cpp) */
+
 class GWGraphics : public NullGraphicsManager {
 public:
 	Graphics::Surface _screen;
@@ -532,6 +555,11 @@ public:
 	// goes back to a screen of the backend's own.
 	const byte *_adLo = nullptr, *_adHi = nullptr;
 	bool _adopted = false;
+	// (Lure of the Temptress: its screen surface IS the screen, for everything drawn. It
+	// paints its pop-ups straight on the screen so that its surface keeps the room under
+	// them; here they land on that surface, and the room, which it repaints whole every
+	// frame, comes back with the next one)
+	bool _adKeep = false;
 	void dropScreen() {
 		if (_adopted) _screen = Graphics::Surface();
 		else _screen.free();
@@ -541,14 +569,13 @@ public:
 	bool unadopt() {
 		if (!_adopted) return true;
 		Graphics::Surface own;
-		own.create(_screen.w, _screen.h, Graphics::PixelFormat::createFormatCLUT8());
-		if (!own.getPixels()) return false;
+		if (!gwCreate(own, _screen.w, _screen.h)) return false;
 		own.copyRectToSurface(_screen.getPixels(), _screen.pitch, 0, 0, _screen.w, _screen.h);
 		_screen = own;
 		_adopted = false;
 		return true;
 	}
-	void adoptable(const byte *lo, const byte *hi) {
+	void adoptable(const byte *lo, const byte *hi, bool keep = false) {
 		if (_adopted && (lo != _adLo || hi != _adHi)) {
 			// the engine is about to free the buffer the screen is a window of
 			int w = _screen.w, h = _screen.h;
@@ -565,11 +592,25 @@ public:
 		if (getenv("GW_NO_ADOPT")) lo = hi = nullptr;     // PC test build: the screen stays a copy, to compare
 #endif
 		_adLo = lo; _adHi = hi;
+		_adKeep = keep && lo;
+		if (_adKeep && _screen.w > 0 && lo + _screen.w * _screen.h <= hi) {
+			int w = _screen.w, h = _screen.h;
+			dropScreen();
+			_screen.init(w, h, w, const_cast<byte *>(lo), Graphics::PixelFormat::createFormatCLUT8());
+			_adopted = true;
+		}
 	}
 	bool ensureScreen() {
 		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0)
-			_screen.create(_screen.w, _screen.h, Graphics::PixelFormat::createFormatCLUT8());
+			gwCreate(_screen, _screen.w, _screen.h);
 		return _screen.getPixels() != nullptr;
+	}
+	// Surface::create() without its assert: false when there is no memory for it
+	static bool gwCreate(Graphics::Surface &s, int w, int h) {
+		byte *p = (byte *)calloc(w * h, 1);
+		if (!p) { s.w = w; s.h = h; return false; }
+		s.init(w, h, w, p, Graphics::PixelFormat::createFormatCLUT8());
+		return true;
 	}
 #endif
 
@@ -669,7 +710,7 @@ public:
 					return;
 				}
 			}
-			if (_adopted && !unadopt()) return;   // (no memory for a screen: this is not drawn)
+			if (_adopted && !_adKeep && !unadopt()) return;   // (no memory for a screen: this is not drawn)
 		}
 		if (!_sh) {
 			if (!ensureScreen()) return;
@@ -696,10 +737,12 @@ public:
 			for (int i = 0; i < w2; i++) d[i] = src[2 * i];
 		}
 	}
-	Graphics::Surface *lockScreen() override { unadopt(); ensureScreen(); return &_screen; }   // the caller writes to it
+	// the caller writes to it -- with no memory for a copy of its own, the engine's buffer the
+	// screen is a window of (a thumbnail only reads it; Operation Stealth stopped there)
+	Graphics::Surface *lockScreen() override { if (!_adKeep && !gwScreenPeek) unadopt(); ensureScreen(); return &_screen; }
 	void fillScreen(uint32 col) override { fillScreen(Common::Rect(_screen.w << _sh, _screen.h << _sh), col); }
 	void fillScreen(const Common::Rect &r, uint32 col) override {
-		if (_adopted && !unadopt()) return;
+		if (_adopted && !_adKeep && !unadopt()) return;
 		if (!ensureScreen()) return;
 		if (!_sh) { _screen.fillRect(r, col); return; }
 		Common::Rect h((r.left + 1) >> 1, (r.top + 1) >> 1, (r.right + 1) >> 1, (r.bottom + 1) >> 1);
@@ -760,7 +803,8 @@ bool gwAdoptScreen(byte *pixels, int pitch, int w, int h)
 }
 
 /* ...and has the backend a screen to draw on right now? */
-void gwAdoptable(const byte *, const byte *) {}    /* (SCUMM v7's hook: not in the Gob image) */
+void gwAdoptable(const byte *, const byte *) {}    /* (SCUMM v7's and Lure's hooks: not in the Gob image) */
+void gwAdoptWhole(const byte *, uint32) {}
 
 bool gwScreenReady()
 {
@@ -780,6 +824,8 @@ bool gwAdoptScreen(byte *, int, int, int) { return false; }
 /* patches/scummvm-slim.patch (SCUMM v7, gfx.cpp): the buffer of the game's main screen, a
    window of which may be shown as it is; NULL before the engine frees it */
 void gwAdoptable(const byte *lo, const byte *hi) { if (g_gwGfx) g_gwGfx->adoptable(lo, hi); }
+/* (Lure, screen.cpp) its screen surface, 320x200, is the screen */
+void gwAdoptWhole(const byte *p, uint32 size) { if (g_gwGfx) g_gwGfx->adoptable(p, p ? p + size : nullptr, true); }
 bool gwScreenReady() { return g_gwGfx && g_gwGfx->_screen.getPixels() != nullptr; }
 void gwCopyRectHalf(const byte *buf, int pitch, int x, int y, int w, int h)
 {
@@ -836,6 +882,11 @@ static void pumpAudio() { if (g_mixerManager) g_mixerManager->pump(); }
 
 /* ================================================================ system */
 
+#ifndef __arm__
+extern "C" const char *gw_test_env(const char *name);
+extern "C" int plat_test_mouse(int *x, int *y);
+#endif
+
 class OSystem_GW : public ModularMixerBackend, public ModularGraphicsBackend, Common::EventSource {
 	uint32 _held = 0;              // buttons seen last poll
 	int _mx16 = 160 << 4, _my16 = 100 << 4;
@@ -859,6 +910,15 @@ public:
 		for (const char *k : vol) ConfMan.setInt(k, 255, Common::ConfigManager::kTransientDomain);
 		// subtitles on unless a game was switched to voice only (Ctrl+T, the keyboard's Txt key)
 		ConfMan.registerDefault("subtitles", true);
+		// no autosave: every five minutes the engine saved to its slot 0 by itself, a thumbnail
+		// and a copy of the screen in the middle of the game (Operation Stealth ran out of memory)
+		ConfMan.setInt("autosave_period", 0, Common::ConfigManager::kTransientDomain);
+#ifndef __arm__       /* the PC test build: GW_SEED, a run that can be repeated */
+		{
+			if (gw_test_env("GW_SEED"))
+				ConfMan.setInt("random_seed", atoi(gw_test_env("GW_SEED")), Common::ConfigManager::kTransientDomain);
+		}
+#endif
 		BaseBackend::initBackend();
 	}
 
@@ -901,6 +961,16 @@ public:
 				plat_redraw();
 			return;
 		}
+#ifndef __arm__       /* the PC test build: GW_MOUSE puts the pointer at a place (platform_host.c) */
+		{
+			int tx, ty;
+			if (plat_test_mouse(&tx, &ty)) {
+				GWGraphics *g = gfx();
+				g->_mouseX = tx; g->_mouseY = ty;
+				push(Common::EVENT_MOUSEMOVE);
+			}
+		}
+#endif
 		// D-pad: a mouse that speeds up while held. Driven by time, not by polls: ScummVM polls
 		// far more often on the console than in an emulator, and a per-poll step sent the
 		// pointer flying to the edges. 60 px/s at first, up to 240 px/s after ~0.7 s.
