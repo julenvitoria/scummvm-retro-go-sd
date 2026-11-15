@@ -684,15 +684,28 @@ index 44f6fe680f7..f9ecde93ad7 100644
  		for (uint i = 0; i < volRes.size(); i++) {
  			if (volRes[i].diskNum == currentDisk) {
 diff --git a/engines/cine/saveload.cpp b/engines/cine/saveload.cpp
-index 39f15834465..6aedd2be0cd 100644
+index 39f15834465..d98d9467c87 100644
 --- a/engines/cine/saveload.cpp
 +++ b/engines/cine/saveload.cpp
-@@ -1026,6 +1026,9 @@ void CineEngine::makeSave(const Common::String &saveFileName, uint32 playtime,
+@@ -1018,6 +1018,14 @@ void CineEngine::makeSave(const Common::String &saveFileName, uint32 playtime,
+ 		}
+ 	}
+ 
++#ifdef GW_CINE_SLIM
++	// Game & Watch: no copy of the screen (64 KB) around the thumbnail. The game's menu closes
++	// after a save, so its image need not come back; with no room for the copy, new[] gave
++	// nothing and the screen was copied to address 0 (a hard fault a moment later).
++	if (!isAutosave && renderer->hasSavedBackBuffer(BEFORE_OPENING_MENU))
++		renderer->popSavedBackBuffer(BEFORE_OPENING_MENU);
++	getMetaEngine()->appendExtendedSave(fHandle.get(), playtime, desc, isAutosave);
++#else
+ 	renderer->saveBackBuffer(BEFORE_TAKING_THUMBNAIL);
+ 	if (!isAutosave && renderer->hasSavedBackBuffer(BEFORE_OPENING_MENU)) {
+ 		renderer->popSavedBackBuffer(BEFORE_OPENING_MENU);
+@@ -1026,6 +1034,7 @@ void CineEngine::makeSave(const Common::String &saveFileName, uint32 playtime,
  	getMetaEngine()->appendExtendedSave(fHandle.get(), playtime, desc, isAutosave);
  
  	renderer->restoreSavedBackBuffer(BEFORE_TAKING_THUMBNAIL);
-+#ifdef GW_CINE_SLIM
-+	renderer->removeSavedBackBuffer(BEFORE_TAKING_THUMBNAIL);   // Game & Watch: 64 KB, used just above
 +#endif
  
  	setMouseCursor(MOUSE_CURSOR_NORMAL);
@@ -7651,10 +7664,17 @@ index 5cc7d430465..8b8ea11dbfb 100644
  	Common::Point _mouseCoord;
  	uint16 _mouseState;
 diff --git a/graphics/scaler/thumbnail_intern.cpp b/graphics/scaler/thumbnail_intern.cpp
-index 11f20630172..3ea13a589b1 100644
+index 11f20630172..30c70cd9831 100644
 --- a/graphics/scaler/thumbnail_intern.cpp
 +++ b/graphics/scaler/thumbnail_intern.cpp
-@@ -232,6 +232,31 @@ static bool createThumbnail(Graphics::Surface &out, Graphics::Surface &in) {
+@@ -229,9 +229,41 @@ static bool createThumbnail(Graphics::Surface &out, Graphics::Surface &in) {
+ 	return true;
+ }
+ 
++#ifdef GW_SWORD1_SLIM
++extern bool gwScreenPeek;      // src/gw_system.cpp
++#endif
++
  bool createThumbnailFromScreen(Graphics::Surface *surf) {
  	assert(surf);
  
@@ -7662,7 +7682,10 @@ index 11f20630172..3ea13a589b1 100644
 +	// Game & Watch: a paletted screen straight to the thumbnail's size, every so many pixels,
 +	// without a copy of the whole screen in RGB565 first (640x480: 600 KB)
 +	if (g_system->getScreenFormat().bytesPerPixel == 1) {
++		// (only read here: the backend need not make the screen its own copy for it, 64 KB)
++		gwScreenPeek = true;
 +		Graphics::Surface *scr = g_system->lockScreen();
++		gwScreenPeek = false;
 +		if (!scr || !scr->w || !scr->h) {
 +			if (scr)
 +				g_system->unlockScreen();

@@ -432,6 +432,7 @@ static const char *svm_version(void)
 	return g_version;
 }
 
+static char g_game_path[160];                 /* the .scummvm file that was picked */
 void gw_card_files_drop(void);                /* src/gw_system.cpp */
 
 uint32_t plat_buttons(void)
@@ -1159,6 +1160,7 @@ static void find_game(const char *picked)
 		logf_("ScummVM: options game=%s %s %s\n", g_opt_game, g_opt_platform, g_opt_language);
 
 	logf_("ScummVM: picked %s, it says \"%s\"\n", picked, t);
+	snprintf(g_game_path, sizeof g_game_path, "%s", picked);
 	if (*t) {
 		if (*t == '/') snprintf(g_game, sizeof g_game, "%s", t);
 		else snprintf(g_game, sizeof g_game, GAMES_DIR "/%s", t);
@@ -1184,8 +1186,39 @@ int gw_rg_save(const char *path);
 int gw_rg_load(const char *path);
 int gw_rg_load_at_start(void);
 
-static bool rg_save(const char *path) { return path && gw_rg_save(path); }
-static bool rg_load(const char *path) { return path && gw_rg_load(path); }
+/* The firmware keeps ONE file for the state it saves when the power button puts the console
+   to sleep (/saves/off.sav), whatever the game, and after a crash it starts the last game with
+   that file -- which may be another game's (Operation Stealth was handed Soltys' and stopped
+   on it). Whose it is goes in a file beside ScummVM's saves, and another game's is not loaded. */
+#define OFF_ID SAVE_DIR "/off.id"
+static bool is_off_state(const char *path)
+{
+	size_t n = strlen(path);
+	return n >= 8 && !strcasecmp(path + n - 8, "/off.sav");
+}
+static bool rg_save(const char *path)
+{
+	if (!path || !gw_rg_save(path)) return false;
+	if (is_off_state(path)) {
+		FILE *f = fopen(OFF_ID, "wb");
+		if (f) { fwrite(g_game_path, 1, strlen(g_game_path), f); fclose(f); }
+	}
+	return true;
+}
+static bool rg_load(const char *path)
+{
+	if (!path) return false;
+	if (is_off_state(path)) {
+		char id[sizeof g_game_path] = "";
+		FILE *f = fopen(OFF_ID, "rb");
+		if (f) { size_t n = fread(id, 1, sizeof id - 1, f); id[n] = 0; fclose(f); }
+		if (strcmp(id, g_game_path)) {
+			logf_("ScummVM: the power-off state is another game's (%s), not loaded\n", id);
+			return false;
+		}
+	}
+	return gw_rg_load(path);
+}
 
 /* the slot's preview: the game's frame without the menu on top */
 static void *rg_screenshot(void)
