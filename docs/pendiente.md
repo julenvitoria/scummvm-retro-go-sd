@@ -35,3 +35,13 @@ falta comprobar.
   - Orden propuesto: Queen, Drascula, Teenagent, Dreamweb, AGOS (Simon, Elvira), Kyra; SCI1 y
     SCI1.1 (de ratón: KQ5, SQ4, el remake de Larry 1) al final, por la memoria.
 - Beneath a Steel Sky: podría usar la adopción de pantalla como Lure.
+- Full Throttle, sala 2: negra, 320x1200; no cabe ni con el doble de memoria. Puede que sean
+  los créditos finales en texto. Rama `ft-wide` (barrido de salas del 2026-11-16).
+- Motores en prueba (2026-11-16), cada uno en su rama, encadenadas: `queen` -> `drascula` ->
+  `dreamweb`. Pendiente de que el usuario los pruebe en la consola antes de fusionar.
+  - Drascula: `drascula.dat` de ScummVM en la carpeta del juego; los packet se descomprimen
+    la primera vez en `gwx/` (63 MB en la tarjeta).
+  - DreamWeb: las terminales piden escribir órdenes (teclado en pantalla, GAME).
+- Teenagent: sin ficheros del juego todavía (es gratuito, scummvm.org/games).
+- Igor: Objetivo Uikokahonia (motor `igor`, de puntero, en castellano): el usuario lo subió;
+  candidato a añadir.
