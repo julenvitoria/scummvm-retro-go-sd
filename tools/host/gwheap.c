@@ -4,7 +4,8 @@
  * where a game runs out of memory. (Not as an LD_PRELOAD: the program's own definitions of
  * heap_free_bytes()/heap_can_alloc() would win over the library's.)
  *
- *   GW_WAV=/dev/null GW_HEAP_BIG=800 GW_HEAP_SMALL=260 GW_HEAP_SCREEN=136 build/host/scummvm_host_gwheap <game>
+ *   GW_WAV=/dev/null [GW_HEAP_BIG=570 GW_HEAP_SMALL=260 GW_HEAP_SCREEN=160] build/host/scummvm_host_gwheap <game>
+ *   (the defaults are the console's, as the PC needs them: see heap_lazy_init)
  *   (GW_WAV: with no sound output ScummVM would not load the music, and use less memory)
  *
  * Sizes in KB. The PC has 64-bit pointers, so the same program needs roughly 1.2-1.3x the
@@ -167,14 +168,17 @@ void heap_lazy_init(void)
 	static int done;
 	if (done++) return;
 	const char *b = getenv("GW_HEAP_BIG"), *s = getenv("GW_HEAP_SMALL");
-	size_t big = (b ? atoi(b) : 800) * 1024, small = (s ? atoi(s) : 260) * 1024;
+	/* defaults: the console's heap as the PC sees it -- calibrated on 2026-11-16 against Full
+	   Throttle's tower (sala 76), which ran out of memory on the console exactly where it did here
+	   with these sizes (877 KB on the console; more on the PC for its 64-bit pointers) */
+	size_t big = (b ? atoi(b) : 570) * 1024, small = (s ? atoi(s) : 260) * 1024;
 	void *pb = mmap(0, big, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	void *ps = mmap(0, small, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	heap_add_to(pb, big, 0);
 	heap_add_to(ps, small, 1);
-	const char *sc = getenv("GW_HEAP_SCREEN");
-	if (sc && atoi(sc)) {
-		size_t screen = atoi(sc) * 1024;
+	const char *sc = getenv("GW_HEAP_SCREEN");      /* the console's SCREEN_HEAP (platform_core.c) */
+	if (!sc || atoi(sc)) {
+		size_t screen = (sc ? atoi(sc) : 160) * 1024;
 		heap_add_to(mmap(0, screen, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0), screen, 2);
 	}
 }
