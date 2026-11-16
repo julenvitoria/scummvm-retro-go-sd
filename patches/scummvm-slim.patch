@@ -1734,6 +1734,109 @@ index fb620cb6f23..ab8e81da99c 100644
  	Common::KeyCode key;
  	Common::String inputLine = selectedName;
  	Common::Keymapper *keymapper = g_system->getEventManager()->getKeymapper();
+diff --git a/engines/dreamweb/dreamweb.cpp b/engines/dreamweb/dreamweb.cpp
+index 0a5cea9e2bd..1ff68cd71de 100644
+--- a/engines/dreamweb/dreamweb.cpp
++++ b/engines/dreamweb/dreamweb.cpp
+@@ -399,6 +399,10 @@ void DreamWebEngine::processEvents(bool processSoundEvents) {
+ }
+ 
+ Common::Error DreamWebEngine::run() {
++#ifdef GW_DREAMWEB_SLIM
++	// Game & Watch: the game's own save/load screens (ScummVM's dialogs are not in this build)
++	ConfMan.setBool("originalsaveload", true, Common::ConfigManager::kTransientDomain);
++#endif
+ 	if (_gameDescription->desc.flags & GF_INSTALLER) {
+ 		Common::Array<Common::SharedPtr<Common::SeekableReadStream>> volumes;
+ 		for (uint i = 0; _gameDescription->desc.filesDescriptions[i].fileName; i++) {
+diff --git a/engines/dreamweb/dreamweb.h b/engines/dreamweb/dreamweb.h
+index aa1a266a65e..61b5c3db0ea 100644
+--- a/engines/dreamweb/dreamweb.h
++++ b/engines/dreamweb/dreamweb.h
+@@ -118,6 +118,12 @@ public:
+ 
+ 	Common::Error loadGameState(int slot) override;
+ 	Common::Error saveGameState(int slot, const Common::String &desc, bool isAutosave = false) override;
++#ifdef GW_DREAMWEB_SLIM
++	bool canLoadGameStateCurrently(Common::U32String *msg = nullptr) override;
++	bool canSaveGameStateCurrently(Common::U32String *msg = nullptr) override;
++	int _gwLoadSlot = -1;		// a Retro-Go load, done at the top of the main loop
++	bool _gwInGame = false;		// the main loop has started (a room is set up)
++#endif
+ 
+ 	uint8 randomNumber() { return _rnd.getRandomNumber(255); }
+ 
+diff --git a/engines/dreamweb/metaengine.cpp b/engines/dreamweb/metaengine.cpp
+index f36117fb380..effd927ddf6 100644
+--- a/engines/dreamweb/metaengine.cpp
++++ b/engines/dreamweb/metaengine.cpp
+@@ -255,14 +255,42 @@ SaveStateDescriptor DreamWebMetaEngine::querySaveMetaInfos(const char *target, i
+ 
+ namespace DreamWeb {
+ 
++#ifdef GW_DREAMWEB_SLIM
++// Game & Watch: Retro-Go's save states. Saved at once, as the game's own save screen does;
++// loaded at the top of the game's main loop, where the launcher's "load at start" goes
+ Common::Error DreamWebEngine::loadGameState(int slot) {
++	_gwLoadSlot = slot;
+ 	return Common::kNoError;
+ }
+ 
+ Common::Error DreamWebEngine::saveGameState(int slot, const Common::String &desc, bool isAutosave) {
++	char descbuf[17] = { 2, 0 };
++	Common::strlcpy(descbuf + 1, desc.c_str(), 16);
++	uint desclen = MIN<uint>(desc.size(), 15);
++	descbuf[++desclen] = 0;
++	while (desclen < 16)
++		descbuf[++desclen] = 1;
++	savePosition(slot, descbuf);
+ 	return Common::kNoError;
+ }
+ 
++bool DreamWebEngine::canLoadGameStateCurrently(Common::U32String *msg) {
++	return _gwInGame;
++}
++
++bool DreamWebEngine::canSaveGameStateCurrently(Common::U32String *msg) {
++	return _gwInGame && _vars._manDead != 2;
++}
++#else
++Common::Error DreamWebEngine::loadGameState(int slot) {
++	return Common::kNoError;
++}
++
++Common::Error DreamWebEngine::saveGameState(int slot, const Common::String &desc, bool isAutosave) {
++	return Common::kNoError;
++}
++#endif
++
+ Common::Language DreamWebEngine::getLanguage() const {
+ 	return _gameDescription->desc.language;
+ }
+diff --git a/engines/dreamweb/saveload.cpp b/engines/dreamweb/saveload.cpp
+index 7b5b9fd21c2..355fe817eb7 100644
+--- a/engines/dreamweb/saveload.cpp
++++ b/engines/dreamweb/saveload.cpp
+@@ -457,6 +457,19 @@ void DreamWebEngine::actualSave() {
+ 	unsigned int slot = _currentSlot + 7 * _saveLoadPage;
+ 
+ 	const char *desc = &_saveNames[17*slot];
++#ifdef GW_DREAMWEB_SLIM
++	// Game & Watch: no keyboard to type a name: an empty slot is named after its number
++	if (desc[1] == 0) {
++		char *d = &_saveNames[17*slot];
++		Common::String name = Common::String::format("PARTIDA %u", slot + 1);
++		uint n = MIN<uint>(name.size(), 15);
++		d[0] = 2;
++		memcpy(d + 1, name.c_str(), n);
++		d[n + 1] = 0;
++		for (uint i = n + 2; i < 17; i++)
++			d[i] = 1;
++	}
++#endif
+ 	if (desc[1] == 0) // The actual description string starts at desc[1]
+ 		return;
+ 
 diff --git a/engines/dreamweb/sound.cpp b/engines/dreamweb/sound.cpp
 index 5eadb42b7a1..2b427bc453d 100644
 --- a/engines/dreamweb/sound.cpp
@@ -1842,7 +1945,7 @@ index f7d11c32bfb..1e6cdd2f8b9 100644
  	Audio::SoundHandle _channelHandle[2];
  
 diff --git a/engines/dreamweb/stubs.cpp b/engines/dreamweb/stubs.cpp
-index 97527170f3e..0760ee876ff 100644
+index 97527170f3e..a364dd89241 100644
 --- a/engines/dreamweb/stubs.cpp
 +++ b/engines/dreamweb/stubs.cpp
 @@ -566,7 +566,11 @@ void DreamWebEngine::dreamweb() {
@@ -1857,6 +1960,32 @@ index 97527170f3e..0760ee876ff 100644
  	initGraphicsModes(modes);
  
  	allocateBuffers();
+@@ -589,6 +593,9 @@ void DreamWebEngine::dreamweb() {
+ 	int savegameId = Common::ConfigManager::instance().getInt("save_slot");
+ 
+ 	while (true) {
++#ifdef GW_DREAMWEB_SLIM
++		_gwInGame = false;
++#endif
+ 		uint count = scanForNames();
+ 
+ 		bool startNewGame = true;
+@@ -677,6 +684,15 @@ void DreamWebEngine::dreamweb() {
+ 			if (_quitRequested)
+ 				return;
+ 
++#ifdef GW_DREAMWEB_SLIM
++			_gwInGame = true;
++			if (_gwLoadSlot >= 0) {
++				int slot = _gwLoadSlot;
++				_gwLoadSlot = -1;
++				doLoad(slot);
++				workToScreen();
++			}
++#endif
+ 			screenUpdate();
+ 
+ 			if (_quitRequested)
 diff --git a/engines/dreamweb/titles.cpp b/engines/dreamweb/titles.cpp
 index 4d76a07bbaa..df5896a2232 100644
 --- a/engines/dreamweb/titles.cpp
