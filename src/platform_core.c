@@ -712,7 +712,15 @@ static void prepare_bar(int pct)
 	if (!stamped) {
 		/* the firmware's begin/end of its overlay colours is not in the core ABI: colours of our
 		   own in those slots instead, all of them apart (whatever the theme draws with which) */
-		static const uint32_t ov[LCD_OVERLAY_CLUT_MAX] = { 0x101810, 0x40c040, 0xe0e0e0, 0x208020, 0xffffff, 0x404040, 0x202020 };
+		uint32_t ov[LCD_OVERLAY_CLUT_MAX] = { 0x101810, 0x40c040, 0xe0e0e0, 0x208020, 0xffffff, 0x404040, 0x202020 };
+		/* the launcher's theme, as Retro-Go's own bars have it (gui.c, gui_apply_colors_to_overlay_clut:
+		   background, main, selected, disabled) */
+		void **cc = gw_firmware_abi()->curr_colors_ptr;
+		const uint16_t *theme = cc ? (const uint16_t *)*cc : NULL;
+		for (int i = 0; theme && i < 4; i++) {
+			uint32_t c = theme[i], r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+			ov[i] = ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2);
+		}
 		static uint32_t clut[256];
 		/* ...and a colour cube everywhere else, for what the overlay picks by nearest colour */
 		for (int i = 0; i < 252; i++)
