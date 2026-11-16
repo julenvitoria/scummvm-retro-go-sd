@@ -1721,18 +1721,22 @@ index 952472f4cfd..97faf4b44d4 100644
  	add(filename.toString(), Common::makeArjArchive(filename), priority);
  }
 diff --git a/engines/drascula/rooms.cpp b/engines/drascula/rooms.cpp
-index 9e154d82877..e34b31cbeee 100644
+index 9e154d82877..a49c7f3e210 100644
 --- a/engines/drascula/rooms.cpp
 +++ b/engines/drascula/rooms.cpp
-@@ -1895,7 +1895,14 @@ void DrasculaEngine::enterRoom(int roomIndex) {
+@@ -1895,7 +1895,18 @@ void DrasculaEngine::enterRoom(int roomIndex) {
  }
  
  void DrasculaEngine::clearRoom() {
 +#ifdef GW_DRASCULA_SLIM
 +	// Game & Watch: screenSurface is the screen (gwAdoptable); filling the backend's screen
 +	// would make it a copy of its own (64 KB)
-+	memset(screenSurface, 0, 64000);
-+	_system->copyRectToScreen(screenSurface, 320, 0, 0, 320, 200);
++	if (screenSurface) {
++		memset(screenSurface, 0, 64000);
++		_system->copyRectToScreen(screenSurface, 320, 0, 0, 320, 200);
++	} else {
++		_system->fillScreen(0);	// (a save state loaded at start: before allocMemory())
++	}
 +#else
  	_system->fillScreen(0);
 +#endif
