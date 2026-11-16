@@ -49,15 +49,15 @@ host: $(HB)/scummvm_host
 
 $(HB)/svm/%.cpp.o: $(SVM)/%.cpp Makefile | $(PATCHED)
 	@mkdir -p $(dir $@)
-	@g++ -c -O1 -g $(HOSTX) $(CXXSTD) $(WARN) $(DEFS) $(INCS) $< -o $@
+	@g++ -c -O1 -g $(HOSTX) $(CXXSTD) $(WARN) $(DEFS) $(INCS) $(DEP) $< -o $@
 
 $(HB)/svm/%.c.o: $(SVM)/%.c Makefile | $(PATCHED)
 	@mkdir -p $(dir $@)
-	@gcc -c -O1 -g $(HOSTX) $(DEFS) $(INCS) $< -o $@
+	@gcc -c -O1 -g $(HOSTX) $(DEFS) $(INCS) $(DEP) $< -o $@
 
 $(HB)/src/%.cpp.o: src/%.cpp src/platform.h
 	@mkdir -p $(dir $@)
-	g++ -c -O1 -g $(HOSTX) $(CXXSTD) $(WARN) $(DEFS) $(INCS) $< -o $@
+	g++ -c -O1 -g $(HOSTX) $(CXXSTD) $(WARN) $(DEFS) $(INCS) $(DEP) $< -o $@
 
 $(HB)/src/%.c.o: src/%.c src/platform.h
 	@mkdir -p $(dir $@)
@@ -91,7 +91,10 @@ OUT      := out/scummvm.bin
 BUILD_ID := 0x4C554341                    # "LUCA": tells this core's .bin apart in /cores
 MCU      := -mcpu=cortex-m7 -mtune=cortex-m7 -mthumb -mno-unaligned-access -mfpu=fpv5-d16 -mfloat-abi=hard
 OPT      := -Os -ffunction-sections -fdata-sections -fno-common
-ARM_CXX  := $(MCU) $(OPT) $(CXXSTD) -fno-threadsafe-statics $(WARN) $(DEFS) $(INCS)
+# header dependencies: an object is rebuilt when a header it includes changes (a class that grew
+# a member, seen by half the objects only, crashed Full Throttle on the console on 2026-11-16)
+DEP      := -MMD -MP
+ARM_CXX  := $(MCU) $(OPT) $(CXXSTD) -fno-threadsafe-statics $(WARN) $(DEFS) $(INCS) $(DEP)
 
 SDKDEFS  := -DUSE_HAL_DRIVER -DSTM32H7B0xx -DSD_CARD=1 -DGNW_DISABLE_COMPRESSION -DIS_LITTLE_ENDIAN \
             -DCOVERFLOW=0 -DCHEAT_CODES=0 -DGNW_CORE_ENTRY_TARGET=app_main_scummvm -DSVM_BUILD_ID=$(BUILD_ID)
@@ -151,7 +154,7 @@ $(AB)/svm/%.cpp.o: $(SVM)/%.cpp Makefile | $(PATCHED)
 
 $(AB)/svm/%.c.o: $(SVM)/%.c Makefile | $(PATCHED)
 	@mkdir -p $(dir $@)
-	@$(CROSS)gcc -c $(MCU) $(OPT) $(DEFS) $(INCS) $< -o $@
+	@$(CROSS)gcc -c $(MCU) $(OPT) $(DEFS) $(INCS) $(DEP) $< -o $@
 
 $(AB)/src/%.cpp.o: src/%.cpp src/platform.h Makefile
 	@mkdir -p $(dir $@)
@@ -257,7 +260,7 @@ define ENGINE_RULES
 # the table of plugins, with this engine alone
 $(AB)/eng/$(1)/plugins.o: $(SVM)/base/plugins.cpp Makefile | $(PATCHED)
 	@mkdir -p $$(dir $$@)
-	@$(CROSS)g++ -c $(MCU) $(OPT) $(CXXSTD) -fno-threadsafe-statics $(WARN) $(filter-out $(ENGDEFS_ALL),$(DEFS)) $(ENGDEFS_$(1)) $(INCS) $$< -o $$@
+	@$(CROSS)g++ -c $(MCU) $(OPT) $(CXXSTD) -fno-threadsafe-statics $(WARN) $(filter-out $(ENGDEFS_ALL),$(DEFS)) $(ENGDEFS_$(1)) $(INCS) $(DEP) $$< -o $$@
 
 ARM_ENG_$(1) := $$(patsubst %,$(AB)/svm/%.o,$$(filter engines/$(1)/%,$(SVM_SRC)))
 ifneq ($(ENGGFX_$(1)),)
@@ -298,3 +301,5 @@ $(AB)/gen/%.o: build/gen/%.c
 	@mkdir -p $(dir $@)
 	$(CROSS)gcc -c $(MCU) -O2 $< -o $@
 
+
+-include $(shell find build -name '*.d' 2>/dev/null)
