@@ -840,6 +840,31 @@ const void *plat_pack_ptr(const pack_head_t *h, uint32_t off)
 }
 
 /* name: relative to the game folder ("FT.LA1", "DATA/ICONS.NUT") */
+/* The engine data files ScummVM ships (dists/engine-data) come in the release zip, in
+   /cores/scummvm: one is copied into the game's folder when the game there needs it and has
+   none (or one of another size), so it goes to the flash with the game's files, as before. */
+static void provide_dat(const char *marker, const char *dat)
+{
+	char m[340], d[340], s[340];
+	snprintf(m, sizeof m, "%s/%s", g_game, marker);
+	if (!plat_stat(m).exists) return;
+	snprintf(s, sizeof s, "/cores/scummvm/%s", dat);
+	plat_stat_t src = plat_stat(s);
+	if (!src.exists) return;
+	snprintf(d, sizeof d, "%s/%s", g_game, dat);
+	plat_stat_t dst = plat_stat(d);
+	if (dst.exists && dst.size == src.size) return;
+	void *in = plat_fopen(s, "rb"), *out = in ? plat_fopen(d, "wb") : NULL;
+	uint32_t done = 0;
+	static uint8_t buf[4096];
+	for (uint32_t n; out && (n = plat_fread(buf, sizeof buf, in)) > 0; done += n)
+		if (plat_fwrite(buf, n, out) != n) break;
+	if (out) plat_fclose(out);
+	if (in) plat_fclose(in);
+	logf_("ScummVM: %s copied into the game's folder (%lu of %lu bytes)\n", dat,
+	          (unsigned long)done, (unsigned long)src.size);
+}
+
 static bool g_drascula;
 static void cache_rel(const char *name, uint32_t size)
 {
@@ -1082,6 +1107,8 @@ static bool bs_zone_save_pending(void)
 static void cache_game(void)
 {
 	if (bs_detect()) { cache_sword1(); return; }
+	provide_dat("disk1.vga", "lure.dat");
+	provide_dat("packet.001", "drascula.dat");
 	{
 		char p[340];
 		snprintf(p, sizeof p, "%s/packet.001", g_game);

@@ -132,7 +132,14 @@ ENGDEFS_dreamweb := -DENABLE_DREAMWEB=STATIC_PLUGIN
 # an engine whose image has its own build of src/gw_system.cpp (the backend), with these defines
 ENGGFX_gob     := -DGW_GOB_SCREEN
 ENG_OUT  := $(ENGINES:%=out/scummvm/%.svm)
-core: $(OUT) $(ENG_OUT) out/scummvm/engines.txt
+# ScummVM's engine data files the engines here need (copied into a game's folder on its first
+# start: src/platform_core.c, provide_dat)
+ENGDATA  := lure.dat drascula.dat
+core: $(OUT) $(ENG_OUT) out/scummvm/engines.txt $(ENGDATA:%=out/scummvm/%)
+
+out/scummvm/%.dat: $(SVM)/dists/engine-data/%.dat | $(PATCHED)
+	@mkdir -p $(dir $@)
+	@cp $< $@
 
 # the loader's table of engines, next to the images
 out/scummvm/engines.txt: config/engines.txt
