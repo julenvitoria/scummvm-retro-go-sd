@@ -29,6 +29,11 @@ def main():
         rows.append(('`/cores/scummvm/%s`' % name, name[:-4], '%08X' % image_id, len(data)))
     table = os.path.join(out, 'scummvm', 'engines.txt')
     files.append((table, 'cores/scummvm/engines.txt'))
+    for path in sorted(glob.glob(os.path.join(out, 'scummvm', '*.dat'))):
+        # ScummVM's engine data files (lure.dat...), copied into a game's folder when it needs one
+        name = os.path.basename(path)
+        files.append((path, 'cores/scummvm/' + name))
+        rows.append(('`/cores/scummvm/%s`' % name, 'ScummVM data', '-', os.path.getsize(path)))
     print('| File | Engine | Version / id | Size |')
     print('|---|---|---|---|')
     for f, e, i, n in rows:

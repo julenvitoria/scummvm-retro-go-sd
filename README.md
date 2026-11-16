@@ -125,9 +125,9 @@ Copy `vol.cat` and `vol.dat` into the game's folder (the game is freeware: scumm
 
 **Lure of the Temptress**
 
-Copy `DISK1.VGA` to `DISK4.VGA` into the game's folder, with ScummVM's `lure.dat` (it comes
-with ScummVM, not with the game). Everything goes to the flash; nothing is built on the
-first launch.
+Copy `DISK1.VGA` to `DISK4.VGA` into the game's folder. ScummVM's `lure.dat` (it comes with
+ScummVM, not with the game) is in the release zip, in `/cores/scummvm`, and is copied into the
+game's folder on the first launch. Everything goes to the flash.
 
 **Broken Sword: The Shadow of the Templars** (PC CD)
 
@@ -458,9 +458,9 @@ Copia `vol.cat` y `vol.dat` en la carpeta del juego (es freeware: scummvm.org/ga
 
 **Lure of the Temptress**
 
-Copia `DISK1.VGA` a `DISK4.VGA` en la carpeta del juego, junto con `lure.dat` de ScummVM
-(viene con ScummVM, no con el juego). Todo va a la flash; no se crea nada en el primer
-arranque.
+Copia `DISK1.VGA` a `DISK4.VGA` en la carpeta del juego. El `lure.dat` de ScummVM (viene con
+ScummVM, no con el juego) va en el zip de la versión, en `/cores/scummvm`, y se copia a la
+carpeta del juego en el primer arranque. Todo va a la flash.
 
 **Broken Sword: La leyenda de los templarios** (PC CD)
 
