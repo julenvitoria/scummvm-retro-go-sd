@@ -1734,6 +1734,233 @@ index fb620cb6f23..ab8e81da99c 100644
  	Common::KeyCode key;
  	Common::String inputLine = selectedName;
  	Common::Keymapper *keymapper = g_system->getEventManager()->getKeymapper();
+diff --git a/engines/dreamweb/sound.cpp b/engines/dreamweb/sound.cpp
+index 5eadb42b7a1..2b427bc453d 100644
+--- a/engines/dreamweb/sound.cpp
++++ b/engines/dreamweb/sound.cpp
+@@ -23,6 +23,7 @@
+ #include "common/config-manager.h"
+ #include "common/debug.h"
+ #include "common/file.h"
++#include "common/substream.h"
+ 
+ #include "audio/audiostream.h"
+ 
+@@ -153,18 +154,44 @@ void DreamWebSound::playSound(uint8 channel, uint8 id, uint8 loops) {
+ 		}
+ 
+ 		const Sample &sample = data.samples[id];
++#ifdef GW_DREAMWEB_SLIM
++		Common::File *f = new Common::File();
++		if (!f->open(data.file)) {
++			delete f;
++			return;
++		}
++		uint32 from = data.dataStart + sample.offset, to = MIN<uint32>(from + sample.size, f->size());
++		raw = Audio::makeRawStream(new Common::SeekableSubReadStream(f, from, to, DisposeAfterUse::YES),
++		                           22050, Audio::FLAG_UNSIGNED, DisposeAfterUse::YES);
++		if (false) {
++#endif
+ 		uint8 *buffer = (uint8 *)malloc(sample.size);
+ 		if (!buffer)
+ 			error("out of memory: cannot allocate memory for sound(%u bytes)", sample.size);
+ 		memcpy(buffer, data.data.begin() + sample.offset, sample.size);
+ 
+ 		raw = Audio::makeRawStream(buffer, sample.size, 22050, Audio::FLAG_UNSIGNED);
++#ifdef GW_DREAMWEB_SLIM
++		}
++#endif
+ 	} else {
++#ifdef GW_DREAMWEB_SLIM
++		Common::File *f = new Common::File();
++		if (!f->open(_speechFile)) {
++			delete f;
++			return;
++		}
++		raw = Audio::makeRawStream(f, 22050, Audio::FLAG_UNSIGNED, DisposeAfterUse::YES);
++		if (false) {
++#endif
+ 		uint8 *buffer = (uint8 *)malloc(_speechData.size());
+ 		if (!buffer)
+ 			error("out of memory: cannot allocate memory for sound(%u bytes)", _speechData.size());
+ 		memcpy(buffer, _speechData.begin(), _speechData.size());
+ 		raw = Audio::makeRawStream(buffer, _speechData.size(), 22050, Audio::FLAG_UNSIGNED);
++#ifdef GW_DREAMWEB_SLIM
++		}
++#endif
+ 	}
+ 
+ 	Audio::AudioStream *stream;
+@@ -194,6 +221,11 @@ bool DreamWebSound::loadSpeech(const Common::String &filename) {
+ 
+ 	debug(1, "loadSpeech(%s)", filename.c_str());
+ 
++#ifdef GW_DREAMWEB_SLIM
++	_speechFile = _vm->getSpeechDirName().appendComponent(filename);
++	file.close();
++	return true;
++#endif
+ 	uint size = file.size();
+ 	_speechData.resize(size);
+ 	file.read(_speechData.begin(), size);
+@@ -268,8 +300,14 @@ void DreamWebSound::loadSounds(uint bank, const Common::String &suffix) {
+ 		total += sample.size;
+ 		debug(1, "offset: %08x, size: %u", sample.offset, sample.size);
+ 	}
++#ifdef GW_DREAMWEB_SLIM
++	soundData.file = filename;
++	soundData.dataStart = file.pos();
++	(void)total;
++#else
+ 	soundData.data.resize(total);
+ 	file.read(soundData.data.begin(), total);
++#endif
+ 	file.close();
+ }
+ 
+diff --git a/engines/dreamweb/sound.h b/engines/dreamweb/sound.h
+index f7d11c32bfb..1e6cdd2f8b9 100644
+--- a/engines/dreamweb/sound.h
++++ b/engines/dreamweb/sound.h
+@@ -60,10 +60,18 @@ private:
+ 	struct SoundData {
+ 		Common::Array<Sample> samples;
+ 		Common::Array<uint8> data;
++#ifdef GW_DREAMWEB_SLIM
++		// Game & Watch: the samples stay in the file (bank 0 is 700 KB), read when played
++		Common::Path file;
++		uint32 dataStart = 0;
++#endif
+ 	};
+ 
+ 	SoundData _soundData[2];
+ 	Common::Array<uint8> _speechData;
++#ifdef GW_DREAMWEB_SLIM
++	Common::Path _speechFile;		// ...and the line of speech too
++#endif
+ 
+ 	Audio::SoundHandle _channelHandle[2];
+ 
+diff --git a/engines/dreamweb/stubs.cpp b/engines/dreamweb/stubs.cpp
+index 97527170f3e..0760ee876ff 100644
+--- a/engines/dreamweb/stubs.cpp
++++ b/engines/dreamweb/stubs.cpp
+@@ -566,7 +566,11 @@ void DreamWebEngine::dreamweb() {
+ 
+ 	Graphics::ModeList modes;
+ 	modes.push_back(Graphics::Mode(320, 200));
++#ifndef GW_DREAMWEB_SLIM
+ 	modes.push_back(Graphics::Mode(640, 480));
++#else
++	modes.push_back(Graphics::Mode(320, 240));
++#endif
+ 	initGraphicsModes(modes);
+ 
+ 	allocateBuffers();
+diff --git a/engines/dreamweb/titles.cpp b/engines/dreamweb/titles.cpp
+index 4d76a07bbaa..df5896a2232 100644
+--- a/engines/dreamweb/titles.cpp
++++ b/engines/dreamweb/titles.cpp
+@@ -30,8 +30,11 @@ namespace DreamWeb {
+ namespace {
+ void initTitlesGfx() {
+ 	Graphics::ModeWithFormatList modes = {
++#ifndef GW_DREAMWEB_SLIM
++		// (Game & Watch: no room for a 300 KB screen, and the panel is 320x240 anyway)
+ 		// First try for a 640x480 mode
+ 		Graphics::ModeWithFormat(640, 480, Graphics::PixelFormat::createFormatCLUT8()),
++#endif
+ 		// System doesn't support it, so fall back on 320x240 mode
+ 		Graphics::ModeWithFormat(320, 240, Graphics::PixelFormat::createFormatCLUT8()),
+ 	};
+diff --git a/engines/dreamweb/vgagrafx.cpp b/engines/dreamweb/vgagrafx.cpp
+index 709c0f7ea03..3eba1b9226a 100644
+--- a/engines/dreamweb/vgagrafx.cpp
++++ b/engines/dreamweb/vgagrafx.cpp
+@@ -162,6 +162,83 @@ void DreamWebEngine::showPCX(const Common::String &suffix) {
+ 		return;
+ 	}
+ 
++#ifdef GW_DREAMWEB_SLIM
++	// Game & Watch: the 640x480 picture is decoded two lines at a time and halved straight
++	// onto the screen, instead of into a 300 KB surface first
++	{
++		byte hdr[128];
++		if (pcxFile.read(hdr, 128) == 128 && hdr[0] == 10 && hdr[2] == 1 &&
++		    ((hdr[3] == 1 && hdr[65] >= 1 && hdr[65] <= 4) || (hdr[3] == 8 && hdr[65] == 1))) {
++			int w = READ_LE_UINT16(hdr + 8) - READ_LE_UINT16(hdr + 4) + 1;
++			int h = READ_LE_UINT16(hdr + 10) - READ_LE_UINT16(hdr + 6) + 1;
++			int planes = hdr[65], bpl = READ_LE_UINT16(hdr + 66), line = planes * bpl;
++			if (w > 0 && w <= 640 && h > 0 && line <= 4 * 160 + 8) {
++				memset(_mainPal, 0xff, 256 * 3);
++				memcpy(_mainPal, hdr + 16, 48);
++				for (int i = 0; i < 48; i++)
++					_mainPal[i] >>= 2;
++				byte raw[4 * 160 + 8], rows[2 * 640], buf[1024];
++				int have = 0, at = 0, pendingCount = 0;
++				byte pendingByte = 0;
++				g_system->fillScreen(0);
++				Graphics::Surface *scr = g_system->lockScreen();
++				bool half = w >= g_system->getWidth() * 2;
++				for (int y = 0; y < h; y++) {
++					// one scanline, all planes (a run may go on into the next)
++					for (int i = 0; i < line; i++) {
++						if (!pendingCount) {
++							if (at == have) {
++								have = pcxFile.read(buf, sizeof(buf));
++								at = 0;
++								if (have <= 0) { have = 0; break; }
++							}
++							byte b = buf[at++];
++							if ((b & 0xC0) == 0xC0) {
++								pendingCount = b & 0x3F;
++								if (at == have) {
++									have = pcxFile.read(buf, sizeof(buf));
++									at = 0;
++									if (have <= 0) { have = 0; pendingCount = 0; break; }
++								}
++								pendingByte = buf[at++];
++							} else {
++								pendingCount = 1;
++								pendingByte = b;
++							}
++						}
++						raw[i] = pendingByte;
++						pendingCount--;
++					}
++					byte *row = rows + (half ? (y & 1) * 640 : 0);
++					for (int x = 0; x < w; x++) {
++						if (hdr[3] == 8) {
++							row[x] = raw[x];
++						} else {
++							byte c = 0;
++							for (int p = 0; p < planes; p++)
++								c |= ((raw[p * bpl + (x >> 3)] >> (7 - (x & 7))) & 1) << p;
++							row[x] = c;
++						}
++					}
++					if (!half) {
++						if (y < scr->h)
++							memcpy(scr->getBasePtr(0, y), row, MIN<int>(w, scr->w));
++					} else if (y & 1) {
++						if ((y >> 1) < scr->h) {
++							Graphics::Surface in, out;
++							in.init(w, 2, 640, rows, Graphics::PixelFormat::createFormatCLUT8());
++							out.init(MIN<int>(w / 2, scr->w), 1, scr->pitch, scr->getBasePtr(0, y >> 1), Graphics::PixelFormat::createFormatCLUT8());
++							Graphics::downscaleSurfaceByHalf(&out, &in, _mainPal);
++						}
++					}
++				}
++				g_system->unlockScreen();
++				return;
++			}
++		}
++		pcxFile.seek(0);
++	}
++#endif
+ 	Image::PCXDecoder pcx;
+ 	if (!pcx.loadStream(pcxFile)) {
+ 		warning("showpcx: Could not process '%s'", name.toString(Common::Path::kNativeSeparator).c_str());
 diff --git a/engines/gob/gob.cpp b/engines/gob/gob.cpp
 index 42e3938002a..6fe92a3c43b 100644
 --- a/engines/gob/gob.cpp
