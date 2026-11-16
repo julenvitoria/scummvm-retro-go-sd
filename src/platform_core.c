@@ -703,9 +703,32 @@ static const gw_i18n_entry_t i18n_copying[] = {
 	{ "en", "Copying the game to the flash" }, { "es", "Copiando el juego a la flash" },
 	{ "fr", "Copie du jeu dans la flash" }, { "de", "Spiel wird in den Flash kopiert" },
 	{ "it", "Copia del gioco nella flash" }, { "pt", "A copiar o jogo para a flash" }, GW_I18N_END };
-static void pack_progress(int pct) { show_bar(gw_i18n(i18n_preparing), pct); }
+/* The bar is drawn in the overlay's CLUT slots, which hold the GAME's colours once it has set
+   its palette: Drascula unpacking its archives with a black palette showed nothing but black
+   for minutes. The firmware's overlay colours are stamped in while the bar is up. */
+static void prepare_bar(int pct)
+{
+	static bool stamped;
+	if (!stamped) {
+		/* the firmware's begin/end of its overlay colours is not in the core ABI: colours of our
+		   own in those slots instead, all of them apart (whatever the theme draws with which) */
+		static const uint32_t ov[LCD_OVERLAY_CLUT_MAX] = { 0x101810, 0x40c040, 0xe0e0e0, 0x208020, 0xffffff, 0x404040, 0x202020 };
+		static uint32_t clut[256];
+		/* ...and a colour cube everywhere else, for what the overlay picks by nearest colour */
+		for (int i = 0; i < 252; i++)
+			clut[i] = (uint32_t)(i / 42 * 51) << 16 | (uint32_t)(i / 6 % 7 * 42) << 8 | (uint32_t)(i % 6 * 51);
+		for (int i = 252; i < 256; i++) clut[i] = 0xffffff;
+		for (int i = 0; i < LCD_OVERLAY_CLUT_MAX; i++) clut[LCD_OVERLAY_CLUT_BASE + i] = ov[i];
+		lcd_sleep_while_swap_pending();
+		lcd_set_clut(clut, 256);
+		stamped = true;
+	}
+	show_bar(gw_i18n(i18n_preparing), pct);
+	if (pct >= 100) { lcd_sleep_while_swap_pending(); lcd_set_clut(g_hw, 256); stamped = false; }
+}
+static void pack_progress(int pct) { prepare_bar(pct); }
 const char *plat_ui_lang(void) { return gw_firmware_abi()->i18n_lang_code(); }
-void plat_progress(int pct) { show_bar(gw_i18n(i18n_preparing), pct); }
+void plat_progress(int pct) { prepare_bar(pct); }
 
 /* piece k of the pack in the flash, by key (the firmware's blob store): put there from the
    card when it is not there yet. The key carries what the pack was made from, so a new pack
