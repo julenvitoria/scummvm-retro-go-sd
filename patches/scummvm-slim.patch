@@ -157,7 +157,7 @@ index dcda5a170ce..cb07974b75f 100644
  	for ( Bit8u i = 62; i < 76; i++ ) {
  		//This should provide instant volume maximizing
 diff --git a/base/commandLine.cpp b/base/commandLine.cpp
-index 87b0fafe9f2..060b338d170 100644
+index 87b0fafe9f2..59f0281b877 100644
 --- a/base/commandLine.cpp
 +++ b/base/commandLine.cpp
 @@ -278,6 +278,18 @@ static const char *s_appName = "scummvm";
@@ -179,6 +179,42 @@ index 87b0fafe9f2..060b338d170 100644
  #ifndef DISABLE_HELP_STRINGS
  	char buf[STRINGBUFLEN];
  	va_list va;
+@@ -1688,6 +1700,9 @@ static DetectedGames recListGames(const Common::FSNode &dir, const Common::Strin
+ }
+ 
+ /** Display all games in the given directory, return ID of first detected game */
++#ifdef GW_SCUMM_SLIM
++extern "C" const char *plat_ui_lang(void);	// src/platform_*.c
++#endif
+ static Common::String detectGames(const Common::Path &path, const Common::String &engineId, const Common::String &gameId, bool recursive) {
+ 	bool noPath = path.empty();
+ 	//Current directory
+@@ -1714,6 +1729,25 @@ static Common::String detectGames(const Common::Path &path, const Common::String
+ 		       v.path.toString(Common::Path::kNativeSeparator).c_str());
+ 	}
+ 
++#ifdef GW_SCUMM_SLIM
++	// Game & Watch: one folder holding several languages of the game (Drascula's international
++	// pack) runs in the console's own language when it is one of them, not the first found --
++	// unless the .scummvm file says "language=..."
++	if (!ConfMan.hasKey("language")) {
++		const char *ui = plat_ui_lang();
++		Common::Language want = ui ? Common::parseLanguage(Common::String(ui, 2)) : Common::UNK_LANG;
++		bool several = false;
++		for (const auto &v : candidates)
++			several |= v.language != candidates[0].language;
++		if (several && want != Common::UNK_LANG)
++			for (const auto &v : candidates)
++				if (v.language == want) {
++					ConfMan.set("language", Common::getLanguageCode(want), Common::ConfigManager::kTransientDomain);
++					warning("%s in the console's language: %s", v.gameId.c_str(), Common::getLanguageDescription(want));
++					return buildQualifiedGameName(v.engineId, v.gameId);
++				}
++	}
++#endif
+ 	return buildQualifiedGameName(candidates[0].engineId, candidates[0].gameId);
+ }
+ 
 diff --git a/base/main.cpp b/base/main.cpp
 index ef3997f1203..e9553647c34 100644
 --- a/base/main.cpp
@@ -196,6 +232,318 @@ index ef3997f1203..e9553647c34 100644
  		}
  	}
  #ifdef USE_SDL_NET
+diff --git a/common/compression/unarj.cpp b/common/compression/unarj.cpp
+index ce182a84063..8b15e7f50d1 100644
+--- a/common/compression/unarj.cpp
++++ b/common/compression/unarj.cpp
+@@ -38,8 +38,15 @@ namespace Common {
+ #define ARJ_UCHAR_MAX 255
+ #define ARJ_CHAR_BIT 8
+ 
++#ifdef GW_DRASCULA_SLIM
++// Game & Watch: one header is kept per file in the archives (Drascula: 249 of them, 633 KB
++// with room for a 2 KB comment and a 512-byte name each); the names are 8.3, the comment unused
++#define ARJ_COMMENT_MAX 1
++#define ARJ_FILENAME_MAX 64
++#else
+ #define ARJ_COMMENT_MAX 2048
+ #define ARJ_FILENAME_MAX 512
++#endif
+ 
+ #define ARJ_CODE_BIT 16
+ #define ARJ_THRESHOLD 3
+@@ -111,7 +118,7 @@ public:
+ 	void decode_f(int32 origsize);
+ 
+ 	ReadStream *_compressed;
+-	MemoryWriteStream *_outstream;
++	WriteStream *_outstream;
+ 
+ //protected:
+ 	uint16 _bitbuf;
+@@ -699,8 +706,23 @@ struct ArjFileChunk {
+ 
+ typedef HashMap<Path, Array<ArjFileChunk>, Path::IgnoreCase_Hash, Path::IgnoreCase_EqualTo> ArjHeadersMap;
+ 
++#ifdef GW_DRASCULA_SLIM
++// Game & Watch: one 28-byte entry per file, sorted by name, instead of a hash map of
++// header arrays (Drascula: 1146 files, 390 KB -> 32 KB)
++struct GWArjEntry {
++	char name[13];
++	byte volume, method, flags;
++	int32 pos, compSize, origSize;
++};
++#endif
++
+ class ArjArchive : public MemcachingCaseInsensitiveArchive {
++#ifdef GW_DRASCULA_SLIM
++	Array<GWArjEntry> _gw;
++	int gwFind(const Path &path) const;
++#else
+ 	ArjHeadersMap _headers;
++#endif
+ 	Array<Path> _arjFilenames;
+ 	bool _flattenTree;
+ 
+@@ -718,6 +740,33 @@ public:
+ 	}
+ };
+ 
++#ifdef GW_DRASCULA_SLIM
++ArjArchive::~ArjArchive() {
++}
++
++int ArjArchive::gwFind(const Path &path) const {
++	String n = path.getLastComponent().toString();
++	int lo = 0, hi = (int)_gw.size() - 1;
++	while (lo <= hi) {
++		int mid = (lo + hi) / 2;
++		int c = scumm_stricmp(n.c_str(), _gw[mid].name);
++		if (c == 0) {
++			while (mid > 0 && !scumm_stricmp(n.c_str(), _gw[mid - 1].name))
++				mid--;                  // the first chunk of the file
++			return mid;
++		}
++		if (c < 0) hi = mid - 1; else lo = mid + 1;
++	}
++	return -1;
++}
++
++static int gwArjCompare(const void *a, const void *b) {
++	const GWArjEntry *x = (const GWArjEntry *)a, *y = (const GWArjEntry *)b;
++	int c = scumm_stricmp(x->name, y->name);
++	if (c) return c;
++	return x->volume != y->volume ? x->volume - y->volume : x->pos - y->pos;   // chunks in order
++}
++#else
+ ArjArchive::~ArjArchive() {
+        debug(0, "ArjArchive Destructor Called");
+        for (auto &header : _headers) {
+@@ -725,6 +774,7 @@ ArjArchive::~ArjArchive() {
+ 		       delete header._value[i]._header;
+        }
+ }
++#endif
+ 
+ ArjArchive::ArjArchive(const Array<Path> &filenames, bool flattenTree) : _arjFilenames(filenames), _flattenTree(flattenTree) {
+ 	for (uint i = 0; i < _arjFilenames.size(); i++) {
+@@ -764,14 +814,50 @@ ArjArchive::ArjArchive(const Array<Path> &filenames, bool flattenTree) : _arjFil
+ 						*p = '/';
+ 				}
+ 			}
++#ifdef GW_DRASCULA_SLIM
++			GWArjEntry e;
++			strlcpy(e.name, name, sizeof(e.name));
++			e.volume = (byte)i;
++			e.method = header->method;
++			e.flags = header->flags;
++			e.pos = header->pos;
++			e.compSize = header->compSize;
++			e.origSize = header->origSize;
++			_gw.push_back(e);
++#else
+ 			_headers[Path(name)].push_back(ArjFileChunk(header, i));
++#endif
+ 			arjFile.seek(header->compSize, SEEK_CUR);
++#ifdef GW_DRASCULA_SLIM
++			delete header;
++#endif
+ 		}
+ 	}
++#ifdef GW_DRASCULA_SLIM
++	if (_gw.size())
++		qsort(&_gw[0], _gw.size(), sizeof(GWArjEntry), gwArjCompare);
++#else
+ 
+ 	debug(0, "ArjArchive::ArjArchive(%d volume(s) starting with %s): Located %d files", filenames.size(), filenames.empty() ? "" : filenames[0].toString(Common::Path::kNativeSeparator).c_str(), _headers.size());
++#endif
+ }
+ 
++#ifdef GW_DRASCULA_SLIM
++bool ArjArchive::hasFile(const Path &path) const {
++	return gwFind(path) >= 0;
++}
++
++int ArjArchive::listMembers(ArchiveMemberList &list) const {
++	int matches = 0;
++	for (uint i = 0; i < _gw.size(); i++) {
++		if (i && !scumm_stricmp(_gw[i].name, _gw[i - 1].name))
++			continue;
++		list.push_back(ArchiveMemberList::value_type(new GenericArchiveMember(Path(_gw[i].name), *this)));
++		matches++;
++	}
++	return matches;
++}
++#else
+ bool ArjArchive::hasFile(const Path &path) const {
+ 	return _headers.contains(path);
+ }
+@@ -786,6 +872,7 @@ int ArjArchive::listMembers(ArchiveMemberList &list) const {
+ 
+ 	return matches;
+ }
++#endif
+ 
+ const ArchiveMemberPtr ArjArchive::getMember(const Path &path) const {
+ 	if (!hasFile(path))
+@@ -794,6 +881,48 @@ const ArchiveMemberPtr ArjArchive::getMember(const Path &path) const {
+ 	return ArchiveMemberPtr(new GenericArchiveMember(path, *this));
+ }
+ 
++#ifdef GW_DRASCULA_SLIM
++Common::SharedArchiveContents ArjArchive::readContentsForPath(const Common::Path &path) const {
++	int first = gwFind(path);
++	if (first < 0)
++		return Common::SharedArchiveContents();
++	uint32 uncompressedSize = 0;
++	uint last;
++	for (last = first; last < _gw.size(); last++) {
++		uncompressedSize += _gw[last].origSize;
++		if (!(_gw[last].flags & 0x4) || last + 1 == _gw.size() || scumm_stricmp(_gw[last + 1].name, _gw[first].name))
++			break;
++	}
++	byte *uncompressedData = new byte[uncompressedSize ? uncompressedSize : 1];
++	if (!uncompressedData) {
++		warning("ArjArchive: Failed to allocate %d bytes", uncompressedSize);
++		return Common::SharedArchiveContents();
++	}
++	uint32 uncompressedPtr = 0;
++	for (uint chunk = first; chunk <= last; chunk++) {
++		const GWArjEntry &e = _gw[chunk];
++		File archiveFile;
++		archiveFile.open(_arjFilenames[e.volume]);
++		archiveFile.seek(e.pos, SEEK_SET);
++		if (e.method == 0) {
++			archiveFile.read(uncompressedData + uncompressedPtr, e.origSize);
++		} else {
++			ArjHeader hdr;
++			hdr.compSize = e.compSize;
++			ArjDecoder *decoder = new ArjDecoder(&hdr);
++			decoder->_compressed = wrapBufferedReadStream(&archiveFile, 4096, DisposeAfterUse::NO);
++			decoder->_outstream = new MemoryWriteStream(uncompressedData + uncompressedPtr, e.origSize);
++			if (e.method == 1 || e.method == 2 || e.method == 3)
++				decoder->decode(e.origSize);
++			else if (e.method == 4)
++				decoder->decode_f(e.origSize);
++			delete decoder;
++		}
++		uncompressedPtr += e.origSize;
++	}
++	return Common::SharedArchiveContents(uncompressedData, uncompressedSize);
++}
++#else
+ Common::SharedArchiveContents ArjArchive::readContentsForPath(const Common::Path &path) const {
+ 	if (!_headers.contains(path)) {
+ 		return Common::SharedArchiveContents();
+@@ -857,6 +986,108 @@ Common::SharedArchiveContents ArjArchive::readContentsForPath(const Common::Path
+ 
+ 	return Common::SharedArchiveContents(uncompressedData, uncompressedSize);
+ }
++#endif
++
++#ifdef GW_DRASCULA_SLIM
++} // End of namespace Common
++extern "C" {
++void *plat_fopen(const char *path, const char *mode);
++uint32 plat_fwrite(const void *buf, uint32 n, void *f);
++void plat_fclose(void *f);
++}
++namespace Common {
++
++// Game & Watch: a file of the archive written to the card as it is decoded (4 KB at a time)
++class GWPlatWriteStream : public WriteStream {
++	void *_f;
++	byte _buf[4096];
++	uint32 _n = 0, _pos = 0;
++	bool _err = false;
++public:
++	GWPlatWriteStream(void *f) : _f(f) {}
++	~GWPlatWriteStream() override { flush(); }
++	uint32 write(const void *dataPtr, uint32 dataSize) override {
++		const byte *p = (const byte *)dataPtr;
++		for (uint32 left = dataSize; left;) {
++			uint32 k = MIN<uint32>(left, sizeof(_buf) - _n);
++			memcpy(_buf + _n, p, k);
++			_n += k; p += k; left -= k;
++			if (_n == sizeof(_buf) && !flush())
++				return 0;
++		}
++		_pos += dataSize;
++		return dataSize;
++	}
++	bool flush() override {
++		if (_n && plat_fwrite(_buf, _n, _f) != _n)
++			_err = true;
++		_n = 0;
++		return !_err;
++	}
++	bool err() const override { return _err; }
++	int64 pos() const override { return _pos; }
++};
++
++// every file of 'archive' into the folder 'dir' (which exists), as it is; progress(compressed
++// bytes read so far) after each file. False: the archive or a file could not be read/written.
++bool gwArjExtract(const Path &archive, const char *dir, void (*progress)(uint32 done, void *arg), void *arg) {
++	File arjFile;
++	if (!arjFile.open(archive))
++		return false;
++	int32 first = findHeader(arjFile);
++	if (first < 0)
++		return false;
++	arjFile.seek(first, SEEK_SET);
++	ArjHeader *header = readHeader(arjFile);
++	if (!header)
++		return false;
++	delete header;
++	uint32 done = 0;
++	bool ok = true;
++	while (ok && (header = readHeader(arjFile)) != nullptr) {
++		const char *name = header->filename;
++		for (const char *p = header->filename; *p; p++)
++			if (*p == '\\' || *p == '/')
++				name = p + 1;
++		String path = String::format("%s/%s", dir, name);
++		void *f = plat_fopen(path.c_str(), "wb");
++		int64 next = arjFile.pos() + header->compSize;
++		if (!f) {
++			ok = false;
++		} else {
++			GWPlatWriteStream out(f);
++			if (header->method == 0) {
++				byte buf[1024];
++				for (int32 left = header->origSize; left > 0 && ok;) {
++					uint32 k = MIN<int32>(left, sizeof(buf));
++					ok = arjFile.read(buf, k) == k && out.write(buf, k) == k;
++					left -= k;
++				}
++			} else {
++				ArjDecoder *decoder = new ArjDecoder(header);
++				decoder->_compressed = wrapBufferedReadStream(&arjFile, 4096, DisposeAfterUse::NO);
++				decoder->_outstream = &out;
++				if (header->method == 1 || header->method == 2 || header->method == 3)
++					decoder->decode(header->origSize);
++				else if (header->method == 4)
++					decoder->decode_f(header->origSize);
++				else
++					ok = false;
++				decoder->_outstream = nullptr;
++				delete decoder;
++			}
++			ok = ok && out.flush() && out.pos() == header->origSize;
++			plat_fclose(f);
++		}
++		done += header->compSize;
++		delete header;
++		arjFile.seek(next, SEEK_SET);
++		if (progress)
++			progress(done, arg);
++	}
++	return ok;
++}
++#endif
+ 
+ Archive *makeArjArchive(const Path &name, bool flattenTree) {
+ 	return new ArjArchive({name}, flattenTree);
 diff --git a/common/file.h b/common/file.h
 index 9f5d3fac83f..55bdc982920 100644
 --- a/common/file.h
@@ -905,6 +1253,487 @@ index 9c8260f5065..b443a3c145b 100644
  	if (saveFlag)
  		_vm->saveGameDialog();
  	else
+diff --git a/engines/drascula/drascula.cpp b/engines/drascula/drascula.cpp
+index aeccc822cbc..fe073eadc09 100644
+--- a/engines/drascula/drascula.cpp
++++ b/engines/drascula/drascula.cpp
+@@ -683,15 +683,24 @@ bool DrasculaEngine::runCurrentChapter() {
+ 		} else if (action == kActionMove && !_menuScreen) {
+ 			selectVerb(kVerbMove);
+ 		} else if (action == kActionLoadGame) {
++#ifdef GW_DRASCULA_SLIM
++			if (!saveLoadScreen())
++				return true;
++#else
+ 			// ScummVM load screen
+ 			if (!scummVMSaveLoadDialog(false))
+ 				return true;
++#endif
+ 		} else if (action == kActionVerbReset) {
+ 			selectVerb(kVerbNone);
+ 		} else if (action == kActionVolumeControls) {
+ 			volumeControls();
+ 		} else if (action == kActionSaveGame) {
++#ifdef GW_DRASCULA_SLIM
++			if (false) {
++#else
+ 			if (!ConfMan.getBool("originalsaveload")) {
++#endif
+ 				// ScummVM save screen
+ 				scummVMSaveLoadDialog(true);
+ 			} else {
+diff --git a/engines/drascula/drascula.h b/engines/drascula/drascula.h
+index 6784cf39c07..aacbdfc9ac1 100644
+--- a/engines/drascula/drascula.h
++++ b/engines/drascula/drascula.h
+@@ -280,6 +280,9 @@ public:
+ 	void enableFallback(bool val) { _fallBack = val; }
+ 
+ 	void registerArchive(const Common::Path &filename, int priority);
++#ifdef GW_DRASCULA_SLIM
++	bool gwUnpacked(const Common::Array<Common::Path> &archives);
++#endif
+ 
+ 	Common::SeekableReadStream *open(const Common::Path &filename);
+ 
+diff --git a/engines/drascula/graphics.cpp b/engines/drascula/graphics.cpp
+index d39d58f6f07..8dd906bcb93 100644
+--- a/engines/drascula/graphics.cpp
++++ b/engines/drascula/graphics.cpp
+@@ -28,8 +28,44 @@
+ 
+ #include "backends/keymapper/keymapper.h"
+ 
++#ifdef GW_DRASCULA_SLIM
++void gwAdoptable(const byte *lo, const byte *hi);	// src/gw_system.cpp
++#endif
++
+ namespace Drascula {
+ 
++#ifdef GW_DRASCULA_SLIM
++// a frame's bytes from the file, 2 KB at a time
++class GWFrameReader {
++	Common::SeekableReadStream *_s;
++	uint32 _left;
++	byte _buf[2048];
++	uint32 _at = 0, _have = 0;
++public:
++	GWFrameReader(Common::SeekableReadStream *s, uint32 len) : _s(s), _left(len) {}
++	bool done() const { return _at == _have && !_left; }
++	byte get() {
++		if (_at == _have) {
++			if (!_left)
++				return 0;
++			_have = _s->read(_buf, MIN<uint32>(_left, sizeof(_buf)));
++			if (!_have) {
++				_left = 0;
++				return 0;
++			}
++			_left -= _have;
++			_at = 0;
++		}
++		return _buf[_at++];
++	}
++	void finish() {
++		if (_left)
++			_s->skip(_left);
++		_left = 0;
++	}
++};
++#endif
++
+ void DrasculaEngine::allocMemory() {
+ 	// FIXME: decodeOffset writes beyond 64000, so this
+ 	// buffer has been initialized to 64256 bytes (like
+@@ -55,9 +91,16 @@ void DrasculaEngine::allocMemory() {
+ 	mouseCursor = (byte *)malloc(OBJWIDTH * OBJHEIGHT);
+ 	assert(mouseCursor);
+ 	cursorSurface = (byte *)malloc(64000);
++#ifdef GW_DRASCULA_SLIM
++	// Game & Watch: the backend shows this buffer as it is instead of keeping a copy (64 KB)
++	gwAdoptable(screenSurface, screenSurface + 64000);
++#endif
+ }
+ 
+ void DrasculaEngine::freeMemory() {
++#ifdef GW_DRASCULA_SLIM
++	gwAdoptable(nullptr, nullptr);
++#endif
+ 	free(screenSurface);
+ 	free(bgSurface);
+ 	free(backSurface);
+@@ -107,6 +150,31 @@ void DrasculaEngine::loadPic(const char *NamePcc, byte *targetSurface, int color
+ 		error("missing game data %s %c", NamePcc, 7);
+ 
+ 	dataSize = stream->size() - 128 - (256 * 3);
++#ifdef GW_DRASCULA_SLIM
++	// Game & Watch: decoded from the file as it is read (no copy of the picture, up to 56 KB)
++	{
++		stream->seek(128, SEEK_SET);
++		GWFrameReader in(stream, dataSize);
++		int n = 0;
++		while (n < 64000 && !in.done()) {
++			byte pixel = in.get();
++			uint repeat = 1;
++			if ((pixel & 192) == 192) {
++				repeat = pixel & 63;
++				pixel = in.get();
++			}
++			for (uint j = 0; j < repeat && n < 64000; j++)
++				targetSurface[n++] = pixel;
++		}
++		in.finish();
++		stream->seek(128 + dataSize, SEEK_SET);
++		for (int i = 0; i < 256 * 3; i++)
++			cPal[i] = stream->readByte();
++		delete stream;
++		setRGB((byte *)cPal, colorCount);
++		return;
++	}
++#endif
+ 	pcxData = (byte *)malloc(dataSize);
+ 
+ 	stream->seek(128, SEEK_SET);
+@@ -128,6 +196,64 @@ void DrasculaEngine::loadPic(const char *NamePcc, byte *targetSurface, int color
+ 
+ void DrasculaEngine::showFrame(Common::SeekableReadStream *stream, bool firstFrame) {
+ 	int dataSize = stream->readSint32LE();
++#ifdef GW_DRASCULA_SLIM
++	// Game & Watch: the frame is decoded from the file 2 KB at a time, straight into the
++	// screen (XORed into the previous frame after the first): no copy of the compressed frame
++	// (up to 75 KB) or of the previous one (64 KB)
++	{
++		int64 dataEnd = stream->pos() + dataSize;
++		// (into screenSurface, which is the screen: lockScreen() would make the backend a copy
++		// of its own, 64 KB)
++		byte *dst = screenSurface;
++		uint16 pitch = 320;
++		byte buf[2048];
++		int have = 0, at = 0, left = dataSize;
++		int x = 0, y = 0;
++		byte pending = 0;
++		bool havePending = false;
++		while (y < 200) {
++			if (at == have) {
++				if (left <= 0)
++					break;
++				have = stream->read(buf, MIN<int>(left, sizeof(buf)));
++				if (have <= 0)
++					break;
++				left -= have;
++				at = 0;
++			}
++			byte b = buf[at++];
++			uint repeat = 1;
++			byte pixel = b;
++			if (!havePending && (b & 192) == 192) {
++				pending = b & 63;
++				havePending = true;
++				continue;
++			}
++			if (havePending) {
++				repeat = pending;
++				havePending = false;
++			}
++			for (uint j = 0; j < repeat && y < 200; j++) {
++				if (firstFrame)
++					dst[y * pitch + x] = pixel;
++				else
++					dst[y * pitch + x] ^= pixel;
++				if (++x >= 320) {
++					x = 0;
++					y++;
++				}
++			}
++		}
++		stream->seek(dataEnd);
++		for (int i = 0; i < 256 * 3; i++)
++			cPal[i] = stream->readByte();
++		_system->copyRectToScreen(screenSurface, 320, 0, 0, 320, 200);
++		_system->updateScreen();
++		if (firstFrame)
++			setPalette(cPal);
++		return;
++	}
++#endif
+ 	byte *pcxData = (byte *)malloc(dataSize);
+ 	stream->read(pcxData, dataSize);
+ 
+@@ -581,6 +707,7 @@ void DrasculaEngine::playFLI(const char *filefli, int vel) {
+ 	delete stream;
+ }
+ 
++
+ int DrasculaEngine::playFrameSSN(Common::SeekableReadStream *stream) {
+ 	int Exit = 0;
+ 	uint32 length;
+@@ -601,6 +728,48 @@ int DrasculaEngine::playFrameSSN(Common::SeekableReadStream *stream) {
+ 	case kFrameInit: {
+ 		byte CMP = stream->readByte();
+ 		length = stream->readUint32LE();
++#ifdef GW_DRASCULA_SLIM
++		// Game & Watch: the frame is decoded from the file into screenSurface -- which is the
++		// screen (gwAdoptable), and so holds the previous frame -- XORed into it after the
++		// first, as the original XORed the decoded frame into the screen: no buffer for the
++		// compressed frame (up to 63 KB) and no copy of the screen
++		if (CMP == kFrameCmpRle || CMP == kFrameCmpOff) {
++			GWFrameReader in(stream, length);
++			bool x = FrameSSN != 0;
++			if (CMP == kFrameCmpRle) {
++				int n = 0;
++				while (n < 64000 && !in.done()) {
++					byte pixel = in.get();
++					uint repeat = 1;
++					if ((pixel & 192) == 192) {
++						repeat = pixel & 63;
++						pixel = in.get();
++					}
++					for (uint j = 0; j < repeat && n < 64000; j++, n++)
++						screenSurface[n] = x ? screenSurface[n] ^ pixel : pixel;
++				}
++			} else {
++				if (!x)
++					memset(screenSurface, 0, 64000);
++				while (!in.done()) {
++					uint offset = in.get();
++					offset |= in.get() << 8;
++					uint size = in.get();
++					for (uint j = 0; j < size; j++, offset++) {
++						byte b = in.get();
++						if (offset < 64256)
++							screenSurface[offset] = x ? screenSurface[offset] ^ b : b;
++					}
++				}
++			}
++			in.finish();
++			waitFrameSSN();
++			_system->copyRectToScreen(screenSurface, 320, 0, 0, 320, 200);
++			_system->updateScreen();
++			FrameSSN++;
++			break;
++		}
++#endif
+ 		if (CMP == kFrameCmpRle) {
+ 			BufferSSN = (byte *)malloc(length);
+ 			stream->read(BufferSSN, length);
+diff --git a/engines/drascula/metaengine.cpp b/engines/drascula/metaengine.cpp
+index 219d434bd67..ecb4f1fd50d 100644
+--- a/engines/drascula/metaengine.cpp
++++ b/engines/drascula/metaengine.cpp
+@@ -76,6 +76,20 @@ Common::Language DrasculaEngine::getLanguage() const {
+ void DrasculaEngine::loadArchives() {
+ 	const ADGameFileDescription *ag;
+ 
++#ifdef GW_DRASCULA_SLIM
++	// Game & Watch: the archives' files are unpacked once into the game's folder "gwx" on the
++	// card, and read from there (resource.cpp): no index in memory, and no file -- the
++	// animations are up to 4 MB -- unpacked whole into the heap
++	if (getFeatures() & GF_PACKED) {
++		Common::Array<Common::Path> names;
++		for (ag = _gameDescription->desc.filesDescriptions; ag->fileName; ag++)
++			names.push_back(ag->fileName);
++		if (_archives.gwUnpacked(names)) {
++			_archives.enableFallback(true);
++			return;
++		}
++	}
++#endif
+ 	if (getFeatures() & GF_PACKED) {
+ 		for (ag = _gameDescription->desc.filesDescriptions; ag->fileName; ag++) {
+ 			if (!_archives.hasArchive(ag->fileName))
+@@ -249,7 +263,10 @@ Common::KeymapArray DrasculaMetaEngine::initKeymaps(const char *target) const {
+ 
+ 	act = new Action("TALK", _("Talk"));
+ 	act->setCustomEngineActionEvent(kActionTalk);
++#ifndef GW_DRASCULA_SLIM
++	// (Game & Watch: F5 is the TIME button, the game's save screen below)
+ 	act->addDefaultInputMapping("F5");
++#endif
+ 	gameKeyMap->addAction(act);
+ 
+ 	act = new Action("MOVE", _("Move"));
+@@ -275,9 +292,17 @@ Common::KeymapArray DrasculaMetaEngine::initKeymaps(const char *target) const {
+ 	act->addDefaultInputMapping("JOY_X");
+ 	gameKeyMap->addAction(act);
+ 
++#ifdef GW_DRASCULA_SLIM
++	// Game & Watch: the game's own save screen (ScummVM's dialogs are not in this build), on
++	// TIME (F5)
++	originalSaveLoad = true;
++#endif
+ 	if (originalSaveLoad) {
+ 		act = new Action("SAVELOAD", _("Save / load game"));
+ 		act->setCustomEngineActionEvent(kActionSaveGame);
++#ifdef GW_DRASCULA_SLIM
++		act->addDefaultInputMapping("F5");
++#endif
+ 		act->addDefaultInputMapping("F10");
+ 		act->addDefaultInputMapping("JOY_RIGHT");
+ 		gameKeyMap->addAction(act);
+diff --git a/engines/drascula/resource.cpp b/engines/drascula/resource.cpp
+index 952472f4cfd..fb3092f6982 100644
+--- a/engines/drascula/resource.cpp
++++ b/engines/drascula/resource.cpp
+@@ -21,6 +21,8 @@
+ 
+ #include "drascula/drascula.h"
+ #include "common/compression/unarj.h"
++#include "common/file.h"
++#include "common/fs.h"
+ 
+ namespace Drascula {
+ 
+@@ -28,6 +30,109 @@ ArchiveMan::ArchiveMan() {
+ 	_fallBack = false;
+ }
+ 
++#ifdef GW_DRASCULA_SLIM
++} // End of namespace Drascula
++
++namespace Common {
++bool gwArjExtract(const Path &archive, const char *dir, void (*progress)(uint32 done, void *arg), void *arg);
++}
++extern "C" {
++const char *plat_game_path(void);
++bool plat_mkdir(const char *path);
++void *plat_fopen(const char *path, const char *mode);
++uint32 plat_fread(void *buf, uint32 n, void *f);
++uint32 plat_fwrite(const void *buf, uint32 n, void *f);
++void plat_fclose(void *f);
++void plat_progress(int pct);
++}
++
++namespace Drascula {
++
++#define GW_UNPACK_DIR "gwx"
++#define GW_UNPACK_DONE "gwx/gwx.ok"
++#define GW_UNPACK_VERSION "1"
++
++// the unpacked files, found by asking the card (a directory listing of 1,100 files in memory
++// would cost what the archives' index did)
++class GWUnpackedDir : public Common::Archive {
++	Common::String _dir;
++	Common::Path full(const Common::Path &path) const {
++		return Common::Path(_dir + "/" + path.getLastComponent().toString(), '/');
++	}
++public:
++	GWUnpackedDir(const Common::String &dir) : _dir(dir) {}
++	bool hasFile(const Common::Path &path) const override {
++		return Common::FSNode(full(path)).exists();
++	}
++	int listMembers(Common::ArchiveMemberList &list) const override { return 0; }
++	const Common::ArchiveMemberPtr getMember(const Common::Path &path) const override {
++		if (!hasFile(path))
++			return Common::ArchiveMemberPtr();
++		return Common::ArchiveMemberPtr(new Common::GenericArchiveMember(path, *this));
++	}
++	Common::SeekableReadStream *createReadStreamForMember(const Common::Path &path) const override {
++		Common::FSNode node(full(path));
++		return node.exists() ? node.createReadStream() : nullptr;
++	}
++};
++
++struct GWUnpackProgress {
++	uint32 before, total;
++	int last;
++};
++
++static void gwUnpackProgress(uint32 done, void *arg) {
++	GWUnpackProgress *p = (GWUnpackProgress *)arg;
++	int pct = (int)((uint64)(p->before + done) * 100 / (p->total ? p->total : 1));
++	if (pct != p->last) {
++		p->last = pct;
++		plat_progress(pct);
++	}
++}
++
++bool ArchiveMan::gwUnpacked(const Common::Array<Common::Path> &archives) {
++	Common::String game(plat_game_path());
++	Common::String dir = game + "/" GW_UNPACK_DIR, done = game + "/" GW_UNPACK_DONE;
++	char mark[8] = "";
++	void *f = plat_fopen(done.c_str(), "rb");
++	if (f) {
++		mark[plat_fread(mark, sizeof(mark) - 1, f)] = 0;
++		plat_fclose(f);
++	}
++	if (strcmp(mark, GW_UNPACK_VERSION)) {
++		// in the order the engine registers them: a later archive's file replaces an earlier one's
++		// (packet.004's Spanish files over packet.001's)
++		GWUnpackProgress prog = { 0, 0, -1 };
++		for (uint i = 0; i < archives.size(); i++) {
++			Common::File a;
++			if (a.open(archives[i]))
++				prog.total += a.size();
++		}
++		plat_mkdir(dir.c_str());
++		for (uint i = 0; i < archives.size(); i++) {
++			Common::File a;
++			uint32 size = a.open(archives[i]) ? a.size() : 0;
++			a.close();
++			if (!Common::gwArjExtract(archives[i], dir.c_str(), gwUnpackProgress, &prog)) {
++				warning("Drascula: could not unpack %s into %s (room on the card?)", archives[i].toString().c_str(), dir.c_str());
++				return false;
++			}
++			prog.before += size;
++		}
++		f = plat_fopen(done.c_str(), "wb");
++		if (!f || plat_fwrite(GW_UNPACK_VERSION, 1, f) != 1) {
++			if (f)
++				plat_fclose(f);
++			return false;
++		}
++		plat_fclose(f);
++		plat_progress(100);
++	}
++	add(GW_UNPACK_DIR, new GWUnpackedDir(dir), 10);
++	return true;
++}
++#endif
++
+ void ArchiveMan::registerArchive(const Common::Path &filename, int priority) {
+ 	add(filename.toString(), Common::makeArjArchive(filename), priority);
+ }
+diff --git a/engines/drascula/rooms.cpp b/engines/drascula/rooms.cpp
+index 9e154d82877..e34b31cbeee 100644
+--- a/engines/drascula/rooms.cpp
++++ b/engines/drascula/rooms.cpp
+@@ -1895,7 +1895,14 @@ void DrasculaEngine::enterRoom(int roomIndex) {
+ }
+ 
+ void DrasculaEngine::clearRoom() {
++#ifdef GW_DRASCULA_SLIM
++	// Game & Watch: screenSurface is the screen (gwAdoptable); filling the backend's screen
++	// would make it a copy of its own (64 KB)
++	memset(screenSurface, 0, 64000);
++	_system->copyRectToScreen(screenSurface, 320, 0, 0, 320, 200);
++#else
+ 	_system->fillScreen(0);
++#endif
+ 	_system->updateScreen();
+ }
+ 
+diff --git a/engines/drascula/saveload.cpp b/engines/drascula/saveload.cpp
+index fb620cb6f23..ab8e81da99c 100644
+--- a/engines/drascula/saveload.cpp
++++ b/engines/drascula/saveload.cpp
+@@ -344,6 +344,17 @@ bool DrasculaEngine::loadGame(int slot) {
+ }
+ 
+ Common::String DrasculaEngine::enterName(Common::String &selectedName) {
++#ifdef GW_DRASCULA_SLIM
++	// Game & Watch: no keyboard to type a name: an empty slot is named after its place
++	if (selectedName.empty()) {
++		int n = 1;
++		for (int i = 0; i < NUM_SAVES; i++)
++			if (_mouseY > 27 + 9 * i && _mouseY < 27 + 10 + 9 * i)
++				n = i + 1;
++		return Common::String::format("Partida %d", n);
++	}
++	return selectedName;
++#endif
+ 	Common::KeyCode key;
+ 	Common::String inputLine = selectedName;
+ 	Common::Keymapper *keymapper = g_system->getEventManager()->getKeymapper();
 diff --git a/engines/gob/gob.cpp b/engines/gob/gob.cpp
 index 42e3938002a..6fe92a3c43b 100644
 --- a/engines/gob/gob.cpp

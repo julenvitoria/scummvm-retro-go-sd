@@ -86,6 +86,10 @@ static inline int svm_xor69_index(const uint8_t *p, uint32_t n)
 	return (a == 'R' && b == 'N' && c == 'A' && d == 'M') || (a == 'M' && b == 'A' && c == 'X' && d == 'S');
 }
 bool     plat_mkdir(const char *path);
+/* a progress bar over the screen ("preparing the game"), 0-100: for one-time work an engine does */
+void     plat_progress(int pct);
+/* the console's language as Retro-Go's settings have it ("es", "en_us"...) */
+const char *plat_ui_lang(void);
 
 void    *plat_fopen(const char *path, const char *mode);
 uint32_t plat_fread(void *buf, uint32_t n, void *f);

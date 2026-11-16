@@ -19,6 +19,7 @@ demo_os      = cine
 d1           = cruise
 queen.1      = queen
 queen.1c     = queen
+packet.001   = drascula
 
 # engines there is no file for yet
 resource.map = sci
@@ -31,7 +32,6 @@ gamepc       = agos
 general.clu  = sword2
 dreamweb.r00 = dreamweb
 touche.dat   = touche
-packet.001   = drascula
 dw.scn       = tinsel
 lan_000.res  = teenagent
 ite.rsc      = saga

@@ -704,6 +704,8 @@ static const gw_i18n_entry_t i18n_copying[] = {
 	{ "fr", "Copie du jeu dans la flash" }, { "de", "Spiel wird in den Flash kopiert" },
 	{ "it", "Copia del gioco nella flash" }, { "pt", "A copiar o jogo para a flash" }, GW_I18N_END };
 static void pack_progress(int pct) { show_bar(gw_i18n(i18n_preparing), pct); }
+const char *plat_ui_lang(void) { return gw_firmware_abi()->i18n_lang_code(); }
+void plat_progress(int pct) { show_bar(gw_i18n(i18n_preparing), pct); }
 
 /* piece k of the pack in the flash, by key (the firmware's blob store): put there from the
    card when it is not there yet. The key carries what the pack was made from, so a new pack
@@ -806,6 +808,7 @@ const void *plat_pack_ptr(const pack_head_t *h, uint32_t off)
 }
 
 /* name: relative to the game folder ("FT.LA1", "DATA/ICONS.NUT") */
+static bool g_drascula;
 static void cache_rel(const char *name, uint32_t size)
 {
 	size_t n = strlen(name);
@@ -817,6 +820,9 @@ static void cache_rel(const char *name, uint32_t size)
 	static const char *const skip[] = { ".pdf", ".ico", ".exe", ".com", ".txt", ".doc", ".bat", ".jpg", ".png", ".nfo" };
 	for (unsigned i = 0; i < sizeof skip / sizeof skip[0]; i++)
 		if (n > 4 && !strcasecmp(name + n - 4, skip[i])) return;
+	/* Drascula: its archives are unpacked onto the card on the first start (gwx/, read from
+	   there) and the CD music is 280 MB of FLAC tracks -- none of it for the flash */
+	if (g_drascula && (!strncasecmp(name, "packet.", 7) || !strncasecmp(name, "track", 5))) return;
 	g_files++;
 	/* bigger than this stays on the SD card (a talkie's speech file is ~200 MB, the flash 64) */
 	if (size > MAX_CACHED_FILE) {
@@ -1044,6 +1050,11 @@ static bool bs_zone_save_pending(void)
 static void cache_game(void)
 {
 	if (bs_detect()) { cache_sword1(); return; }
+	{
+		char p[340];
+		snprintf(p, sizeof p, "%s/packet.001", g_game);
+		g_drascula = plat_stat(p).exists;
+	}
 	plat_list_dir(g_game, cache_one, NULL);
 	for (int i = 0; i < g_nsubdirs; i++) {
 		char path[320];
