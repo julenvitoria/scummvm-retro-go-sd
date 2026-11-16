@@ -62,6 +62,7 @@ its own in its notes.
 | Flight of the Amazon Queen | Queen | ✅ | |
 | Drascula: The Vampire Strikes Back | Drascula | ✅ | first launch unpacks the game (a few minutes) |
 | DreamWeb | DreamWeb | ✅ | its computer terminals need typing: GAME opens the keyboard |
+| Teenagent | Teenagent | ✅ | saves with Retro-Go's save states |
 | The Dig | SCUMM | ❌ | too big for the flash |
 | The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
 | Macintosh versions | — | ❌ | |
@@ -201,6 +202,13 @@ Copy the game's files as they are (`DREAMW*.*`, the speech folder and the music 
 its folder. The small icon at the top right opens the game's options: the disk icon there
 saves and loads (an empty slot is named "PARTIDA N"). The computer terminals in the game ask
 for typed commands (`LIST`, `READ`…): GAME opens the on-screen keyboard.
+
+**Teenagent**
+
+Copy the game's `.RES` files into its folder (the game is freeware: scummvm.org/games).
+ScummVM's `teenagent.dat` is in the release zip and is copied into the game's folder on the
+first launch. The game has no save menu of its own: save with Retro-Go's save states (not
+while a scene or a conversation is playing).
 
 </details>
 
@@ -426,6 +434,7 @@ los ficheros con identificador nuevo. Cada versión publica los suyos en sus not
 | Flight of the Amazon Queen | Queen | ✅ | |
 | Drascula: The Vampire Strikes Back | Drascula | ✅ | el primer arranque descomprime el juego (unos minutos) |
 | DreamWeb | DreamWeb | ✅ | sus terminales piden escribir: GAME abre el teclado |
+| Teenagent | Teenagent | ✅ | se guarda con los save states de Retro-Go |
 | The Dig | SCUMM | ❌ | no cabe en la flash |
 | The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
 | Versiones de Macintosh | — | ❌ | |
@@ -557,6 +566,13 @@ Copia los ficheros del juego tal cual (`DREAMW*.*`, la carpeta de voces y la pis
 en su carpeta. El iconito de arriba a la derecha abre las opciones del juego: el del
 disquete guarda y carga (una línea vacía se llama "PARTIDA N"). Los ordenadores del juego
 piden escribir órdenes (`LIST`, `READ`…): GAME abre el teclado en pantalla.
+
+**Teenagent**
+
+Copia los ficheros `.RES` del juego en su carpeta (el juego es gratuito: scummvm.org/games).
+El `teenagent.dat` de ScummVM va en el zip de la versión y se copia a la carpeta del juego en
+el primer arranque. El juego no tiene menú de guardar propio: guarda con los save states de
+Retro-Go (no mientras hay una escena o una conversación).
 
 </details>
 
