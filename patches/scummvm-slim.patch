@@ -677,6 +677,70 @@ index c6e0e39e66a..6084b3840b1 100644
  
  	saveGameSlotId = _systemUI->askForSaveGameSlot();
  	if (saveGameSlotId >= 0) {
+diff --git a/engines/agos/zones.cpp b/engines/agos/zones.cpp
+index 37fc11af101..49541570cbb 100644
+--- a/engines/agos/zones.cpp
++++ b/engines/agos/zones.cpp
+@@ -21,6 +21,10 @@
+ 
+ 
+ 
++#ifdef GW_AGOS_SLIM
++#define FORBIDDEN_SYMBOL_EXCEPTION_getenv	// (PC test build: GW_AGOS_VGA)
++#define FORBIDDEN_SYMBOL_EXCEPTION_atoi
++#endif
+ #include "common/file.h"
+ 
+ #include "agos/intern.h"
+@@ -107,8 +111,31 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
+ 	}
+ }
+ 
++#ifdef GW_AGOS_SLIM
++static const uint32 gwAgosVgaMem = 256 * 1024;	// measured: see docs
++#endif
++
+ void AGOSEngine::setZoneBuffers() {
++#ifdef GW_AGOS_SLIM
++	// Game & Watch: the zones' memory is a ring the game reuses as it goes (allocBlock above
++	// drops what a new block overlaps); 1 MB is more than the console has in all. At most
++	// gwAgosVgaMem, less if the heap has not that much in one block.
++	{
++		uint32 want = MIN<uint32>(_vgaMemSize, gwAgosVgaMem);
++#ifndef __arm__
++		if (getenv("GW_AGOS_VGA"))			// (PC test build: to try sizes)
++			want = atoi(getenv("GW_AGOS_VGA")) * 1024;
++#endif
++		for (_zoneBuffers = nullptr; !_zoneBuffers && want >= 64 * 1024; want -= 16 * 1024)
++			_zoneBuffers = (byte *)malloc(want);
++		_vgaMemSize = want + 16 * 1024;
++		if (!_zoneBuffers)
++			error("setZoneBuffers: no memory");
++		warning("AGOS: %u KB for the zones", _vgaMemSize / 1024);
++	}
++#else
+ 	_zoneBuffers = (byte *)malloc(_vgaMemSize);
++#endif
+ 
+ 	_vgaMemPtr = _zoneBuffers;
+ 	_vgaMemBase = _zoneBuffers;
+@@ -118,7 +145,16 @@ void AGOSEngine::setZoneBuffers() {
+ }
+ 
+ byte *AGOSEngine::allocBlock(uint32 size) {
++#ifdef GW_AGOS_SLIM
++	if (size >= _vgaMemSize)
++		error("allocBlock: %u bytes, the zones' memory is %u", size, _vgaMemSize);
++	uint32 gwTries = 0;
++#endif
+ 	for (;;) {
++#ifdef GW_AGOS_SLIM
++		if (++gwTries == 100000)
++			error("allocBlock: no room for %u bytes among the running animations (zones' memory %u)", size, _vgaMemSize);
++#endif
+ 		_block = _vgaMemPtr;
+ 		_blockEnd = _block + size;
+ 
 diff --git a/engines/cge/bitmap.cpp b/engines/cge/bitmap.cpp
 index 868dad8fa68..0fc18f32ae7 100644
 --- a/engines/cge/bitmap.cpp

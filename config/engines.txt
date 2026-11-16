@@ -22,6 +22,8 @@ queen.1c     = queen
 packet.001   = drascula
 dreamw*.r00  = dreamweb
 lan_000.res  = teenagent
+gamepc       = agos
+*.gme        = agos
 
 # engines there is no file for yet (the loader says so instead of starting the game). The Dig
 # and The Curse of Monkey Island are SCUMM games this core does not run (too big for the flash):
@@ -33,8 +35,6 @@ resource.000 = sci
 resmap.000   = sci
 logdir       = agi
 *vol.0       = agi
-gamepc       = agos
-*.gme        = agos
 general.clu  = sword2
 touche.dat   = touche
 dw.scn       = tinsel
