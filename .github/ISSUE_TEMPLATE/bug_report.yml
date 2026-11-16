@@ -1,0 +1,72 @@
+name: "Fallo / Bug report"
+description: "Un juego falla, se cuelga o no arranca / A game fails, hangs or does not start"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **ES:** Gracias por avisar. Lo más útil es el fichero `/saves/scummvm/scummvm.log` de la tarjeta **justo después del fallo**, antes de arrancar otro juego (se reescribe en cada arranque).
+        **EN:** Thanks for reporting. The most useful thing is the SD card's `/saves/scummvm/scummvm.log` **right after the failure**, before starting another game (it is rewritten on every start).
+
+        Por favor, no subas ficheros de los juegos. / Please do not upload game files.
+
+  - type: input
+    id: game
+    attributes:
+      label: "Juego, versión e idioma / Game, version and language"
+      description: "Ej. / e.g.: Full Throttle, CD, español / Monkey Island 2, DOS floppy, English"
+    validations:
+      required: true
+
+  - type: input
+    id: release
+    attributes:
+      label: "Versión del core / Core version"
+      description: "La de la release (ej. v0.3.0) o la línea 'version ...' del principio de scummvm.log / The release (e.g. v0.3.0) or the 'version ...' line at the top of scummvm.log"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: when
+    attributes:
+      label: "¿Cuándo pasa? / When does it happen?"
+      options:
+        - "Al arrancar el juego / When the game starts"
+        - "Durante la partida / While playing"
+        - "Al cargar un save state de Retro-Go / Loading a Retro-Go save state"
+        - "Al guardar un save state de Retro-Go / Saving a Retro-Go save state"
+        - "Al guardar o cargar desde el menú del juego / Saving or loading from the game's own menu"
+        - "Al volver del apagado (botón de encendido) / Coming back from sleep (power button)"
+        - "Otro / Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Qué hiciste y qué pasó / What you did and what happened"
+      description: "Pasos para reproducirlo, y qué se ve en pantalla (mensaje de error, pantallazo azul con PC/LR, se reinicia, pantalla negra...) / Steps to reproduce, and what is on screen (error message, blue screen with PC/LR, reboot, black screen...)"
+      placeholder: |
+        1. Cargo la partida en ... / I load the game at ...
+        2. Entro en ... / I go into ...
+        3. Sale "ScummVM stopped: ..." / "ScummVM stopped: ..." appears
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: "scummvm.log"
+      description: "Arrastra aquí el fichero /saves/scummvm/scummvm.log, o pega su contenido / Drag /saves/scummvm/scummvm.log here, or paste its contents"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: "Más información (opcional) / More (optional)"
+      description: |
+        - Foto de la pantalla si hay mensaje o pantallazo azul / A photo of the screen if there is a message or a blue screen
+        - El save state (`/saves/scummvm/<juego>.scummvm-N.sav`) o la partida del juego, si el fallo es al cargarla / The save state or the game's save, if it fails when loading it
+        - Lista de ficheros de la carpeta del juego (solo los nombres) / The game folder's file list (names only)
+        - Modelo de consola y tamaño de la flash / Console model and flash size
