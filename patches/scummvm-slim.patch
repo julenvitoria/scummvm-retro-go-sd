@@ -2391,6 +2391,25 @@ index 6138f9ba986..1308115c99f 100644
  	Common::MemoryReadStream str(src, srcSize);
  
  	Image::PCXDecoder pcx;
+diff --git a/engines/queen/journal.cpp b/engines/queen/journal.cpp
+index 4d395d5caea..64ed2a518d5 100644
+--- a/engines/queen/journal.cpp
++++ b/engines/queen/journal.cpp
+@@ -568,6 +568,14 @@ void Journal::drawInfoPanel() {
+ }
+ 
+ void Journal::initTextField(const char *desc) {
++#ifdef GW_QUEEN_SLIM
++	// Game & Watch: no keyboard to type a name, and an empty name does not save
++	char gwName[16];
++	if (!desc[0]) {
++		Common::sprintf_s(gwName, "Save %d", _currentSavePage * 10 + _currentSaveSlot + 1);
++		desc = gwName;
++	}
++#endif
+ 	_system->setFeatureState(OSystem::kFeatureVirtualKeyboard, true);
+ 	_textField.enabled = true;
+ 	_textField.posCursor = _vm->display()->textWidth(desc);
 diff --git a/engines/queen/music.cpp b/engines/queen/music.cpp
 index c25bd0cf378..a0831338b15 100644
 --- a/engines/queen/music.cpp
@@ -2503,6 +2522,43 @@ index 74d08752b64..9b95d018660 100644
  	const TuneData *_tune;
  };
  
+diff --git a/engines/queen/queen.cpp b/engines/queen/queen.cpp
+index 1b5d2a8d246..c5521f7f92d 100644
+--- a/engines/queen/queen.cpp
++++ b/engines/queen/queen.cpp
+@@ -46,6 +46,10 @@
+ #include "queen/talk.h"
+ #include "queen/walk.h"
+ 
++#ifdef GW_QUEEN_SLIM
++extern "C" const char *gw_test_env(const char *name) __attribute__((weak));	// src/platform_host.c
++#endif
++
+ namespace Queen {
+ 
+ QueenEngine::QueenEngine(OSystem *syst)
+@@ -358,6 +362,21 @@ Common::Error QueenEngine::run() {
+ 	_lastUpdateTime = _system->getMillis();
+ 
+ 	while (!shouldQuit()) {
++#ifdef GW_QUEEN_SLIM
++		{
++			// host tests only: GW_ROOM="ms:room" goes to that room once, like the debugger's "room"
++			const char *r = gw_test_env ? gw_test_env("GW_ROOM") : nullptr;
++			static bool roomDone;
++			if (r && !roomDone && strchr(r, ':') && _system->getMillis() >= (uint32)atoi(r)) {
++				roomDone = true;
++				uint16 roomNum = atoi(strchr(r, ':') + 1);
++				warning("GW_ROOM: %d (from %d)", roomNum, _logic->currentRoom());
++				_logic->joePos(0, 0);
++				_logic->newRoom(roomNum);
++				_logic->entryObj(_logic->roomData(roomNum) + 1);
++			}
++		}
++#endif
+ 		if (_logic->newRoom() > 0) {
+ 			_logic->update();
+ 			_logic->oldRoom(_logic->currentRoom());
 diff --git a/engines/queen/resource.cpp b/engines/queen/resource.cpp
 index c159d63b98b..8058b922ef2 100644
 --- a/engines/queen/resource.cpp
