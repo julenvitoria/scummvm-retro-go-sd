@@ -1112,6 +1112,7 @@ static void cache_game(void)
 	if (bs_detect()) { cache_sword1(); return; }
 	provide_dat("disk1.vga", "lure.dat");
 	provide_dat("packet.001", "drascula.dat");
+	provide_dat("lan_000.res", "teenagent.dat");
 	{
 		char p[340];
 		snprintf(p, sizeof p, "%s/packet.001", g_game);
