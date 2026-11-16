@@ -2194,6 +2194,422 @@ index 8b664cbd5c9..d51d88eb046 100644
  
  		Screen &screen = Screen::getReference();
  
+diff --git a/engines/queen/bankman.cpp b/engines/queen/bankman.cpp
+index 30ea16e0998..3be045075ae 100644
+--- a/engines/queen/bankman.cpp
++++ b/engines/queen/bankman.cpp
+@@ -58,6 +58,25 @@ void BankManager::load(const char *bankname, uint32 bankslot) {
+ 		return;
+ 	}
+ 
++#ifdef GW_QUEEN_SLIM
++	if (_res->getPlatform() != Common::kPlatformAmiga) {
++		_res->gwFindEntry(bankname, &bank->entry);
++		bank->onDisk = true;
++		uint8 hdr[4];
++		_res->gwReadAt(bank->entry, 0, hdr, 2);
++		uint16 entries = READ_LE_UINT16(hdr);
++		assert(entries < MAX_BANK_SIZE);
++		uint32 offset = 2;
++		bank->indexes[0] = offset;
++		for (uint16 i = 1; i <= entries; ++i) {
++			bank->indexes[i] = offset;
++			_res->gwReadAt(bank->entry, offset, hdr, 4);
++			offset += READ_LE_UINT16(hdr) * READ_LE_UINT16(hdr + 2) + 8;
++		}
++		Common::strcpy_s(bank->name, bankname);
++		return;
++	}
++#endif
+ 	bank->data = _res->loadFile(bankname);
+ 
+ 	if (_res->getPlatform() == Common::kPlatformAmiga) {
+@@ -135,13 +154,33 @@ void BankManager::unpack(uint32 srcframe, uint32 dstframe, uint32 bankslot) {
+ 
+ 	assert(bankslot < MAX_BANKS_NUMBER);
+ 	PackedBank *bank = &_banks[bankslot];
++#ifdef GW_QUEEN_SLIM
++	assert(gwBankLoaded(bank));
++#else
+ 	assert(bank->data != nullptr);
++#endif
+ 
+ 	assert(dstframe < MAX_FRAMES_NUMBER);
+ 	BobFrame *bf = &_frames[dstframe];
+ 	delete[] bf->data;
+ 	bf->data = nullptr;
+ 
++#ifdef GW_QUEEN_SLIM
++	if (bank->onDisk) {
++		uint8 hdr[8];
++		_res->gwReadAt(bank->entry, bank->indexes[srcframe], hdr, 8);
++		bf->width    = READ_LE_UINT16(hdr + 0);
++		bf->height   = READ_LE_UINT16(hdr + 2);
++		bf->xhotspot = READ_LE_UINT16(hdr + 4);
++		bf->yhotspot = READ_LE_UINT16(hdr + 6);
++		uint32 size = bf->width * bf->height;
++		if (size != 0) {
++			bf->data = new uint8[ size ];
++			_res->gwReadAt(bank->entry, bank->indexes[srcframe] + 8, bf->data, size);
++		}
++		return;
++	}
++#endif
+ 	const uint8 *p = bank->data + bank->indexes[srcframe];
+ 
+ 	if (_res->getPlatform() == Common::kPlatformAmiga) {
+@@ -177,11 +216,28 @@ void BankManager::overpack(uint32 srcframe, uint32 dstframe, uint32 bankslot) {
+ 
+ 	assert(bankslot < MAX_BANKS_NUMBER);
+ 	PackedBank *bank = &_banks[bankslot];
++#ifdef GW_QUEEN_SLIM
++	assert(gwBankLoaded(bank));
++#else
+ 	assert(bank->data != nullptr);
++#endif
+ 
+ 	assert(dstframe < MAX_FRAMES_NUMBER);
+ 	BobFrame *bf = &_frames[dstframe];
+ 
++#ifdef GW_QUEEN_SLIM
++	if (bank->onDisk) {
++		uint8 hdr[4];
++		_res->gwReadAt(bank->entry, bank->indexes[srcframe], hdr, 4);
++		uint16 src_w = READ_LE_UINT16(hdr + 0);
++		uint16 src_h = READ_LE_UINT16(hdr + 2);
++		if (bf->width < src_w || bf->height < src_h)
++			unpack(srcframe, dstframe, bankslot);
++		else
++			_res->gwReadAt(bank->entry, bank->indexes[srcframe] + 8, bf->data, src_w * src_h);
++		return;
++	}
++#endif
+ 	const uint8 *p = bank->data + bank->indexes[srcframe];
+ 
+ 	if (_res->getPlatform() == Common::kPlatformAmiga) {
+diff --git a/engines/queen/bankman.h b/engines/queen/bankman.h
+index d4d1ef53b69..a2631a9c13a 100644
+--- a/engines/queen/bankman.h
++++ b/engines/queen/bankman.h
+@@ -24,6 +24,9 @@
+ 
+ #include "common/util.h"
+ #include "queen/structs.h"
++#ifdef GW_QUEEN_SLIM
++#include "queen/resource.h"
++#endif
+ 
+ namespace Queen {
+ 
+@@ -68,7 +71,15 @@ private:
+ 		uint32 indexes[MAX_BANK_SIZE];
+ 		uint8 *data;
+ 		char name[20];
++#ifdef GW_QUEEN_SLIM
++		// GW: PC banks stay in the resource file; frames are read when unpacked
++		bool onDisk;
++		ResourceEntry entry;
++#endif
+ 	};
++#ifdef GW_QUEEN_SLIM
++	bool gwBankLoaded(const PackedBank *b) const { return b->data != nullptr || b->onDisk; }
++#endif
+ 
+ 	//! unpacked bob frames
+ 	BobFrame _frames[MAX_FRAMES_NUMBER];
+diff --git a/engines/queen/display.cpp b/engines/queen/display.cpp
+index 6138f9ba986..1308115c99f 100644
+--- a/engines/queen/display.cpp
++++ b/engines/queen/display.cpp
+@@ -38,6 +38,10 @@
+ #include "queen/queen.h"
+ #include "queen/resource.h"
+ 
++#ifdef GW_QUEEN_SLIM
++void gwAdoptable(const byte *lo, const byte *hi);	// src/gw_system.cpp
++#endif
++
+ namespace Queen {
+ 
+ Display::Display(QueenEngine *vm, OSystem *system)
+@@ -49,6 +53,11 @@ Display::Display(QueenEngine *vm, OSystem *system)
+ 	_screenBuf   = new uint8[ SCREEN_W * SCREEN_H ]();
+ 	_panelBuf    = new uint8[ PANEL_W * PANEL_H ]();
+ 	_backdropBuf = new uint8[ BACKDROP_W * BACKDROP_H ]();
++#ifdef GW_QUEEN_SLIM
++	// Game & Watch: the backend shows this buffer as it is instead of keeping a copy of the
++	// screen (src/gw_system.cpp, gwAdoptable): 64 KB
++	gwAdoptable(_screenBuf, _screenBuf + SCREEN_W * SCREEN_H);
++#endif
+ 
+ 	_fullRefresh = 1;
+ 	_dirtyBlocksWidth  = SCREEN_W / D_BLOCK_W;
+@@ -75,6 +84,9 @@ Display::Display(QueenEngine *vm, OSystem *system)
+ }
+ 
+ Display::~Display() {
++#ifdef GW_QUEEN_SLIM
++	gwAdoptable(nullptr, nullptr);
++#endif
+ 	delete[] _backdropBuf;
+ 	delete[] _panelBuf;
+ 	delete[] _screenBuf;
+@@ -814,6 +826,36 @@ void Display::fill(uint8 *dstBuf, uint16 dstPitch, uint16 x, uint16 y, uint16 w,
+ }
+ 
+ void Display::decodePCX(const uint8 *src, uint32 srcSize, uint8 *dst, uint16 dstPitch, uint16 *w, uint16 *h, uint8 *pal, uint16 palStart, uint16 palEnd) {
++#ifdef GW_QUEEN_SLIM
++	// GW: decode 8-bit single plane PCX straight into dst (no 128 KB surface)
++	if (srcSize > 128 + 769 && src[3] == 8 && src[65] == 1) {
++		uint16 pw = READ_LE_UINT16(src + 8) - READ_LE_UINT16(src + 4) + 1;
++		uint16 ph = READ_LE_UINT16(src + 10) - READ_LE_UINT16(src + 6) + 1;
++		uint16 bpl = READ_LE_UINT16(src + 66);
++		const uint8 *p = src + 128, *end = src + srcSize - 769;
++		for (uint16 y = 0; y < ph; y++) {
++			uint8 *row = dst + y * dstPitch;
++			uint16 x = 0;
++			while (x < bpl && p < end) {
++				uint8 b = *p++, n = 1;
++				if ((b & 0xC0) == 0xC0) {
++					n = b & 0x3F;
++					b = (p < end) ? *p++ : 0;
++				}
++				while (n-- && x < bpl) {
++					if (x < pw)
++						row[x] = b;
++					x++;
++				}
++			}
++		}
++		*w = pw;
++		*h = ph;
++		assert(palStart <= palEnd && palEnd <= 256);
++		memcpy(pal, src + srcSize - 768 + palStart * 3, (palEnd - palStart) * 3);
++		return;
++	}
++#endif
+ 	Common::MemoryReadStream str(src, srcSize);
+ 
+ 	Image::PCXDecoder pcx;
+diff --git a/engines/queen/music.cpp b/engines/queen/music.cpp
+index c25bd0cf378..a0831338b15 100644
+--- a/engines/queen/music.cpp
++++ b/engines/queen/music.cpp
+@@ -57,8 +57,24 @@ MidiMusic::MidiMusic(QueenEngine *vm)
+ 	if (_adlib) {
+ 		musicDataFile = "AQBANK.MUS";
+ 	}
++#ifdef GW_QUEEN_SLIM
++	{
++		_gwRes = vm->resource();
++		_gwMusicFile = musicDataFile;
++		_gwSong = nullptr;
++		uint8 hdr[2];
++		_musicDataSize = _gwRes->readFilePart(musicDataFile, 0, hdr, 2);
++		_numSongs = READ_LE_UINT16(hdr);
++		uint32 tbl = 2 + (_numSongs + 1) * 4;
++		if (tbl > _musicDataSize)
++			tbl = _musicDataSize;
++		_musicData = new byte[tbl + 4]();
++		_gwRes->readFilePart(musicDataFile, 0, _musicData, tbl);
++	}
++#else
+ 	_musicData = vm->resource()->loadFile(musicDataFile, 0, &_musicDataSize);
+ 	_numSongs = READ_LE_UINT16(_musicData);
++#endif
+ 
+ 	_tune = vm->resource()->isDemo() ? Sound::_tuneDemo : Sound::_tune;
+ 
+@@ -98,6 +114,9 @@ MidiMusic::~MidiMusic() {
+ 	delete _driver;
+ 	delete[] _buf;
+ 	delete[] _musicData;
++#ifdef GW_QUEEN_SLIM
++	delete[] _gwSong;
++#endif
+ }
+ 
+ void MidiMusic::setVolume(int volume) {
+@@ -276,8 +295,13 @@ void MidiMusic::playMusic() {
+ 		}
+ 	}
+ 
++#ifdef GW_QUEEN_SLIM
++	if (_buf) {
++		stopMusic();
++#else
+ 	byte *prevSong = _musicData + songOffset(_currentSong);
+ 	if (*prevSong == 'C' || *prevSong == 'c') {
++#endif
+ 		if (_buf) {
+ 			delete[] _buf;
+ 			_buf = nullptr;
+@@ -290,8 +314,22 @@ void MidiMusic::playMusic() {
+ 		return;
+ 	}
+ 
++#ifdef GW_QUEEN_SLIM
++	// the parser may still point at the previous song's buffer
++	stopMusic();
++	delete[] _gwSong;
++	uint32 size = songLength(songNum);
++	_gwSong = new byte[size ? size : 1];
++	if (!_gwSong) {
++		_currentSong = 0;
++		return;
++	}
++	_gwRes->readFilePart(_gwMusicFile, songOffset(songNum), _gwSong, size);
++	byte *musicPtr = _gwSong;
++#else
+ 	byte *musicPtr = _musicData + songOffset(songNum);
+ 	uint32 size = songLength(songNum);
++#endif
+ 	if (*musicPtr == 'C' || *musicPtr == 'c') {
+ 		uint32 packedSize = songLength(songNum) - 0x200;
+ 		_buf = new uint16[packedSize];
+@@ -308,6 +346,10 @@ void MidiMusic::playMusic() {
+ 
+ 		musicPtr = ((byte *)_buf) + ((*musicPtr == 'c') ? 1 : 0);
+ 		size = packedSize * 2;
++#ifdef GW_QUEEN_SLIM
++		delete[] _gwSong;
++		_gwSong = nullptr;
++#endif
+ 	}
+ 
+ 	stopMusic();
+diff --git a/engines/queen/music.h b/engines/queen/music.h
+index 74d08752b64..9b95d018660 100644
+--- a/engines/queen/music.h
++++ b/engines/queen/music.h
+@@ -34,6 +34,7 @@ namespace Queen {
+ struct TuneData;
+ 
+ class QueenEngine;
++class Resource;
+ 
+ class MidiMusic : public MidiDriver_BASE {
+ public:
+@@ -93,6 +94,12 @@ protected:
+ 	uint32 _musicDataSize;
+ 	bool _vToggle;
+ 	byte *_musicData;
++#ifdef GW_QUEEN_SLIM
++	// GW: only the song offset table is kept; each song is read when played
++	Resource *_gwRes;
++	const char *_gwMusicFile;
++	byte *_gwSong;
++#endif
+ 	const TuneData *_tune;
+ };
+ 
+diff --git a/engines/queen/resource.cpp b/engines/queen/resource.cpp
+index c159d63b98b..d6e366b5400 100644
+--- a/engines/queen/resource.cpp
++++ b/engines/queen/resource.cpp
+@@ -74,6 +74,27 @@ ResourceEntry *Resource::resourceEntry(const char *filename) const {
+ 	Common::String entryName(filename);
+ 	entryName.toUppercase();
+ 
++#ifdef GW_QUEEN_SLIM
++	if (_gwTableFile.isOpen()) {
++		// the entries on file are 21 bytes each (name 12, bundle 1, offset 4, size 4), sorted
++		int lo = 0, hi = (int)_resourceEntries - 1;
++		while (lo <= hi) {
++			int mid = (lo + hi) / 2;
++			_gwTableFile.seek(_gwTableStart + mid * 21);
++			_gwTableFile.read(_gwEntry.filename, 12);
++			_gwEntry.filename[12] = '\0';
++			int c = strcmp(entryName.c_str(), _gwEntry.filename);
++			if (c == 0) {
++				_gwEntry.bundle = _gwTableFile.readByte();
++				_gwEntry.offset = _gwTableFile.readUint32BE();
++				_gwEntry.size = _gwTableFile.readUint32BE();
++				return &_gwEntry;
++			}
++			if (c < 0) hi = mid - 1; else lo = mid + 1;
++		}
++		return nullptr;
++	}
++#endif
+ 	ResourceEntry *re = nullptr;
+ 	re = (ResourceEntry *)bsearch(entryName.c_str(), _resourceTable, _resourceEntries, sizeof(ResourceEntry), compareResourceEntry);
+ 	return re;
+@@ -93,6 +114,29 @@ uint8 *Resource::loadFile(const char *filename, uint32 skipBytes, uint32 *size)
+ 	return dstBuf;
+ }
+ 
++#ifdef GW_QUEEN_SLIM
++uint32 Resource::readFilePart(const char *filename, uint32 offset, uint8 *dst, uint32 len) {
++	ResourceEntry *re = resourceEntry(filename);
++	assert(re != nullptr);
++	if (dst && len) {
++		seekResourceFile(re->bundle, re->offset + offset);
++		_resourceFile.read(dst, len);
++	}
++	return re->size;
++}
++
++void Resource::gwFindEntry(const char *filename, ResourceEntry *out) const {
++	ResourceEntry *re = resourceEntry(filename);
++	assert(re != nullptr);
++	*out = *re;
++}
++
++void Resource::gwReadAt(const ResourceEntry &re, uint32 offset, uint8 *dst, uint32 len) {
++	seekResourceFile(re.bundle, re.offset + offset);
++	_resourceFile.read(dst, len);
++}
++#endif
++
+ void Resource::loadTextFile(const char *filename, Common::StringArray &stringList) {
+ 	debug(7, "Resource::loadTextFile('%s')", filename);
+ 	ResourceEntry *re = resourceEntry(filename);
+@@ -168,6 +212,12 @@ void Resource::readTableFile(uint8 version, uint32 offset) {
+ 
+ void Resource::readTableEntries(Common::File *file) {
+ 	_resourceEntries = file->readUint16BE();
++#ifdef GW_QUEEN_SLIM
++	if (_gwTableFile.open(file->getName())) {
++		_gwTableStart = file->pos();
++		return;
++	}
++#endif
+ 	_resourceTable = new ResourceEntry[_resourceEntries];
+ 	for (uint16 i = 0; i < _resourceEntries; ++i) {
+ 		ResourceEntry *re = &_resourceTable[i];
+diff --git a/engines/queen/resource.h b/engines/queen/resource.h
+index 7281d5018a8..be14fb7ac5d 100644
+--- a/engines/queen/resource.h
++++ b/engines/queen/resource.h
+@@ -47,6 +47,14 @@ public:
+ 	//! loads a binary file
+ 	uint8 *loadFile(const char *filename, uint32 skipBytes = 0, uint32 *size = NULL);
+ 
++#ifdef GW_QUEEN_SLIM
++	//! GW: reads part of a file without loading all of it; returns the file size
++	uint32 readFilePart(const char *filename, uint32 offset, uint8 *dst, uint32 len);
++	//! GW: copies a file's entry, to read parts of it later without searching again
++	void gwFindEntry(const char *filename, ResourceEntry *out) const;
++	void gwReadAt(const ResourceEntry &re, uint32 offset, uint8 *dst, uint32 len);
++#endif
++
+ 	//! loads a text file
+ 	void loadTextFile(const char *filename, Common::StringArray &stringList);
+ 
+@@ -90,6 +98,12 @@ protected:
+ 	uint32 _resourceEntries;
+ 
+ 	ResourceEntry *_resourceTable;
++#ifdef GW_QUEEN_SLIM
++	// Game & Watch: the table is looked up in its file (7,600 entries, 179 KB in memory)
++	mutable Common::File _gwTableFile;
++	uint32 _gwTableStart = 0;
++	mutable ResourceEntry _gwEntry;
++#endif
+ 
+ 	//! verify the version of the selected game
+ 	void checkJASVersion();
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea521f6..380eb1fa977 100644
 --- a/engines/scumm/dialogs.cpp

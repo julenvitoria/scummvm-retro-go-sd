@@ -17,6 +17,8 @@ procs1       = cine
 part01       = cine
 demo_os      = cine
 d1           = cruise
+queen.1      = queen
+queen.1c     = queen
 
 # engines there is no file for yet
 resource.map = sci
@@ -24,8 +26,6 @@ resource.000 = sci
 resmap.000   = sci
 logdir       = agi
 *vol.0       = agi
-queen.1      = queen
-queen.1c     = queen
 gamepc       = agos
 *.gme        = agos
 general.clu  = sword2
