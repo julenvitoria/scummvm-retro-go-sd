@@ -55,11 +55,11 @@ $(HB)/svm/%.c.o: $(SVM)/%.c Makefile | $(PATCHED)
 	@mkdir -p $(dir $@)
 	@gcc -c -O1 -g $(HOSTX) $(DEFS) $(INCS) $(DEP) $< -o $@
 
-$(HB)/src/%.cpp.o: src/%.cpp src/platform.h
+$(HB)/src/%.cpp.o: src/%.cpp src/platform.h | $(PATCHED)
 	@mkdir -p $(dir $@)
 	g++ -c -O1 -g $(HOSTX) $(CXXSTD) $(WARN) $(DEFS) $(INCS) $(DEP) $< -o $@
 
-$(HB)/src/%.c.o: src/%.c src/platform.h
+$(HB)/src/%.c.o: src/%.c src/platform.h | $(PATCHED)
 	@mkdir -p $(dir $@)
 	gcc -c -O1 -g -Wall $< -o $@
 
@@ -166,7 +166,7 @@ $(AB)/svm/%.c.o: $(SVM)/%.c Makefile | $(PATCHED)
 	@mkdir -p $(dir $@)
 	@$(CROSS)gcc -c $(MCU) $(OPT) $(DEFS) $(INCS) $(DEP) $< -o $@
 
-$(AB)/src/%.cpp.o: src/%.cpp src/platform.h Makefile
+$(AB)/src/%.cpp.o: src/%.cpp src/platform.h Makefile | $(PATCHED)
 	@mkdir -p $(dir $@)
 	$(CROSS)g++ -c $(ARM_CXX) $< -o $@
 
