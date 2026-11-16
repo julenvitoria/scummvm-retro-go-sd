@@ -3828,7 +3828,7 @@ index 74d08752b64..9b95d018660 100644
  };
  
 diff --git a/engines/queen/queen.cpp b/engines/queen/queen.cpp
-index 1b5d2a8d246..c5521f7f92d 100644
+index 1b5d2a8d246..7f7bf30cdaf 100644
 --- a/engines/queen/queen.cpp
 +++ b/engines/queen/queen.cpp
 @@ -46,6 +46,10 @@
@@ -3842,7 +3842,19 @@ index 1b5d2a8d246..c5521f7f92d 100644
  namespace Queen {
  
  QueenEngine::QueenEngine(OSystem *syst)
-@@ -358,6 +362,21 @@ Common::Error QueenEngine::run() {
+@@ -127,6 +131,11 @@ void QueenEngine::writeOptionSettings() {
+ 
+ void QueenEngine::update(bool checkPlayerInput) {
+ 	_graphics->update(_logic->currentRoom());
++#ifdef GW_QUEEN_SLIM
++	// Game & Watch: the screen IS _screenBuf (gwAdoptable), and Input::delay() below shows it
++	// -- before Display::update() drew the texts on it, so they blinked: drawn here too
++	_display->drawTexts();
++#endif
+ 	_logic->update();
+ 
+ 	int frameDelay = (_lastUpdateTime + Input::DELAY_NORMAL - _system->getMillis());
+@@ -358,6 +367,21 @@ Common::Error QueenEngine::run() {
  	_lastUpdateTime = _system->getMillis();
  
  	while (!shouldQuit()) {
