@@ -378,10 +378,11 @@ class GWSaveFileManager : public DefaultSaveFileManager {
 	static bool zone(const Common::String &name) { return name.equalsIgnoreCase("sword1.098"); }
 	static bool redirected(const Common::String &name) {
 		// (SCUMM's <target>.s99, Beneath a Steel Sky's SKY-VM.099, the other engines' <name>.099,
-		// Operation Stealth's os.99)
+		// Operation Stealth's os.99, DreamWeb's DREAMWEB.D99)
 		return g_rgPath[0] && (name.hasSuffix(Common::String::format(".s%02d", RG_SLOT)) ||
 		                       name.hasSuffix(Common::String::format(".%03d", RG_SLOT)) ||
-		                       name.hasSuffix(Common::String::format(".%d", RG_SLOT)));
+		                       name.hasSuffix(Common::String::format(".%d", RG_SLOT)) ||
+		                       name.hasSuffixIgnoreCase(Common::String::format(".d%02d", RG_SLOT)));
 	}
 public:
 	GWSaveFileManager() : DefaultSaveFileManager(Common::Path(plat_save_path())) {}
