@@ -456,6 +456,8 @@ int main(int argc, char **argv)
 
 /* src/pack.c, as the console does it (platform_core.c, cache_pack()): made once next to the data
    file, then mapped outside the heap */
+const char *plat_ui_lang(void) { return getenv("GW_LANG") ? getenv("GW_LANG") : "en"; }
+void plat_progress(int pct) { fprintf(stderr, "\rprogress: %d%%", pct); if (pct >= 100) fputc('\n', stderr); }
 static void host_progress(int pct) { fprintf(stderr, "\rpack: %d%%", pct); if (pct >= 100) fputc('\n', stderr); }
 
 /* The pack is mapped in pieces as on the console (svm_pack_split), each in a mapping of its
