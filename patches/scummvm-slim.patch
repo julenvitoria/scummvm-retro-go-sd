@@ -3530,7 +3530,7 @@ index d4d1ef53b69..a2631a9c13a 100644
  	//! unpacked bob frames
  	BobFrame _frames[MAX_FRAMES_NUMBER];
 diff --git a/engines/queen/display.cpp b/engines/queen/display.cpp
-index 6138f9ba986..1308115c99f 100644
+index 6138f9ba986..0a1cb16682b 100644
 --- a/engines/queen/display.cpp
 +++ b/engines/queen/display.cpp
 @@ -38,6 +38,10 @@
@@ -3566,9 +3566,88 @@ index 6138f9ba986..1308115c99f 100644
  	delete[] _backdropBuf;
  	delete[] _panelBuf;
  	delete[] _screenBuf;
-@@ -814,6 +826,36 @@ void Display::fill(uint8 *dstBuf, uint16 dstPitch, uint16 x, uint16 y, uint16 w,
+@@ -721,6 +733,20 @@ void Display::setupNewRoom(const char *name, uint16 room) {
+ 	uint32 dataSize;
+ 	char dataName[20];
+ 	Common::sprintf_s(dataName, "%s.%s", name, _imageExt);
++#ifdef GW_QUEEN_SLIM
++	// Game & Watch: the room's picture is decoded from the resource file as it is read, not
++	// loaded whole first (up to 80 KB, which the heap no longer had by the plane's crash)
++	if (_vm->resource()->getPlatform() != Common::kPlatformAmiga) {
++		int n = getNumColorsForRoom(room);
++		if (n != 256)
++			n = 144;
++		if (gwDecodePCXFile(dataName, _backdropBuf, BACKDROP_W, &_bdWidth, &_bdHeight, _pal.room, 0, n)) {
++			palCustomColors(room);
++			forceFullRefresh();
++			return;
++		}
++	}
++#endif
+ 	uint8 *data = _vm->resource()->loadFile(dataName, 0, &dataSize);
+ 
+ 	if (_vm->resource()->getPlatform() == Common::kPlatformAmiga) {
+@@ -813,7 +839,94 @@ void Display::fill(uint8 *dstBuf, uint16 dstPitch, uint16 x, uint16 y, uint16 w,
+ 	}
  }
  
++#ifdef GW_QUEEN_SLIM
++bool Display::gwDecodePCXFile(const char *name, uint8 *dst, uint16 dstPitch, uint16 *w, uint16 *h, uint8 *pal, uint16 palStart, uint16 palEnd) {
++	Resource *res = _vm->resource();
++	ResourceEntry re;
++	res->gwFindEntry(name, &re);
++	uint8 hdr[128];
++	if (re.size < 128 + 769)
++		return false;
++	res->gwReadAt(re, 0, hdr, 128);
++	if (hdr[3] != 8 || hdr[65] != 1)
++		return false;
++	uint16 pw = READ_LE_UINT16(hdr + 8) - READ_LE_UINT16(hdr + 4) + 1;
++	uint16 ph = READ_LE_UINT16(hdr + 10) - READ_LE_UINT16(hdr + 6) + 1;
++	uint16 bpl = READ_LE_UINT16(hdr + 66);
++	uint32 pos = 128, end = re.size - 769;
++	uint8 buf[1024];
++	uint32 have = 0, at = 0;
++	for (uint16 y = 0; y < ph; y++) {
++		uint8 *row = dst + y * dstPitch;
++		uint16 x = 0;
++		while (x < bpl) {
++			if (at == have) {
++				if (pos >= end)
++					break;
++				have = MIN<uint32>(sizeof(buf), end - pos);
++				res->gwReadAt(re, pos, buf, have);
++				pos += have;
++				at = 0;
++			}
++			uint8 b = buf[at++], n = 1;
++			if ((b & 0xC0) == 0xC0) {
++				n = b & 0x3F;
++				if (at == have) {
++					if (pos >= end)
++						break;
++					have = MIN<uint32>(sizeof(buf), end - pos);
++					res->gwReadAt(re, pos, buf, have);
++					pos += have;
++					at = 0;
++				}
++				b = buf[at++];
++			}
++			while (n-- && x < bpl) {
++				if (x < pw)
++					row[x] = b;
++				x++;
++			}
++		}
++	}
++	*w = pw;
++	*h = ph;
++	assert(palStart <= palEnd && palEnd <= 256);
++	res->gwReadAt(re, re.size - 768 + palStart * 3, pal, (palEnd - palStart) * 3);
++	return true;
++}
++#endif
++
  void Display::decodePCX(const uint8 *src, uint32 srcSize, uint8 *dst, uint16 dstPitch, uint16 *w, uint16 *h, uint8 *pal, uint16 palStart, uint16 palEnd) {
 +#ifdef GW_QUEEN_SLIM
 +	// GW: decode 8-bit single plane PCX straight into dst (no 128 KB surface)
@@ -3603,6 +3682,20 @@ index 6138f9ba986..1308115c99f 100644
  	Common::MemoryReadStream str(src, srcSize);
  
  	Image::PCXDecoder pcx;
+diff --git a/engines/queen/display.h b/engines/queen/display.h
+index 760593f3f8b..e9842d8fe1f 100644
+--- a/engines/queen/display.h
++++ b/engines/queen/display.h
+@@ -114,6 +114,9 @@ public:
+ 
+ 	//! decode PCX picture data
+ 	void decodePCX(const uint8 *src, uint32 srcSize, uint8 *dst, uint16 dstPitch, uint16 *w, uint16 *h, uint8 *pal, uint16 palStart, uint16 palEnd);
++#ifdef GW_QUEEN_SLIM
++	bool gwDecodePCXFile(const char *name, uint8 *dst, uint16 dstPitch, uint16 *w, uint16 *h, uint8 *pal, uint16 palStart, uint16 palEnd);
++#endif
+ 
+ 	//! decode IFF picture data
+ 	void decodeIFF(const uint8 *src, uint32 srcSize, uint8 *dst, uint16 dstPitch, uint16 *w, uint16 *h, uint8 *pal, uint16 palStart, uint16 palEnd, uint8 colorBase = 0);
 diff --git a/engines/queen/journal.cpp b/engines/queen/journal.cpp
 index 4d395d5caea..64ed2a518d5 100644
 --- a/engines/queen/journal.cpp
