@@ -677,6 +677,70 @@ index c6e0e39e66a..6084b3840b1 100644
  
  	saveGameSlotId = _systemUI->askForSaveGameSlot();
  	if (saveGameSlotId >= 0) {
+diff --git a/engines/agos/zones.cpp b/engines/agos/zones.cpp
+index 37fc11af101..49541570cbb 100644
+--- a/engines/agos/zones.cpp
++++ b/engines/agos/zones.cpp
+@@ -21,6 +21,10 @@
+ 
+ 
+ 
++#ifdef GW_AGOS_SLIM
++#define FORBIDDEN_SYMBOL_EXCEPTION_getenv	// (PC test build: GW_AGOS_VGA)
++#define FORBIDDEN_SYMBOL_EXCEPTION_atoi
++#endif
+ #include "common/file.h"
+ 
+ #include "agos/intern.h"
+@@ -107,8 +111,31 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
+ 	}
+ }
+ 
++#ifdef GW_AGOS_SLIM
++static const uint32 gwAgosVgaMem = 256 * 1024;	// measured: see docs
++#endif
++
+ void AGOSEngine::setZoneBuffers() {
++#ifdef GW_AGOS_SLIM
++	// Game & Watch: the zones' memory is a ring the game reuses as it goes (allocBlock above
++	// drops what a new block overlaps); 1 MB is more than the console has in all. At most
++	// gwAgosVgaMem, less if the heap has not that much in one block.
++	{
++		uint32 want = MIN<uint32>(_vgaMemSize, gwAgosVgaMem);
++#ifndef __arm__
++		if (getenv("GW_AGOS_VGA"))			// (PC test build: to try sizes)
++			want = atoi(getenv("GW_AGOS_VGA")) * 1024;
++#endif
++		for (_zoneBuffers = nullptr; !_zoneBuffers && want >= 64 * 1024; want -= 16 * 1024)
++			_zoneBuffers = (byte *)malloc(want);
++		_vgaMemSize = want + 16 * 1024;
++		if (!_zoneBuffers)
++			error("setZoneBuffers: no memory");
++		warning("AGOS: %u KB for the zones", _vgaMemSize / 1024);
++	}
++#else
+ 	_zoneBuffers = (byte *)malloc(_vgaMemSize);
++#endif
+ 
+ 	_vgaMemPtr = _zoneBuffers;
+ 	_vgaMemBase = _zoneBuffers;
+@@ -118,7 +145,16 @@ void AGOSEngine::setZoneBuffers() {
+ }
+ 
+ byte *AGOSEngine::allocBlock(uint32 size) {
++#ifdef GW_AGOS_SLIM
++	if (size >= _vgaMemSize)
++		error("allocBlock: %u bytes, the zones' memory is %u", size, _vgaMemSize);
++	uint32 gwTries = 0;
++#endif
+ 	for (;;) {
++#ifdef GW_AGOS_SLIM
++		if (++gwTries == 100000)
++			error("allocBlock: no room for %u bytes among the running animations (zones' memory %u)", size, _vgaMemSize);
++#endif
+ 		_block = _vgaMemPtr;
+ 		_blockEnd = _block + size;
+ 
 diff --git a/engines/cge/bitmap.cpp b/engines/cge/bitmap.cpp
 index 868dad8fa68..0fc18f32ae7 100644
 --- a/engines/cge/bitmap.cpp
@@ -4022,6 +4086,1327 @@ index 17263976c17..b5683fd03b6 100644
  ResourceEntry Resource::_resourceTablePEM10[] = {
  	{ "1000SSSS.SB", 1, 0x00000000, 0x000027fe },
  	{ "1001SSSS.SB", 1, 0x000027fe, 0x00007af8 },
+diff --git a/engines/saga/actor.cpp b/engines/saga/actor.cpp
+index 8e05516d3bf..24f7135f91f 100644
+--- a/engines/saga/actor.cpp
++++ b/engines/saga/actor.cpp
+@@ -228,7 +228,9 @@ Actor::Actor(SagaEngine *vm) : _vm(vm) {
+ 	_yCellCount = _vm->_scene->getHeight();
+ 	_xCellCount = _vm->getDisplayInfo().width;
+ 
++#ifndef GW_SAGA_SLIM	// (Game & Watch: made by findActorPath, only while it searches)
+ 	_pathCell.resize(_yCellCount * _xCellCount);
++#endif
+ 
+ 	_pathRect.left = 0;
+ 	_pathRect.right = _vm->getDisplayInfo().width;
+@@ -273,6 +275,20 @@ Actor::Actor(SagaEngine *vm) : _vm(vm) {
+ 			actor->_location.y = ITE_ActorTable[i].y;
+ 			actor->_location.z = ITE_ActorTable[i].z;
+ 
++#ifdef GW_SAGA_SLIM
++			// Game & Watch: 181 actors, 50 frame lists -- an actor whose list an earlier one
++			// has already loaded points at it (the lists are only read; 40 KB)
++			{
++				ActorDataArray::iterator same = _actors.begin();
++				for (; same != actor; ++same)
++					if (same->_frameListResourceId == actor->_frameListResourceId && same->_frames == &same->_framesContainer)
++						break;
++				if (actor->_frameListResourceId && same != actor) {
++					actor->_frames = &same->_framesContainer;
++					continue;
++				}
++			}
++#endif
+ 			loadActorResources(actor);
+ 		}
+ 		_objs.resize(ITE_OBJECTCOUNT);
+diff --git a/engines/saga/actor_path.cpp b/engines/saga/actor_path.cpp
+index c3ab229f80b..2547df80394 100644
+--- a/engines/saga/actor_path.cpp
++++ b/engines/saga/actor_path.cpp
+@@ -146,6 +146,25 @@ void Actor::findActorPath(ActorData *actor, const Point &fromPoint, const Point
+ 		return;
+ 	}
+ 
++#ifdef GW_SAGA_SLIM
++	// Game & Watch: the path grid (43 KB) only lives while a path is searched
++	struct GWPathCell {
++		Common::Array<int8> &a;
++		~GWPathCell() { a.clear(); }
++	} gwPathCell = { _pathCell };
++	{
++		void *room = malloc(_yCellCount * _xCellCount);
++		if (!room) {				// (no memory for it now: a straight walk)
++			warning("findActorPath: no memory for the path grid");
++			actor->addWalkStepPoint(fromPoint);
++			actor->addWalkStepPoint(toPoint);
++			return;
++		}
++		free(room);
++		_pathCell.resize(_yCellCount * _xCellCount);
++	}
++#endif
++
+ 	for (iteratorPoint.y = 0; iteratorPoint.y < _yCellCount; iteratorPoint.y++) {
+ 		for (iteratorPoint.x = 0; iteratorPoint.x < _xCellCount; iteratorPoint.x++) {
+ 			if (_vm->_scene->validBGMaskPoint(iteratorPoint)) {
+diff --git a/engines/saga/animation.cpp b/engines/saga/animation.cpp
+index 2d8efd234d8..8432d70112b 100644
+--- a/engines/saga/animation.cpp
++++ b/engines/saga/animation.cpp
+@@ -415,9 +415,23 @@ void Anim::load(uint16 animId, const ByteArray &resourceData) {
+ 		warning("Anim::load animId=%d start != dataOffset 0x%X 0x%X", animId, uint(start), uint(dataOffset));
+ 	}
+ 
++#ifdef GW_SAGA_SLIM
++	ResourceContext *gwContext = _vm->_resource->_gwLastContext;
++	uint32 gwOffset = _vm->_resource->_gwLastOffset + dataOffset;
++	// Game & Watch: the animation takes the caller's buffer (both callers load it just for
++	// this and drop it after) instead of a copy -- up to 64 KB more while a scene loads
++	{
++		ByteArray &mine = const_cast<ByteArray &>(resourceData);
++		uint32 n = mine.size() - dataOffset;
++		memmove(mine.getBuffer(), mine.getBuffer() + dataOffset, n);
++		mine.resize(n);
++		anim->resourceData.swap(mine);
++	}
++#else
+ 	anim->resourceData.resize(resourceData.size() - dataOffset);
+ 
+ 	memcpy(anim->resourceData.getBuffer(), resourceData.getBuffer() + dataOffset, anim->resourceData.size());
++#endif
+ 	// Cache frame offsets
+ 
+ 	// WORKAROUND: Cutaway with background resource ID 37 (loaded as cutaway #4) is ending credits.
+@@ -428,6 +442,16 @@ void Anim::load(uint16 animId, const ByteArray &resourceData) {
+ 	anim->frameOffsets.resize(anim->maxFrame + 1);
+ 
+ 	fillFrameOffsets(anim);
++#ifdef GW_SAGA_SLIM
++	// Game & Watch: an animation is up to 64 KB, and a scene has several (the intro, six at
++	// once); each frame is read from the file when it is shown instead
++	if (gwContext && !_vm->isAGA() && !_vm->isECS()) {
++		anim->gwContext = gwContext;
++		anim->gwOffset = gwOffset;
++		anim->gwSize = anim->resourceData.size();
++		anim->resourceData.clear();
++	}
++#endif
+ 
+ 	// Set animation data
+ 	// HACK: We set currentFrame to -1, as the first frame of the animation is never drawn otherwise
+@@ -686,7 +710,25 @@ void Anim::decodeFrame(AnimationData *anim, size_t frameOffset, byte *buf, size_
+ 		error("decodeFrame() Buffer size inadequate");
+ 	}
+ 
++#ifdef GW_SAGA_SLIM
++	ByteArray gwFrame;
++	if (anim->gwContext) {
++		// this frame's bytes, up to where the next one starts
++		size_t end = anim->gwSize;
++		for (uint f = 0; f < anim->frameOffsets.size(); f++)
++			if (anim->frameOffsets[f] > frameOffset && anim->frameOffsets[f] < end)
++				end = anim->frameOffsets[f];
++		gwFrame.resize(end - frameOffset);
++		Common::SeekableReadStream *f = anim->gwContext->getFile(nullptr);
++		f->seek(anim->gwOffset + frameOffset, SEEK_SET);
++		if (f->read(gwFrame.getBuffer(), gwFrame.size()) != gwFrame.size())
++			error("decodeFrame() cannot read the frame");
++	}
++	Common::MemoryReadStream readS(anim->gwContext ? gwFrame.getBuffer() : &anim->resourceData[frameOffset],
++		anim->gwContext ? gwFrame.size() : anim->resourceData.size() - frameOffset);
++#else
+ 	Common::MemoryReadStream readS(&anim->resourceData[frameOffset], anim->resourceData.size() - frameOffset);
++#endif
+ 
+ // FIXME: This is thrown when the first video of the IHNM end sequence is shown (the "turn off screen"
+ // video), however the video is played correctly and the rest of the end sequence continues normally
+diff --git a/engines/saga/animation.h b/engines/saga/animation.h
+index 9491dd05cd2..b9964e7539b 100644
+--- a/engines/saga/animation.h
++++ b/engines/saga/animation.h
+@@ -26,6 +26,8 @@
+ 
+ namespace Saga {
+ 
++class ResourceContext;
++
+ #define MAX_ANIMATIONS 10
+ #define DEFAULT_FRAME_TIME 140
+ 
+@@ -72,6 +74,11 @@ struct Cutaway {
+ // Animation info array member
+ struct AnimationData {
+ 	ByteArray resourceData;
++#ifdef GW_SAGA_SLIM
++	// Game & Watch: resourceData is empty, the frames are read from the file as they are shown
++	ResourceContext *gwContext = nullptr;
++	uint32 gwOffset = 0, gwSize = 0;
++#endif
+ 
+ 	uint16 magic;
+ 
+diff --git a/engines/saga/font.cpp b/engines/saga/font.cpp
+index 66cbfdba3bd..30ba4ca1d1a 100644
+--- a/engines/saga/font.cpp
++++ b/engines/saga/font.cpp
+@@ -497,6 +497,10 @@ void DefaultFont::textDrawRect(FontId fontId, const char *text, const Common::Re
+ }
+ 
+ int DefaultFont::translateChar(int charId) {
++#ifdef GW_SAGA_SLIM
++	if (_vm->_gwSpanishFan)
++		return charId;					// (that translation's text is in Latin-1, as the font)
++#endif
+ 	if (charId <= 127 || (_vm->getLanguage() == Common::RU_RUS && charId <= 255) || (_vm->getLanguage() == Common::HE_ISR && charId <= 255))
+ 		return charId;					// normal character
+ 	else
+@@ -934,6 +938,11 @@ void DefaultFont::loadFont(FontData *font, const ByteArray& fontResourceData, bo
+ #ifndef __DS__
+ 	font->normal.font.resize(fontResourceData.size() - FONT_DESCSIZE);
+ 	memcpy(font->normal.font.getBuffer(), fontResourceData.getBuffer() + FONT_DESCSIZE, fontResourceData.size() - FONT_DESCSIZE);
++	{ static int once; if (once++ == 1) { static const int cs[] = { 237, 221, 241, 177, 225, 223 };
++	  for (int k = 0; k < 6; k++) { FontCharEntry &e = font->normal.fontCharEntry[cs[k]]; warning("GLYPH %d w=%d", cs[k], e.width);
++	    for (int y = 0; y < font->normal.header.charHeight; y++) { char line[40]; int n = 0;
++	      for (int x = 0; x < e.width && n < 38; x++) { byte b = font->normal.font[y * font->normal.header.rowLength + e.index + x / 8]; line[n++] = (b >> (7 - x % 8)) & 1 ? '#' : '.'; }
++	      line[n] = 0; warning("GLYPH %s", line); } } } }
+ #else
+ 	if (font->normal.font) {
+ 		free(font->normal.font);
+diff --git a/engines/saga/gfx.cpp b/engines/saga/gfx.cpp
+index 436e104cee0..7b2d6144b4d 100644
+--- a/engines/saga/gfx.cpp
++++ b/engines/saga/gfx.cpp
+@@ -33,6 +33,10 @@
+ #include "graphics/paletteman.h"
+ #include "engines/util.h"
+ 
++#ifdef GW_SAGA_SLIM
++void gwAdoptWhole(const byte *p, uint32 size);	// src/gw_system.cpp: the back buffer is the screen
++#endif
++
+ namespace Saga {
+ 
+ #define RID_IHNM_DEFAULT_PALETTE 1
+@@ -47,6 +51,10 @@ Gfx::Gfx(SagaEngine *vm, OSystem *system, int width, int height) : _vm(vm), _sys
+ 	debug(5, "Init screen %dx%d", width, height);
+ 	// Convert surface data to R surface data
+ 	_backBuffer.create(width, height, Graphics::PixelFormat::createFormatCLUT8());
++#ifdef GW_SAGA_SLIM
++	// Game & Watch: the backend shows the back buffer as it is, no copy of its own (64 KB)
++	gwAdoptWhole((const byte *)_backBuffer.getPixels(), width * height);
++#endif
+ 
+ 	if (vm->getLanguage() == Common::JA_JPN)
+ 		_sjisBackBuffer.create(width << 1, height << 1, Graphics::PixelFormat::createFormatCLUT8());
+@@ -58,6 +66,9 @@ Gfx::Gfx(SagaEngine *vm, OSystem *system, int width, int height) : _vm(vm), _sys
+ }
+ 
+ Gfx::~Gfx() {
++#ifdef GW_SAGA_SLIM
++	gwAdoptWhole(nullptr, 0);
++#endif
+ 	_backBuffer.free();
+ 	_sjisBackBuffer.free();
+ }
+diff --git a/engines/saga/image.cpp b/engines/saga/image.cpp
+index d4277061617..cbfee084c04 100644
+--- a/engines/saga/image.cpp
++++ b/engines/saga/image.cpp
+@@ -164,14 +164,36 @@ bool SagaEngine::decodeBGImage(const ByteArray &imageData, ByteArray &outputBuff
+ 		int modex_height = granulate(hdr.height, 4);
+ 		const byte *RLE_data_ptr;
+ 		size_t RLE_data_len;
+-		decodeBuffer.resize(hdr.width * modex_height);
+ 		RLE_data_ptr = &imageData.front() + SAGA_IMAGE_DATA_OFFSET;
+ 		RLE_data_len = imageData.size() - SAGA_IMAGE_DATA_OFFSET;
++#ifdef GW_SAGA_SLIM
++		// Game & Watch: decoded and unbanked in the output itself, a band of 4 rows at a
++		// time (unbankBGImage() only moves bytes within such a band) -- not 64 KB more
++		outputBuffer.resize(hdr.width * modex_height);
++		if (!decodeBGImageRLE(RLE_data_ptr, RLE_data_len, outputBuffer)) {
++			return false;
++		}
++		{
++			int w = hdr.width;
++			decodeBuffer.resize(4 * w);
++			byte *band = decodeBuffer.getBuffer();
++			for (int y = 0; y < modex_height; y += 4) {
++				byte *p = outputBuffer.getBuffer() + y * w;
++				memcpy(band, p, 4 * w);
++				for (int r = 0; r < 4; r++)
++					for (int x = 0; x < w; x++)
++						p[r * w + x] = band[x * 4 + r];
++			}
++		}
++		outputBuffer.resize(hdr.width * hdr.height);
++#else
++		decodeBuffer.resize(hdr.width * modex_height);
+ 		if (!decodeBGImageRLE(RLE_data_ptr, RLE_data_len, decodeBuffer)) {
+ 			return false;
+ 		}
+ 		outputBuffer.resize(hdr.width * hdr.height);
+ 		unbankBGImage(outputBuffer.getBuffer(), decodeBuffer.getBuffer(), hdr.width, hdr.height);
++#endif
+ 	}
+ 
+ 	// For some reason bg images in IHNM are upside down
+diff --git a/engines/saga/interface.cpp b/engines/saga/interface.cpp
+index e593a058e99..c1febb7e5a9 100644
+--- a/engines/saga/interface.cpp
++++ b/engines/saga/interface.cpp
+@@ -324,6 +324,33 @@ Interface::Interface(SagaEngine *vm) : _vm(vm) {
+ 	_vm->getTimerManager()->installTimerProc(&saveReminderCallback, TIMETOSAVE, this, "sagaSaveReminder");
+ }
+ 
++#ifdef GW_SAGA_SLIM
++int Interface::gwDropPanels() {
++	int freed = 0;
++	if (_gwPanelBusy || _vm->getGameId() != GID_ITE)
++		return 0;
++	if (_panelMode != kPanelConverse && !_conversePanel.image.empty()) {
++		_conversePanel.image.clear();
++		freed = 1;
++	}
++	if (_panelMode != kPanelOption && _optionPanel.buttonsCount && !_optionPanel.image.empty()) {
++		_optionPanel.image.clear();
++		freed = 1;
++	}
++	return freed;
++}
++
++void Interface::gwPanelImage(InterfacePanel &panel, uint32 resourceId) {
++	if (!panel.image.empty())
++		return;
++	_gwPanelBusy = true;
++	ByteArray resourceData;
++	_vm->_resource->loadResource(_interfaceContext, resourceId, resourceData);
++	_vm->decodeBGImage(resourceData, panel.image, &panel.imageWidth, &panel.imageHeight);
++	_gwPanelBusy = false;
++}
++#endif
++
+ Interface::~Interface() {
+ 	_vm->getTimerManager()->removeTimerProc(&saveReminderCallback);
+ }
+@@ -802,6 +829,9 @@ void Interface::draw() {
+ 		}
+ 	} else if (_panelMode == kPanelConverse) {
+ 		_conversePanel.getRect(rect);
++#ifdef GW_SAGA_SLIM
++		gwPanelImage(_conversePanel, _vm->getResourceDescription()->conversePanelResourceId);
++#endif
+ 		_vm->_gfx->drawRegion(rect, _conversePanel.image.getBuffer());
+ 		converseDisplayTextLines();
+ 	}
+@@ -957,6 +987,9 @@ void Interface::drawOption() {
+ 	int spritenum = 0;
+ 
+ 	_optionPanel.getRect(rect);
++#ifdef GW_SAGA_SLIM
++	gwPanelImage(_optionPanel, _vm->getResourceDescription()->optionPanelResourceId);
++#endif
+ 	_vm->_gfx->drawRegion(rect, _optionPanel.image.getBuffer());
+ 
+ 	for (int i = 0; i < _optionPanel.buttonsCount; i++) {
+@@ -1654,6 +1687,15 @@ void Interface::setOption(PanelButton *panelButton) {
+ 
+ 		if (!_vm->isSaveListFull() && (_optionSaveFileTitleNumber == 0)) {
+ 			_textInputString[0] = 0;
++#ifdef GW_SAGA_SLIM
++			// Game & Watch: typing is slow (the GAME button's keyboard) -- a new save is named
++			// with the date and time, which can be changed or just saved
++			{
++				TimeDate t;
++				_vm->_system->getTimeAndDate(t);
++				Common::sprintf_s(_textInputString, "%02d/%02d %02d:%02d", t.tm_mday, t.tm_mon + 1, t.tm_hour, t.tm_min);
++			}
++#endif
+ 		} else {
+ 			Common::strcpy_s(_textInputString, _vm->getSaveFile(_optionSaveFileTitleNumber)->name);
+ 		}
+diff --git a/engines/saga/interface.h b/engines/saga/interface.h
+index 8872a44dc84..962197993f6 100644
+--- a/engines/saga/interface.h
++++ b/engines/saga/interface.h
+@@ -190,6 +190,13 @@ public:
+ 	bool isActive() { return _active; }
+ 	void setMode(int mode);
+ 	int getMode() const { return _panelMode; }
++#ifdef GW_SAGA_SLIM
++	// Game & Watch: the converse and option panels' images are let go when memory runs short
++	// and they are not shown, and decoded again when they are drawn
++	int gwDropPanels();
++	void gwPanelImage(InterfacePanel &panel, uint32 resourceId);
++	bool _gwPanelBusy = false;
++#endif
+ 	void setFadeMode(int fadeMode) {
+ 		_fadeMode = fadeMode;
+ 		draw();
+diff --git a/engines/saga/itedata.cpp b/engines/saga/itedata.cpp
+index 43a24408840..4679db5b268 100644
+--- a/engines/saga/itedata.cpp
++++ b/engines/saga/itedata.cpp
+@@ -806,6 +806,65 @@ const RawPoint pieceOrigins[PUZZLE_PIECES] = {
+ };
+ 
+ // Objects
++#ifdef GW_SAGA_SLIM
++// Game & Watch: the interface in Spanish, for ITE's Spanish fan translation (Latin-1)
++const char *gwITEinterfaceES[53] = {
++	"Ir a",
++	"Mirar",
++	"Coger",
++	"Hablar con",
++	"Abrir",
++	"Cerrar",
++	"Usar",
++	"Dar",
++	"Opciones",
++	"Prueba",
++	"Demo",
++	"Ayuda",
++	"Salir del juego",
++	"R\341pida",
++	"Lenta",
++	"S\355",
++	"No",
++	"Seguir jugando",
++	"Cargar",
++	"Guardar",
++	"Opciones del juego",
++	"Velocidad de lectura",
++	"M\372sica",
++	"Sonido",
++	"Cancelar",
++	"Salir",
++	"Aceptar",
++	"Media",
++	"Clic",
++	"10%",
++	"20%",
++	"30%",
++	"40%",
++	"50%",
++	"60%",
++	"70%",
++	"80%",
++	"90%",
++	"M\341x",
++	"\277Salir del juego?",
++	"\241Partida cargada!",
++	"Nombre de la partida",
++	"Dar %s a %s",
++	"Usar %s con %s",
++	"[Nueva partida]",
++	"No puedo coger eso.",
++	"No veo nada especial.",
++	"No hay por d\363nde abrirlo.",
++	"No hay nada que cerrar.",
++	"No s\351 c\363mo hacer eso.",
++	"Ver di\341logos",
++	"\277Qu\351 responde Rif?",
++	"Cargando una partida guardada"
++};
++#endif
++
+ const char *pieceNames[][PUZZLE_PIECES] = {
+ 	// English
+ 	{
+@@ -825,11 +884,23 @@ const char *pieceNames[][PUZZLE_PIECES] = {
+ 		"spago", "pialla", "martello", "metro a nastro", "accetta",
+ 		"cesoie", "righello", "sega", "mazza", "pennello"
+ 	},
+-	// Spanish
+-	{
+-		"", "", "", "", "",
+-		"", "", "", "", "",
+-		"", "", "", "", ""
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
++	{
++		"destornillador",
++		"alicates",
++		"sargento",
++		"prensa de madera",
++		"nivel",
++		"cordel",
++		"cepillo",
++		"martillo",
++		"cinta m\351trica",
++		"hacha",
++		"tijeras",
++		"regla",
++		"sierra",
++		"mazo",
++		"pincel"
+ 	},
+ 	// French
+ 	{
+@@ -904,12 +975,12 @@ const char *hintStr[][4] = {
+ 		"Controlla ogni nuovo angolo e lato per ogni pezzo che combacia.",
+ 		"Non vedo nulla fuori posto."
+ 	},
+-	// Spanish
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 	{
+-		"",
+-		"",
+-		"",
+-		""
++		"Mira primero qu\351 piezas podr\355an ir en cada esquina.",
++		"Mira qu\351 esquina admite menos piezas y empieza por ella.",
++		"Revisa cada esquina y cada lado nuevos buscando piezas que encajen.",
++		"No veo nada fuera de su sitio."
+ 	},
+ 	// French
+ 	{
+@@ -981,13 +1052,13 @@ const char *solicitStr[][NUM_SOLICIT_REPLIES] = {
+ 		"Psst! Serve un aiutino?",
+ 		"Io, sai, l'avrei fatto diversamente."
+ 	},
+-	// Spanish
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 	{
+-		"",
+-		"",
+-		"",
+-		"",
+-		""
++		"\241Eh, Zorro! \277Quieres una pista?",
++		"\277Te echo una mano?",
++		"Mmm... Mmm...",
++		"\241Psst! \277Quieres una pista?",
++		"Yo lo habr\355a hecho de otra manera, \277sabes?"
+ 	},
+ 	// French
+ 	{
+@@ -1060,11 +1131,11 @@ const char *sakkaStr[][NUM_SAKKA] = {
+ 		"Ragazzi! Questo dovrebbe essere un test!",
+ 		"Forza ragazzi, non si pu\225!"
+ 	},
+-	// Spanish
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 	{
+-		"",
+-		"",
+-		""
++		"\241Eh, no deb\351is ayudar a los aspirantes!",
++		"\241Chicos! \241Se supone que esto es una prueba!",
++		"\241Vamos, compa\361eros, eso no est\341 en las reglas!"
+ 	},
+ 	// French
+ 	{
+@@ -1129,13 +1200,13 @@ const char *whineStr[][NUM_WHINES] = {
+ 		"Credo che questa faccenda ti abbia dato alla testa, Sakka!",
+ 		"Beh, non ricordo regole specifiche contro i suggerimenti."
+ 	},
+-	// Spanish
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 	{
+-		"",
+-		"",
+-		"",
+-		"",
+-		""
++		"\241Venga ya, Sakka!",
++		"Una pista no har\341 da\361o, \277no?",
++		"Ay...",
++		"\241Creo que esa carpeta se te ha subido a la cabeza, Sakka!",
++		"Pues no recuerdo ninguna regla que proh\355ba las pistas."
+ 	},
+ 	// French
+ 	{
+@@ -1211,12 +1282,12 @@ const char *optionsStr[][4] = {
+ 		"\"No, grazie, voglio provare a risolverlo da solo.\"",
+ 		"Penso che la tessera %s sia nel posto sbagliato."
+ 	},
+-	// Spanish
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 	{
+-		"",
+-		"",
+-		"",
+-		""
++		"\"Ya har\351 este puzle luego.\"",
++		"\"S\355, una pista, por favor.\"",
++		"\"No, gracias, quiero intentarlo yo solo.\"",
++		"Creo que la pieza \"%s\" est\341 mal colocada."
+ 	},
+ 	// French
+ 	{
+@@ -1329,26 +1400,21 @@ const IntroDialogue introDialogueCave1[][4] = {
+ 		"immaginazione."
+ 	} },
+ 	// -----------------------------------------------------
+-	{ { // Spanish
++	{ { // Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 		0,		// cave voice 0
+-		""
+-		""
++		"Vemos el cielo, vemos la tierra, vemos el agua, y nos preguntamos: \277somos los \372nicos?"
+ 	},
+ 	{
+ 		1,		// cave voice 1
+-		""
+-		""
++		"Mucho antes de que existi\351ramos, los humanos gobernaban la Tierra."
+ 	},
+ 	{
+ 		2,		// cave voice 2
+-		""
+-		""
++		"Hac\355an cosas maravillosas y mov\355an monta\361as enteras."
+ 	},
+ 	{
+ 		3,		// cave voice 3
+-		""
+-		""
+-		""
++		"Conoc\355an el Secreto del Vuelo, el Secreto de la Felicidad y otros secretos que ni imaginamos."
+ 	} },
+ 	// -----------------------------------------------------
+ 	{ { // French fan translation
+@@ -1516,20 +1582,17 @@ const IntroDialogue introDialogueCave2[][3] = {
+ 		"Siamo i loro figli."
+ 	} },
+ 	// -----------------------------------------------------
+-	{ { // Spanish
++	{ { // Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 		4,		// cave voice 4
+-		""
+-		""
+-
++		"Los humanos conoc\355an tambi\351n el Secreto de la Vida, y lo usaron para darnos los Cuatro Grandes Dones:"
+ 	},
+ 	{
+ 		5,		// cave voice 5
+-		""
+-
++		"Mentes que piensan, corazones que sienten, bocas que hablan y manos que alcanzan."
+ 	},
+ 	{
+ 		6,		// cave voice 6
+-		""
++		"Somos sus hijos."
+ 	} },
+ 	// -----------------------------------------------------
+ 	{ { // French fan translation
+@@ -1664,20 +1727,17 @@ const IntroDialogue introDialogueCave3[][3] = {
+ 
+ 	} },
+ 	// -----------------------------------------------------
+-	{ { // Spanish
++	{ { // Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 		7,		// cave voice 7
+-		""
++		"Nos ense\361aron a usar las manos, y a hablar."
+ 	},
+ 	{
+ 		8,		// cave voice 8
+-		""
+-		""
++		"Nos mostraron la alegr\355a de usar la mente."
+ 	},
+ 	{
+ 		9,		// cave voice 9
+-		""
+-		""
+-
++		"Nos quer\355an, y cuando estuvi\351ramos preparados, sin duda nos habr\355an dado el Secreto de la Felicidad."
+ 	} },
+ 	// -----------------------------------------------------
+ 	{ { // French fan translation
+@@ -1825,25 +1885,21 @@ const IntroDialogue introDialogueCave4[][4] = {
+ 		"destino?"
+ 	} },
+ 	// -----------------------------------------------------
+-	{ { // Spanish
++	{ { // Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 		10,		// cave voice 10
+-		""
+-		""
+-
++		"Y ahora vemos el cielo, la tierra y el agua que hemos heredado, y nos preguntamos: \277por qu\351 se fueron?"
+ 	},
+ 	{
+ 		11,		// cave voice 11
+-		""
+-		""
++		"\277Siguen vivos, en las estrellas? \277En lo hondo de los oc\351anos? \277En el viento?"
+ 	},
+ 	{
+ 		12,		// cave voice 12
+-		""
++		"Nos preguntamos: \277tuvieron un buen o un mal final?"
+ 	},
+ 	{
+ 		13,		// cave voice 13
+-		""
+-		""
++		"\277Y correremos nosotros la misma suerte alg\372n d\355a?"
+ 	} },
+ 	// -----------------------------------------------------
+ 	{ { // French fan translation
+diff --git a/engines/saga/itedata.h b/engines/saga/itedata.h
+index e91617ae9b4..ff8286eff80 100644
+--- a/engines/saga/itedata.h
++++ b/engines/saga/itedata.h
+@@ -113,6 +113,9 @@ extern ObjectTableData ITE_ObjectTable[ITE_OBJECTCOUNT];
+ extern IteFxTable ITE_SfxTable[ITE_SFXCOUNT];
+ 
+ extern const char *ITEinterfaceTextStrings[][53];
++#ifdef GW_SAGA_SLIM
++extern const char *gwITEinterfaceES[53];
++#endif
+ 
+ #define PUZZLE_PIECES 15
+ 
+diff --git a/engines/saga/resource.cpp b/engines/saga/resource.cpp
+index defa5cbf936..cbece966a5b 100644
+--- a/engines/saga/resource.cpp
++++ b/engines/saga/resource.cpp
+@@ -223,6 +223,13 @@ bool ResourceContext::loadResV1() {
+ 		return false;
+ 	}
+ 
++#ifdef GW_SAGA_SLIM
++	if (count > 256) {
++		_gwTableOffset = resourceTableOffset;
++		_gwCount = count;
++		return true;
++	}
++#endif
+ 	// Load resource table
+ 	tableBuffer.resize(RSC_TABLEENTRY_SIZE * count);
+ 
+@@ -249,6 +256,24 @@ bool ResourceContext::loadResV1() {
+ 	return result;
+ }
+ 
++#ifdef GW_SAGA_SLIM
++ResourceData *ResourceContext::gwResourceData(uint32 resourceId) {
++	if (resourceId >= _gwCount)
++		error("ResourceContext::getResourceData() wrong resourceId %d", resourceId);
++	for (int i = 0; i < _gwPatches; i++)
++		if (_gwPatchId[i] == resourceId)
++			return &_gwPatch[i];
++	Common::SeekableReadStream *f = getFile(nullptr);
++	byte e[RSC_TABLEENTRY_SIZE];
++	f->seek(_gwTableOffset + resourceId * RSC_TABLEENTRY_SIZE, SEEK_SET);
++	f->read(e, RSC_TABLEENTRY_SIZE);
++	_gwOne.offset = _isBigEndian ? READ_BE_UINT32(e) : READ_LE_UINT32(e);
++	_gwOne.size = _isBigEndian ? READ_BE_UINT32(e + 4) : READ_LE_UINT32(e + 4);
++	_gwOne.patchData = nullptr;
++	return &_gwOne;
++}
++#endif
++
+ bool ResourceContext::load(SagaEngine *vm, Resource *resource) {
+ 	if (_fileName == nullptr) // IHNM special case
+ 		return true;
+@@ -512,6 +537,10 @@ void Resource::loadResource(ResourceContext *context, uint32 resourceId, ByteArr
+ 	}
+ 
+ 	debug(8, "loadResource %d 0x%X:0x%X", resourceId, resourceOffset, uint(resourceData->size));
++#ifdef GW_SAGA_SLIM
++	if (resourceBuffer.size() < resourceData->size)
++		resourceBuffer.clear();		// (Game & Watch: the old contents are not kept, so not copied over)
++#endif
+ 	resourceBuffer.resize(resourceData->size);
+ 
+ 	file->seek((long)resourceOffset, SEEK_SET);
+@@ -519,6 +548,11 @@ void Resource::loadResource(ResourceContext *context, uint32 resourceId, ByteArr
+ 	if (file->read(resourceBuffer.getBuffer(), resourceBuffer.size()) != resourceBuffer.size()) {
+ 		error("Resource::loadResource() failed to read");
+ 	}
++#ifdef GW_SAGA_SLIM
++	// (where it is in its file, for Anim::load: an animation is read from there frame by frame)
++	_gwLastContext = (resourceData->diskNum == -1 && !resourceData->patchData) ? context : nullptr;
++	_gwLastOffset = resourceOffset;
++#endif
+ 
+ 	if (_vm->getPlatform() == Common::Platform::kPlatformAmiga &&
+ 	    resourceBuffer.size() >= 16 && READ_BE_UINT32(resourceBuffer.getBuffer()) == MKTAG('H', 'E', 'A', 'D')
+diff --git a/engines/saga/resource.h b/engines/saga/resource.h
+index 1fdeaeaf071..674ee8367d6 100644
+--- a/engines/saga/resource.h
++++ b/engines/saga/resource.h
+@@ -52,6 +52,9 @@ public:
+ 	PatchData(Common::SeekableReadStream *patchFile, const char *fileName): _patchFile(patchFile), _fileName(fileName), _deletePatchFile(false), _patchFileOpened(true) {
+ 	}
+ 
++#ifdef GW_SAGA_SLIM
++	const char *gwFileName() const { return _fileName; }
++#endif
+ 	Common::SeekableReadStream *getStream() {
+ 		if (_patchFileOpened)
+ 			return _patchFile;
+@@ -135,15 +138,35 @@ public:
+ 	}
+ 
+ 	bool validResourceId(uint32 resourceId) const {
++#ifdef GW_SAGA_SLIM
++		if (_gwCount)
++			return resourceId < _gwCount;
++#endif
+ 		return (resourceId < _table.size());
+ 	}
+ 
+ 	ResourceData *getResourceData(uint32 resourceId) {
++#ifdef GW_SAGA_SLIM
++		if (_gwCount)
++			return gwResourceData(resourceId);
++#endif
+ 		if (resourceId >= _table.size()) {
+ 			error("ResourceContext::getResourceData() wrong resourceId %d", resourceId);
+ 		}
+ 		return &_table[resourceId];
+ 	}
++#ifdef GW_SAGA_SLIM
++	// Game & Watch: a big table (ITE: 3,700 voices, 1,800 resources) stays in the file; each
++	// entry is read when it is asked for, into _gwOne -- good until the next call. The few
++	// entries a patch file replaces (processPatches) are kept in _gwPatch.
++	uint32 _gwTableOffset = 0, _gwCount = 0;
++	ResourceData _gwOne;
++	ResourceData *gwResourceData(uint32 resourceId);
++	enum { kGWPatches = 32 };
++	ResourceData _gwPatch[kGWPatches];
++	uint32 _gwPatchId[kGWPatches];
++	int _gwPatches = 0;
++#endif
+ 
+ 	void closeFile() {
+ 		_file.reset();
+@@ -198,6 +221,10 @@ struct MetaResource {
+ 
+ class Resource {
+ public:
++#ifdef GW_SAGA_SLIM
++	ResourceContext *_gwLastContext = nullptr;	// the last loadResource(): its file, if it can be read again
++	uint32 _gwLastOffset = 0;			// and where in it
++#endif
+ 	Resource(SagaEngine *vm);
+ 	virtual ~Resource();
+ 	bool createContexts();
+diff --git a/engines/saga/resource_rsc.cpp b/engines/saga/resource_rsc.cpp
+index 3fc7b0615fa..51ff8ccbba0 100644
+--- a/engines/saga/resource_rsc.cpp
++++ b/engines/saga/resource_rsc.cpp
+@@ -33,6 +33,29 @@ void ResourceContext_RSC::processPatches(Resource *resource, const GamePatchDesc
+ 	// Process external patch files
+ 	for (patchDescription = patchFiles; patchDescription && patchDescription->fileName; ++patchDescription) {
+ 		if ((patchDescription->fileType & _fileType) != 0) {
++#ifdef GW_SAGA_SLIM
++			if (_gwCount) {			// (the table is in the file: a slot of _gwPatch)
++				uint32 id = patchDescription->resourceId;
++				int i = 0;
++				while (i < _gwPatches && _gwPatchId[i] != id)
++					i++;
++				if (id >= _gwCount || i < _gwPatches || _gwPatches == kGWPatches)
++					continue;
++				PatchData *patch = new PatchData(patchDescription->fileName);
++				Common::SeekableReadStream *s = patch->getStream();
++				if (!s) {
++					delete patch;
++					continue;
++				}
++				_gwPatchId[i] = id;
++				_gwPatch[i].offset = 0;
++				_gwPatch[i].size = s->size();
++				_gwPatch[i].patchData = patch;
++				patch->closeStream();
++				_gwPatches++;
++				continue;
++			}
++#endif
+ 			if (patchDescription->resourceId < _table.size()) {
+ 				resourceData = &_table[patchDescription->resourceId];
+ 				// Check if we've already found a patch for this resource. One is enough.
+diff --git a/engines/saga/saga.cpp b/engines/saga/saga.cpp
+index eab4e04290b..80bd54767ac 100644
+--- a/engines/saga/saga.cpp
++++ b/engines/saga/saga.cpp
+@@ -653,6 +653,10 @@ const char *SagaEngine::getObjectName(uint16 objectId) const {
+ }
+ 
+ int SagaEngine::getLanguageIndex() {
++#ifdef GW_SAGA_SLIM
++	if (_gwSpanishFan)
++		return 3;						// the Spanish rows (itedata.cpp)
++#endif
+ 	switch (getLanguage()) {
+ 	case Common::EN_ANY:
+ 		return 0;
+@@ -688,6 +692,10 @@ const char *SagaEngine::getTextString(int textStringId) {
+ 			return "\xC8\xF1\xEF\xEE\xEB\xFC\xE7\xEE\xE2\xE0\xF2\xFC %s >> %s"; // "Использовать %s >> %s"
+ 	}
+ 
++#ifdef GW_SAGA_SLIM
++	if (_gwSpanishFan)
++		return gwITEinterfaceES[textStringId];
++#endif
+ 	string = ITEinterfaceTextStrings[lang][textStringId];
+ 	if (!string)
+ 		string = ITEinterfaceTextStrings[0][textStringId];
+diff --git a/engines/saga/saga.h b/engines/saga/saga.h
+index be44495c41e..50693ca219c 100644
+--- a/engines/saga/saga.h
++++ b/engines/saga/saga.h
+@@ -547,6 +547,11 @@ public:
+ 	bool _subtitlesEnabled;
+ 	bool _voicesEnabled;
+ 	bool _voiceFilesExist;
++#ifdef GW_SAGA_SLIM
++	// ITE's Spanish fan translation (Script: its verbs): Latin-1 text, and ScummVM's own texts
++	// in Spanish (itedata.cpp, gwITEinterfaceES)
++	bool _gwSpanishFan = false;
++#endif
+ 	int _readingSpeed;
+ 
+ 	bool _copyProtection;
+diff --git a/engines/saga/scene.cpp b/engines/saga/scene.cpp
+index cdb54396cb6..41b000e6194 100644
+--- a/engines/saga/scene.cpp
++++ b/engines/saga/scene.cpp
+@@ -133,12 +133,24 @@ const char *SAGAResourceTypesString[] = {
+ 	"SAGA_PALETTE"
+ };
+ 
++#ifdef GW_SAGA_SLIM
++extern "C" int (*heap_low_memory_hook)(uint32 n);	// src/heap.c: asked before an allocation fails
++static Scene *gwScene;
++static int gwSagaLowMemory(uint32) {
++	return gwScene ? gwScene->gwDropBG() : 0;
++}
++#endif
++
+ Scene::Scene(SagaEngine *vm) : _vm(vm) {
+ 	ByteArray sceneLUTData;
+ 	uint32 resourceId;
+ 	uint i;
+ 
+ 	// Load scene module resource context
++#ifdef GW_SAGA_SLIM
++	gwScene = this;
++	heap_low_memory_hook = gwSagaLowMemory;
++#endif
+ 	_sceneContext = _vm->_resource->getContext(GAME_RESOURCEFILE);
+ 	if (_sceneContext == nullptr) {
+ 		error("Scene::Scene() scene context not found");
+@@ -206,6 +218,12 @@ Scene::Scene(SagaEngine *vm) : _vm(vm) {
+ }
+ 
+ Scene::~Scene() {
++#ifdef GW_SAGA_SLIM
++	if (gwScene == this) {
++		gwScene = nullptr;
++		heap_low_memory_hook = nullptr;
++	}
++#endif
+ 	delete _actionMap;
+ 	delete _objectMap;
+ }
+@@ -487,7 +505,27 @@ void Scene::getSlopes(int &beginSlope, int &endSlope) {
+ 	endSlope = getHeight() - _sceneDescription.endSlope;
+ }
+ 
++#ifdef GW_SAGA_SLIM
++
++int Scene::gwDropBG() {
++	if (_gwBgBusy || !_bg.loaded || _bg.buffer.empty() || _gwBgResId < 0)
++		return (_vm->_interface && _vm->_interface->gwDropPanels()) || (_vm->_sprite && _vm->_sprite->gwEvict(64 * 1024));
++	_bg.buffer.clear();
++	return 1;
++}
++#endif
++
+ void Scene::getBGInfo(BGInfo &bgInfo) {
++#ifdef GW_SAGA_SLIM
++	if (_bg.loaded && _bg.buffer.empty() && _gwBgResId >= 0) {
++		_gwBgBusy = true;
++		ByteArray data;
++		_vm->_resource->loadResource(_sceneContext, _gwBgResId, data);
++		if (!_vm->decodeBGImage(data, _bg.buffer, &_bg.w, &_bg.h))
++			error("Scene::getBGInfo() cannot decode the background again");
++		_gwBgBusy = false;
++	}
++#endif
+ 	bgInfo.buffer = _bg.buffer.getBuffer();
+ 	bgInfo.bounds.left = 0;
+ 	bgInfo.bounds.top = 0;
+@@ -963,12 +1001,19 @@ void Scene::processSceneResources(SceneResourceDataArray &resourceList, SceneLoa
+ 
+ 			debug(3, "Loading background resource.");
+ 
++#ifdef GW_SAGA_SLIM
++			_gwBgBusy = true;
++			_gwBgResId = resource.resourceId;
++#endif
+ 			if (!_vm->decodeBGImage(resourceData,
+ 				_bg.buffer,
+ 				&_bg.w,
+ 				&_bg.h)) {
+ 				error("Scene::processSceneResources() Error loading background resource %i", resource.resourceId);
+ 			}
++#ifdef GW_SAGA_SLIM
++			_gwBgBusy = false;
++#endif
+ 			_bg.loaded = true;
+ 
+ 			palPointer = _vm->getImagePal(resourceData);
+diff --git a/engines/saga/scene.h b/engines/saga/scene.h
+index a2da9efefd0..88e2a064db3 100644
+--- a/engines/saga/scene.h
++++ b/engines/saga/scene.h
+@@ -254,6 +254,13 @@ class Scene {
+ 	void initDoorsState();
+ 
+ 	void getBGInfo(BGInfo &bgInfo);
++#ifdef GW_SAGA_SLIM
++	// Game & Watch: when memory runs short the background (64 KB, already drawn) is let go,
++	// and decoded again from the file the next time it is asked for
++	int gwDropBG();
++	int _gwBgResId = -1;
++	bool _gwBgBusy = false;
++#endif
+ 	void getBGPal(PalEntry *&pal) {
+ 		pal = (PalEntry *)_bg.pal;
+ 	}
+diff --git a/engines/saga/script.cpp b/engines/saga/script.cpp
+index b161f5f0225..745045ba18f 100644
+--- a/engines/saga/script.cpp
++++ b/engines/saga/script.cpp
+@@ -126,6 +126,16 @@ SAGA1Script::SAGA1Script(SagaEngine *vm) : Script(vm) {
+ 	_vm->_resource->loadResource(resourceContext, _vm->getResourceDescription()->mainStringsResourceId, stringsData);
+ 
+ 	_vm->loadStrings(_mainStrings, stringsData, _vm->isBigEndian());
++#ifdef GW_SAGA_SLIM
++	// ITE's Spanish fan translation: ITE.RSC with Spanish verbs ("Ir a"), and text in Latin-1
++	if (_vm->getGameId() == GID_ITE)
++		for (int i = 0; i < 8; i++)
++			if (!strcmp(_mainStrings.getString(i), "Ir a")) {
++				_vm->_gwSpanishFan = true;
++				warning("ITE: Spanish fan translation");
++				break;
++			}
++#endif
+ 
+ 	setupScriptOpcodeList();
+ 
+diff --git a/engines/saga/sndres.cpp b/engines/saga/sndres.cpp
+index 1ab5c8963b8..9832b5761ae 100644
+--- a/engines/saga/sndres.cpp
++++ b/engines/saga/sndres.cpp
+@@ -185,10 +185,30 @@ enum GameSoundType {
+ };
+ 
+ // Use a macro to read in the sound data based on if we actually want to buffer it or not
++#ifdef GW_SAGA_SLIM
++// Game & Watch: a voice or a sound plays from its file, read as it plays, instead of loaded
++// whole (ITE's intro speaks for 350 KB at a time); a file handle of its own, so that nothing
++// else that reads that file moves it
++static Common::SeekableReadStream *gwSoundStream(const char *name, Common::SeekableReadStream &readS, uint32 size) {
++	Common::File *f = new Common::File();
++	if (!name || !f->open(name)) {
++		delete f;
++		return readS.readStream(size);
++	}
++	uint32 pos = readS.pos();
++	readS.skip(size);
++	return new Common::SeekableSubReadStream(f, pos, pos + size, DisposeAfterUse::YES);
++}
++#define READ_STREAM(streamSize) \
++	(onlyHeader \
++	? new Common::SeekableSubReadStream(&readS, readS.pos(), readS.pos() + (streamSize)) \
++	: gwSoundStream(gwName, readS, streamSize))
++#else
+ #define READ_STREAM(streamSize) \
+ 	(onlyHeader \
+ 	? new Common::SeekableSubReadStream(&readS, readS.pos(), readS.pos() + (streamSize)) \
+ 	: readS.readStream(streamSize))
++#endif
+ 
+ bool SndRes::load(ResourceContext *context, uint32 resourceId, SoundBuffer &buffer, bool onlyHeader) {
+ 	size_t soundResourceLength;
+@@ -196,6 +216,9 @@ bool SndRes::load(ResourceContext *context, uint32 resourceId, SoundBuffer &buff
+ 	GameSoundType resourceType = kSoundPCM;
+ 	int rate = 0, size = 0;
+ 	Common::SeekableReadStream *file;
++#ifdef GW_SAGA_SLIM
++	const char *gwName = nullptr;		// the file it is in (READ_STREAM)
++#endif
+ 
+ 	if (context == nullptr)
+ 		return false;
+@@ -230,6 +253,10 @@ bool SndRes::load(ResourceContext *context, uint32 resourceId, SoundBuffer &buff
+ 	{
+ 		ResourceData* resourceData = context->getResourceData(resourceId);
+ 		file = context->getFile(resourceData);
++#ifdef GW_SAGA_SLIM
++		if (resourceData->diskNum == -1 && !(context->fileType() & GAME_MACBINARY))
++			gwName = resourceData->patchData ? resourceData->patchData->gwFileName() : context->fileName();
++#endif
+ 
+ 		file->seek(resourceData->offset);
+ 		soundResourceLength = resourceData->size;
+diff --git a/engines/saga/sprite.cpp b/engines/saga/sprite.cpp
+index e265a04091a..260bd4e844f 100644
+--- a/engines/saga/sprite.cpp
++++ b/engines/saga/sprite.cpp
+@@ -133,7 +133,124 @@ Sprite::~Sprite() {
+ 	debug(8, "Shutting down sprite subsystem...");
+ }
+ 
++#ifdef GW_SAGA_SLIM
++// Game & Watch: a sprite list is only its sprites' sizes and where they are in the file; a
++// sprite is read (packed) when drawn, and kept a while in a small cache (gwPacked) -- the
++// lists of a busy scene were 150 KB
++bool Sprite::gwLoadList(int resourceId, SpriteList &spriteList, byte keepMask) {
++	if (_vm->isAGA() || _vm->isECS() || _vm->isITEAmiga() || _vm->getGameId() == GID_IHNM || _vm->isMacResources())
++		return false;
++	ResourceData *rd = _spriteContext->getResourceData(resourceId);
++	if (rd->diskNum != -1 || rd->patchData)
++		return false;
++	uint32 base = rd->offset, size = rd->size;
++	Common::SeekableReadStream *f = _spriteContext->getFile(rd);
++	if (!f || size < 2)
++		return size < 2;
++	bool be = _spriteContext->isBigEndian();
++	byte two[2];
++	f->seek(base, SEEK_SET);
++	f->read(two, 2);
++	uint16 spriteCount = be ? READ_BE_UINT16(two) : READ_LE_UINT16(two);
++	Common::Array<uint16> offsets;
++	offsets.resize(spriteCount);
++	for (uint i = 0; i < spriteCount; i++) {
++		f->read(two, 2);
++		offsets[i] = be ? READ_BE_UINT16(two) : READ_LE_UINT16(two);
++	}
++	uint oldSpriteCount = spriteList.size();
++	spriteList.resize(oldSpriteCount + spriteCount);
++	for (uint i = 0; i < spriteCount; i++) {
++		uint32 offset = offsets[i];
++		if (offset >= size) {
++			warning("Sprite::loadList offset exceeded");
++			spriteList.resize(oldSpriteCount + i);
++			return true;
++		}
++		uint32 end = size;
++		for (uint j = 0; j < spriteCount; j++)
++			if (offsets[j] > offset && offsets[j] < end)
++				end = offsets[j];
++		byte hdr[4];
++		f->seek(base + offset, SEEK_SET);
++		SpriteInfo *spriteInfo = &spriteList[oldSpriteCount + i];
++		if (end - offset < 4 || f->read(hdr, 4) != 4)
++			continue;
++		spriteInfo->xAlign = (int8)hdr[0];
++		spriteInfo->yAlign = (int8)hdr[1];
++		spriteInfo->width = hdr[2];
++		spriteInfo->height = hdr[3];
++		spriteInfo->keepMask = keepMask;
++		spriteInfo->gwPos = base + offset + 4;
++		spriteInfo->gwLen = MIN<uint32>(end - offset - 4, 0xFFFF);
++	}
++	return true;
++}
++#endif
++
++#ifdef GW_SAGA_SLIM
++static const uint32 kGWSpriteCache = 40 * 1024;		// the cache's size (packed bytes)
++static const uint kGWSpriteCacheMax = 192;			// and entries
++
++void Sprite::gwDropCached(uint i) {
++	_gwCacheBytes -= _gwCache[i].data.size();
++	if (i != _gwCache.size() - 1) {
++		_gwCache[i].pos = _gwCache.back().pos;
++		_gwCache[i].stamp = _gwCache.back().stamp;
++		_gwCache[i].data.swap(_gwCache.back().data);
++	}
++	_gwCache.pop_back();
++}
++
++int Sprite::gwEvict(uint32 want) {
++	if (_gwBusy || _gwCache.empty())
++		return 0;
++	uint32 freed = 0;
++	while (!_gwCache.empty() && freed < want) {
++		uint old = 0;
++		for (uint i = 1; i < _gwCache.size(); i++)
++			if (_gwCache[i].stamp < _gwCache[old].stamp)
++				old = i;
++		freed += _gwCache[old].data.size();
++		gwDropCached(old);
++	}
++	return 1;
++}
++
++const byte *Sprite::gwPacked(const SpriteInfo *spriteInfo) {
++	for (uint i = 0; i < _gwCache.size(); i++)
++		if (_gwCache[i].pos == spriteInfo->gwPos) {
++			_gwCache[i].stamp = ++_gwStamp;
++			return _gwCache[i].data.getBuffer();
++		}
++	if (_gwCache.empty())
++		_gwCache.reserve(kGWSpriteCacheMax);		// (never grows after: no copies of what it holds)
++	while (!_gwCache.empty() && (_gwCacheBytes + spriteInfo->gwLen > kGWSpriteCache || _gwCache.size() >= kGWSpriteCacheMax)) {
++		uint old = 0;
++		for (uint i = 1; i < _gwCache.size(); i++)
++			if (_gwCache[i].stamp < _gwCache[old].stamp)
++				old = i;
++		gwDropCached(old);
++	}
++	_gwCache.resize(_gwCache.size() + 1);
++	GWCached &c = _gwCache.back();
++	c.pos = spriteInfo->gwPos;
++	c.stamp = ++_gwStamp;
++	c.data.resize(spriteInfo->gwLen);
++	_gwCacheBytes += spriteInfo->gwLen;
++	Common::SeekableReadStream *f = _spriteContext->getFile(nullptr);
++	f->seek(spriteInfo->gwPos, SEEK_SET);
++	if (f->read(c.data.getBuffer(), spriteInfo->gwLen) != spriteInfo->gwLen)
++		warning("Sprite: cannot read a sprite at %u", spriteInfo->gwPos);
++	return c.data.getBuffer();
++}
++#endif
++
+ void Sprite::loadList(int resourceId, SpriteList &spriteList, byte keepMask) {
++#ifdef GW_SAGA_SLIM
++	if (gwLoadList(resourceId, spriteList, keepMask))
++		return;
++#endif
+ 	ByteArray spriteListData;
+ 	_vm->_resource->loadResource(_spriteContext, resourceId, spriteListData);
+ 
+@@ -196,6 +313,9 @@ void Sprite::loadList(int resourceId, SpriteList &spriteList, byte keepMask) {
+ 
+ 		int outputLength = spriteInfo->width * spriteInfo->height;
+ 		int inputLength = spriteListData.size() - (spriteDataPointer - spriteListData.getBuffer());
++#ifdef GW_SAGA_SLIM
++		if (_vm->isAGA() || _vm->isECS())
++#endif
+ 		spriteInfo->decodedBuffer.resize(outputLength);
+ 		if (outputLength > 0) {
+ 			if (_vm->isAGA() || _vm->isECS()) {
+@@ -208,6 +328,16 @@ void Sprite::loadList(int resourceId, SpriteList &spriteList, byte keepMask) {
+ 			} else
+ 				decodeRLEBuffer(spriteDataPointer, inputLength, outputLength);
+ 			spriteInfo->keepMask = keepMask;
++#ifdef GW_SAGA_SLIM
++			// Game & Watch: kept packed (about a third of the size), unpacked when drawn
++			if (!_vm->isAGA() && !_vm->isECS()) {
++				spriteInfo->decodedBuffer.resize(_gwConsumed);
++				if (_gwConsumed)
++					memcpy(&spriteInfo->decodedBuffer.front(), spriteDataPointer, _gwConsumed);
++				spriteInfo->gwRle = true;
++				continue;
++			}
++#endif
+ 			byte *dst = &spriteInfo->decodedBuffer.front();
+ #ifdef ENABLE_IHNM
+ 			// IHNM sprites are upside-down, for reasons which i can only
+@@ -240,6 +370,46 @@ void Sprite::getScaledSpriteBuffer(SpriteList &spriteList, uint spriteNumber, in
+ 
+ 	spriteInfo = &spriteList[spriteNumber];
+ 
++#ifdef GW_SAGA_SLIM
++	if (spriteInfo->gwRle || spriteInfo->gwPos) {
++		size_t plain = spriteInfo->width * spriteInfo->height;
++		if (!plain) {
++			buffer = nullptr;
++			xAlign = spriteInfo->xAlign;
++			yAlign = spriteInfo->yAlign;
++			width = spriteInfo->width;
++			height = spriteInfo->height;
++			return;
++		}
++		_gwBusy = true;
++		if (spriteInfo->gwPos)
++			decodeRLEBuffer(gwPacked(spriteInfo), spriteInfo->gwLen, plain);
++		else
++			decodeRLEBuffer(spriteInfo->decodedBuffer.getBuffer(), spriteInfo->decodedBuffer.size(), plain);
++		_gwBusy = false;
++		if (scale < 256) {
++			_gwPlain.swap(_decodeBuf);
++			xAlign = (spriteInfo->xAlign * scale) >> 8;
++			yAlign = (spriteInfo->yAlign * scale) >> 8;
++			height = (spriteInfo->height * scale + 0x7f) >> 8;
++			width = (spriteInfo->width * scale + 0x7f) >> 8;
++			size_t outLength = width * height;
++			if (outLength > 0) {
++				scaleBuffer(&_gwPlain.front(), spriteInfo->width, spriteInfo->height, scale, outLength);
++				buffer = &_decodeBuf.front();
++			} else {
++				buffer = nullptr;
++			}
++		} else {
++			xAlign = spriteInfo->xAlign;
++			yAlign = spriteInfo->yAlign;
++			height = spriteInfo->height;
++			width = spriteInfo->width;
++			buffer = _decodeBuf.getBuffer();
++		}
++		return;
++	}
++#endif
+ 	if (scale < 256) {
+ 		xAlign = (spriteInfo->xAlign * scale) >> 8; //TODO: do we need to take in account sprite x&y aligns ?
+ 		yAlign = (spriteInfo->yAlign * scale) >> 8; // ????
+@@ -523,6 +693,12 @@ void Sprite::decodeRLEBuffer(const byte *inputBuffer, size_t inLength, size_t ou
+ 	memset(outPointer, 0, _decodeBuf.size());
+ 
+ 	Common::MemoryReadStream readS(inputBuffer, inLength);
++#ifdef GW_SAGA_SLIM
++	struct GWConsumed {
++		Common::MemoryReadStream &s; size_t &n;
++		~GWConsumed() { n = (size_t)s.pos(); }
++	} gwConsumed = { readS, _gwConsumed };
++#endif
+ 
+ 	while (!readS.eos() && (outPointer < outPointerEnd)) {
+ 		bg_runcount = readS.readByte();
+diff --git a/engines/saga/sprite.h b/engines/saga/sprite.h
+index 5a24cb41ea0..c91de632c3c 100644
+--- a/engines/saga/sprite.h
++++ b/engines/saga/sprite.h
+@@ -36,6 +36,11 @@ struct SpriteInfo {
+ 	int xAlign;
+ 	int yAlign;
+ 	byte keepMask;
++#ifdef GW_SAGA_SLIM
++	bool gwRle = false;	// Game & Watch: decodedBuffer holds the sprite still RLE-packed
++	uint32 gwPos = 0;	// or: it is in the sprites' file, packed, here (Sprite::gwPacked)
++	uint16 gwLen = 0;
++#endif
+ 
+ 	SpriteInfo() : width(0), height(0), xAlign(0), yAlign(0), keepMask(0) {
+ 	}
+@@ -75,6 +80,24 @@ private:
+ 	SagaEngine *_vm;
+ 	ResourceContext *_spriteContext;
+ 	ByteArray _decodeBuf;
++#ifdef GW_SAGA_SLIM
++	bool gwLoadList(int resourceId, SpriteList &spriteList, byte keepMask);
++	// the packed sprites read from the file lately (gwPacked), oldest let go first
++	struct GWCached {
++		uint32 pos, stamp;
++		ByteArray data;
++	};
++	Common::Array<GWCached> _gwCache;
++	uint32 _gwCacheBytes = 0, _gwStamp = 0;
++	bool _gwBusy = false;
++	const byte *gwPacked(const SpriteInfo *spriteInfo);
++	void gwDropCached(uint i);
++public:
++	int gwEvict(uint32 want);	// (when memory runs short: Scene's low-memory hook)
++private:
++	size_t _gwConsumed = 0;		// what the last decodeRLEBuffer() read of its input
++	ByteArray _gwPlain;		// a sprite unpacked to be scaled into _decodeBuf
++#endif
+ };
+ 
+ } // End of namespace Saga
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea521f6..380eb1fa977 100644
 --- a/engines/scumm/dialogs.cpp
