@@ -22,7 +22,11 @@ queen.1c     = queen
 packet.001   = drascula
 dreamw*.r00  = dreamweb
 
-# engines there is no file for yet
+# engines there is no file for yet (the loader says so instead of starting the game). The Dig
+# and The Curse of Monkey Island are SCUMM games this core does not run (too big for the flash):
+# here, before SCUMM's own lines, so they are told so too.
+dig.la0      = dig
+comi.la0     = comi
 resource.map = sci
 resource.000 = sci
 resmap.000   = sci
