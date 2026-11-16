@@ -697,9 +697,9 @@ static void show_bar(const char *header, int pct)
 }
 /* (at most ~32 characters: the bar's box cuts the rest off) */
 static const gw_i18n_entry_t i18n_preparing[] = {
-	{ "en", "Preparing the game (first time)" }, { "es", "Preparando el juego (1.ª vez)" },
+	{ "en", "Preparing the game (first time)" }, { "es", "Preparando juego (solo 1 vez)" },
 	{ "fr", "Préparation du jeu (1re fois)" }, { "de", "Spiel vorbereiten (nur 1. Mal)" },
-	{ "it", "Preparazione gioco (1a volta)" }, { "pt", "A preparar o jogo (1.ª vez)" }, GW_I18N_END };
+	{ "it", "Preparazione gioco (1a volta)" }, { "pt", "A preparar jogo (só 1 vez)" }, GW_I18N_END };
 static const gw_i18n_entry_t i18n_copying[] = {
 	{ "en", "Copying the game to the flash" }, { "es", "Copiando el juego a la flash" },
 	{ "fr", "Copie du jeu dans la flash" }, { "de", "Spiel wird in den Flash kopiert" },
