@@ -63,6 +63,7 @@ its own in its notes.
 | Drascula: The Vampire Strikes Back | Drascula | ✅ | first launch unpacks the game (a few minutes) |
 | DreamWeb | DreamWeb | ✅ | its computer terminals need typing: GAME opens the keyboard |
 | Teenagent | Teenagent | ✅ | saves with Retro-Go's save states |
+| Inherit the Earth: Quest for the Orb | SAGA | ✅ | also the Spanish fan translation |
 | The Dig | SCUMM | ❌ | too big for the flash |
 | The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
 | Macintosh versions | — | ❌ | |
@@ -209,6 +210,15 @@ Copy the game's `.RES` files into its folder (the game is freeware: scummvm.org/
 ScummVM's `teenagent.dat` is in the release zip and is copied into the game's folder on the
 first launch. The game has no save menu of its own: save with Retro-Go's save states (not
 while a scene or a conversation is playing).
+
+**Inherit the Earth: Quest for the Orb**
+
+Copy the game's `.RSC` files (and `P2_A.iaf` / `P2_A.voc` if there is one) into its folder.
+TIME opens the game's options: a new save is named with the date and time, which can be kept
+or changed with the GAME keyboard. Animations, voices and sprites are read from the card as
+they are used (the game wants more memory than the console has). With the Spanish fan
+translation, the core shows its accents right and puts ScummVM's own texts (intro captions,
+verbs, options, puzzle) in Spanish too; other versions are not affected.
 
 </details>
 
@@ -435,6 +445,7 @@ los ficheros con identificador nuevo. Cada versión publica los suyos en sus not
 | Drascula: The Vampire Strikes Back | Drascula | ✅ | el primer arranque descomprime el juego (unos minutos) |
 | DreamWeb | DreamWeb | ✅ | sus terminales piden escribir: GAME abre el teclado |
 | Teenagent | Teenagent | ✅ | se guarda con los save states de Retro-Go |
+| Inherit the Earth: Quest for the Orb | SAGA | ✅ | también la traducción de fans al español |
 | The Dig | SCUMM | ❌ | no cabe en la flash |
 | The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
 | Versiones de Macintosh | — | ❌ | |
@@ -573,6 +584,15 @@ Copia los ficheros `.RES` del juego en su carpeta (el juego es gratuito: scummvm
 El `teenagent.dat` de ScummVM va en el zip de la versión y se copia a la carpeta del juego en
 el primer arranque. El juego no tiene menú de guardar propio: guarda con los save states de
 Retro-Go (no mientras hay una escena o una conversación).
+
+**Inherit the Earth: Quest for the Orb**
+
+Copia los ficheros `.RSC` del juego (y `P2_A.iaf` / `P2_A.voc` si lo hay) en su carpeta. TIME
+abre las opciones del juego: una partida nueva se llama con la fecha y la hora, que se puede dejar
+o cambiar con el teclado de GAME. Las animaciones, voces y sprites se leen de la tarjeta según se
+usan (el juego pide más memoria de la que tiene la consola). Con la traducción de fans al español,
+el core muestra bien sus tildes y pone también en español los textos propios de ScummVM (subtítulos
+de la intro, verbos, opciones, puzle); las demás versiones no cambian.
 
 </details>
 
