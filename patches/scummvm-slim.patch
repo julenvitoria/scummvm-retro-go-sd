@@ -4247,6 +4247,33 @@ index 9491dd05cd2..b9964e7539b 100644
  
  	uint16 magic;
  
+diff --git a/engines/saga/font.cpp b/engines/saga/font.cpp
+index 66cbfdba3bd..30ba4ca1d1a 100644
+--- a/engines/saga/font.cpp
++++ b/engines/saga/font.cpp
+@@ -497,6 +497,10 @@ void DefaultFont::textDrawRect(FontId fontId, const char *text, const Common::Re
+ }
+ 
+ int DefaultFont::translateChar(int charId) {
++#ifdef GW_SAGA_SLIM
++	if (_vm->_gwSpanishFan)
++		return charId;					// (that translation's text is in Latin-1, as the font)
++#endif
+ 	if (charId <= 127 || (_vm->getLanguage() == Common::RU_RUS && charId <= 255) || (_vm->getLanguage() == Common::HE_ISR && charId <= 255))
+ 		return charId;					// normal character
+ 	else
+@@ -934,6 +938,11 @@ void DefaultFont::loadFont(FontData *font, const ByteArray& fontResourceData, bo
+ #ifndef __DS__
+ 	font->normal.font.resize(fontResourceData.size() - FONT_DESCSIZE);
+ 	memcpy(font->normal.font.getBuffer(), fontResourceData.getBuffer() + FONT_DESCSIZE, fontResourceData.size() - FONT_DESCSIZE);
++	{ static int once; if (once++ == 1) { static const int cs[] = { 237, 221, 241, 177, 225, 223 };
++	  for (int k = 0; k < 6; k++) { FontCharEntry &e = font->normal.fontCharEntry[cs[k]]; warning("GLYPH %d w=%d", cs[k], e.width);
++	    for (int y = 0; y < font->normal.header.charHeight; y++) { char line[40]; int n = 0;
++	      for (int x = 0; x < e.width && n < 38; x++) { byte b = font->normal.font[y * font->normal.header.rowLength + e.index + x / 8]; line[n++] = (b >> (7 - x % 8)) & 1 ? '#' : '.'; }
++	      line[n] = 0; warning("GLYPH %s", line); } } } }
+ #else
+ 	if (font->normal.font) {
+ 		free(font->normal.font);
 diff --git a/engines/saga/gfx.cpp b/engines/saga/gfx.cpp
 index 436e104cee0..7b2d6144b4d 100644
 --- a/engines/saga/gfx.cpp
@@ -4417,6 +4444,324 @@ index 8872a44dc84..962197993f6 100644
  	void setFadeMode(int fadeMode) {
  		_fadeMode = fadeMode;
  		draw();
+diff --git a/engines/saga/itedata.cpp b/engines/saga/itedata.cpp
+index 43a24408840..4679db5b268 100644
+--- a/engines/saga/itedata.cpp
++++ b/engines/saga/itedata.cpp
+@@ -806,6 +806,65 @@ const RawPoint pieceOrigins[PUZZLE_PIECES] = {
+ };
+ 
+ // Objects
++#ifdef GW_SAGA_SLIM
++// Game & Watch: the interface in Spanish, for ITE's Spanish fan translation (Latin-1)
++const char *gwITEinterfaceES[53] = {
++	"Ir a",
++	"Mirar",
++	"Coger",
++	"Hablar con",
++	"Abrir",
++	"Cerrar",
++	"Usar",
++	"Dar",
++	"Opciones",
++	"Prueba",
++	"Demo",
++	"Ayuda",
++	"Salir del juego",
++	"R\341pida",
++	"Lenta",
++	"S\355",
++	"No",
++	"Seguir jugando",
++	"Cargar",
++	"Guardar",
++	"Opciones del juego",
++	"Velocidad de lectura",
++	"M\372sica",
++	"Sonido",
++	"Cancelar",
++	"Salir",
++	"Aceptar",
++	"Media",
++	"Clic",
++	"10%",
++	"20%",
++	"30%",
++	"40%",
++	"50%",
++	"60%",
++	"70%",
++	"80%",
++	"90%",
++	"M\341x",
++	"\277Salir del juego?",
++	"\241Partida cargada!",
++	"Nombre de la partida",
++	"Dar %s a %s",
++	"Usar %s con %s",
++	"[Nueva partida]",
++	"No puedo coger eso.",
++	"No veo nada especial.",
++	"No hay por d\363nde abrirlo.",
++	"No hay nada que cerrar.",
++	"No s\351 c\363mo hacer eso.",
++	"Ver di\341logos",
++	"\277Qu\351 responde Rif?",
++	"Cargando una partida guardada"
++};
++#endif
++
+ const char *pieceNames[][PUZZLE_PIECES] = {
+ 	// English
+ 	{
+@@ -825,11 +884,23 @@ const char *pieceNames[][PUZZLE_PIECES] = {
+ 		"spago", "pialla", "martello", "metro a nastro", "accetta",
+ 		"cesoie", "righello", "sega", "mazza", "pennello"
+ 	},
+-	// Spanish
+-	{
+-		"", "", "", "", "",
+-		"", "", "", "", "",
+-		"", "", "", "", ""
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
++	{
++		"destornillador",
++		"alicates",
++		"sargento",
++		"prensa de madera",
++		"nivel",
++		"cordel",
++		"cepillo",
++		"martillo",
++		"cinta m\351trica",
++		"hacha",
++		"tijeras",
++		"regla",
++		"sierra",
++		"mazo",
++		"pincel"
+ 	},
+ 	// French
+ 	{
+@@ -904,12 +975,12 @@ const char *hintStr[][4] = {
+ 		"Controlla ogni nuovo angolo e lato per ogni pezzo che combacia.",
+ 		"Non vedo nulla fuori posto."
+ 	},
+-	// Spanish
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 	{
+-		"",
+-		"",
+-		"",
+-		""
++		"Mira primero qu\351 piezas podr\355an ir en cada esquina.",
++		"Mira qu\351 esquina admite menos piezas y empieza por ella.",
++		"Revisa cada esquina y cada lado nuevos buscando piezas que encajen.",
++		"No veo nada fuera de su sitio."
+ 	},
+ 	// French
+ 	{
+@@ -981,13 +1052,13 @@ const char *solicitStr[][NUM_SOLICIT_REPLIES] = {
+ 		"Psst! Serve un aiutino?",
+ 		"Io, sai, l'avrei fatto diversamente."
+ 	},
+-	// Spanish
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 	{
+-		"",
+-		"",
+-		"",
+-		"",
+-		""
++		"\241Eh, Zorro! \277Quieres una pista?",
++		"\277Te echo una mano?",
++		"Mmm... Mmm...",
++		"\241Psst! \277Quieres una pista?",
++		"Yo lo habr\355a hecho de otra manera, \277sabes?"
+ 	},
+ 	// French
+ 	{
+@@ -1060,11 +1131,11 @@ const char *sakkaStr[][NUM_SAKKA] = {
+ 		"Ragazzi! Questo dovrebbe essere un test!",
+ 		"Forza ragazzi, non si pu\225!"
+ 	},
+-	// Spanish
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 	{
+-		"",
+-		"",
+-		""
++		"\241Eh, no deb\351is ayudar a los aspirantes!",
++		"\241Chicos! \241Se supone que esto es una prueba!",
++		"\241Vamos, compa\361eros, eso no est\341 en las reglas!"
+ 	},
+ 	// French
+ 	{
+@@ -1129,13 +1200,13 @@ const char *whineStr[][NUM_WHINES] = {
+ 		"Credo che questa faccenda ti abbia dato alla testa, Sakka!",
+ 		"Beh, non ricordo regole specifiche contro i suggerimenti."
+ 	},
+-	// Spanish
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 	{
+-		"",
+-		"",
+-		"",
+-		"",
+-		""
++		"\241Venga ya, Sakka!",
++		"Una pista no har\341 da\361o, \277no?",
++		"Ay...",
++		"\241Creo que esa carpeta se te ha subido a la cabeza, Sakka!",
++		"Pues no recuerdo ninguna regla que proh\355ba las pistas."
+ 	},
+ 	// French
+ 	{
+@@ -1211,12 +1282,12 @@ const char *optionsStr[][4] = {
+ 		"\"No, grazie, voglio provare a risolverlo da solo.\"",
+ 		"Penso che la tessera %s sia nel posto sbagliato."
+ 	},
+-	// Spanish
++	// Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 	{
+-		"",
+-		"",
+-		"",
+-		""
++		"\"Ya har\351 este puzle luego.\"",
++		"\"S\355, una pista, por favor.\"",
++		"\"No, gracias, quiero intentarlo yo solo.\"",
++		"Creo que la pieza \"%s\" est\341 mal colocada."
+ 	},
+ 	// French
+ 	{
+@@ -1329,26 +1400,21 @@ const IntroDialogue introDialogueCave1[][4] = {
+ 		"immaginazione."
+ 	} },
+ 	// -----------------------------------------------------
+-	{ { // Spanish
++	{ { // Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 		0,		// cave voice 0
+-		""
+-		""
++		"Vemos el cielo, vemos la tierra, vemos el agua, y nos preguntamos: \277somos los \372nicos?"
+ 	},
+ 	{
+ 		1,		// cave voice 1
+-		""
+-		""
++		"Mucho antes de que existi\351ramos, los humanos gobernaban la Tierra."
+ 	},
+ 	{
+ 		2,		// cave voice 2
+-		""
+-		""
++		"Hac\355an cosas maravillosas y mov\355an monta\361as enteras."
+ 	},
+ 	{
+ 		3,		// cave voice 3
+-		""
+-		""
+-		""
++		"Conoc\355an el Secreto del Vuelo, el Secreto de la Felicidad y otros secretos que ni imaginamos."
+ 	} },
+ 	// -----------------------------------------------------
+ 	{ { // French fan translation
+@@ -1516,20 +1582,17 @@ const IntroDialogue introDialogueCave2[][3] = {
+ 		"Siamo i loro figli."
+ 	} },
+ 	// -----------------------------------------------------
+-	{ { // Spanish
++	{ { // Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 		4,		// cave voice 4
+-		""
+-		""
+-
++		"Los humanos conoc\355an tambi\351n el Secreto de la Vida, y lo usaron para darnos los Cuatro Grandes Dones:"
+ 	},
+ 	{
+ 		5,		// cave voice 5
+-		""
+-
++		"Mentes que piensan, corazones que sienten, bocas que hablan y manos que alcanzan."
+ 	},
+ 	{
+ 		6,		// cave voice 6
+-		""
++		"Somos sus hijos."
+ 	} },
+ 	// -----------------------------------------------------
+ 	{ { // French fan translation
+@@ -1664,20 +1727,17 @@ const IntroDialogue introDialogueCave3[][3] = {
+ 
+ 	} },
+ 	// -----------------------------------------------------
+-	{ { // Spanish
++	{ { // Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 		7,		// cave voice 7
+-		""
++		"Nos ense\361aron a usar las manos, y a hablar."
+ 	},
+ 	{
+ 		8,		// cave voice 8
+-		""
+-		""
++		"Nos mostraron la alegr\355a de usar la mente."
+ 	},
+ 	{
+ 		9,		// cave voice 9
+-		""
+-		""
+-
++		"Nos quer\355an, y cuando estuvi\351ramos preparados, sin duda nos habr\355an dado el Secreto de la Felicidad."
+ 	} },
+ 	// -----------------------------------------------------
+ 	{ { // French fan translation
+@@ -1825,25 +1885,21 @@ const IntroDialogue introDialogueCave4[][4] = {
+ 		"destino?"
+ 	} },
+ 	// -----------------------------------------------------
+-	{ { // Spanish
++	{ { // Spanish (Game & Watch: for the fan translation, in Latin-1)
+ 		10,		// cave voice 10
+-		""
+-		""
+-
++		"Y ahora vemos el cielo, la tierra y el agua que hemos heredado, y nos preguntamos: \277por qu\351 se fueron?"
+ 	},
+ 	{
+ 		11,		// cave voice 11
+-		""
+-		""
++		"\277Siguen vivos, en las estrellas? \277En lo hondo de los oc\351anos? \277En el viento?"
+ 	},
+ 	{
+ 		12,		// cave voice 12
+-		""
++		"Nos preguntamos: \277tuvieron un buen o un mal final?"
+ 	},
+ 	{
+ 		13,		// cave voice 13
+-		""
+-		""
++		"\277Y correremos nosotros la misma suerte alg\372n d\355a?"
+ 	} },
+ 	// -----------------------------------------------------
+ 	{ { // French fan translation
+diff --git a/engines/saga/itedata.h b/engines/saga/itedata.h
+index e91617ae9b4..ff8286eff80 100644
+--- a/engines/saga/itedata.h
++++ b/engines/saga/itedata.h
+@@ -113,6 +113,9 @@ extern ObjectTableData ITE_ObjectTable[ITE_OBJECTCOUNT];
+ extern IteFxTable ITE_SfxTable[ITE_SFXCOUNT];
+ 
+ extern const char *ITEinterfaceTextStrings[][53];
++#ifdef GW_SAGA_SLIM
++extern const char *gwITEinterfaceES[53];
++#endif
+ 
+ #define PUZZLE_PIECES 15
+ 
 diff --git a/engines/saga/resource.cpp b/engines/saga/resource.cpp
 index defa5cbf936..cbece966a5b 100644
 --- a/engines/saga/resource.cpp
@@ -4578,6 +4923,48 @@ index 3fc7b0615fa..51ff8ccbba0 100644
  			if (patchDescription->resourceId < _table.size()) {
  				resourceData = &_table[patchDescription->resourceId];
  				// Check if we've already found a patch for this resource. One is enough.
+diff --git a/engines/saga/saga.cpp b/engines/saga/saga.cpp
+index eab4e04290b..80bd54767ac 100644
+--- a/engines/saga/saga.cpp
++++ b/engines/saga/saga.cpp
+@@ -653,6 +653,10 @@ const char *SagaEngine::getObjectName(uint16 objectId) const {
+ }
+ 
+ int SagaEngine::getLanguageIndex() {
++#ifdef GW_SAGA_SLIM
++	if (_gwSpanishFan)
++		return 3;						// the Spanish rows (itedata.cpp)
++#endif
+ 	switch (getLanguage()) {
+ 	case Common::EN_ANY:
+ 		return 0;
+@@ -688,6 +692,10 @@ const char *SagaEngine::getTextString(int textStringId) {
+ 			return "\xC8\xF1\xEF\xEE\xEB\xFC\xE7\xEE\xE2\xE0\xF2\xFC %s >> %s"; // "Использовать %s >> %s"
+ 	}
+ 
++#ifdef GW_SAGA_SLIM
++	if (_gwSpanishFan)
++		return gwITEinterfaceES[textStringId];
++#endif
+ 	string = ITEinterfaceTextStrings[lang][textStringId];
+ 	if (!string)
+ 		string = ITEinterfaceTextStrings[0][textStringId];
+diff --git a/engines/saga/saga.h b/engines/saga/saga.h
+index be44495c41e..50693ca219c 100644
+--- a/engines/saga/saga.h
++++ b/engines/saga/saga.h
+@@ -547,6 +547,11 @@ public:
+ 	bool _subtitlesEnabled;
+ 	bool _voicesEnabled;
+ 	bool _voiceFilesExist;
++#ifdef GW_SAGA_SLIM
++	// ITE's Spanish fan translation (Script: its verbs): Latin-1 text, and ScummVM's own texts
++	// in Spanish (itedata.cpp, gwITEinterfaceES)
++	bool _gwSpanishFan = false;
++#endif
+ 	int _readingSpeed;
+ 
+ 	bool _copyProtection;
 diff --git a/engines/saga/scene.cpp b/engines/saga/scene.cpp
 index cdb54396cb6..41b000e6194 100644
 --- a/engines/saga/scene.cpp
@@ -4686,6 +5073,27 @@ index a2da9efefd0..88e2a064db3 100644
  	void getBGPal(PalEntry *&pal) {
  		pal = (PalEntry *)_bg.pal;
  	}
+diff --git a/engines/saga/script.cpp b/engines/saga/script.cpp
+index b161f5f0225..745045ba18f 100644
+--- a/engines/saga/script.cpp
++++ b/engines/saga/script.cpp
+@@ -126,6 +126,16 @@ SAGA1Script::SAGA1Script(SagaEngine *vm) : Script(vm) {
+ 	_vm->_resource->loadResource(resourceContext, _vm->getResourceDescription()->mainStringsResourceId, stringsData);
+ 
+ 	_vm->loadStrings(_mainStrings, stringsData, _vm->isBigEndian());
++#ifdef GW_SAGA_SLIM
++	// ITE's Spanish fan translation: ITE.RSC with Spanish verbs ("Ir a"), and text in Latin-1
++	if (_vm->getGameId() == GID_ITE)
++		for (int i = 0; i < 8; i++)
++			if (!strcmp(_mainStrings.getString(i), "Ir a")) {
++				_vm->_gwSpanishFan = true;
++				warning("ITE: Spanish fan translation");
++				break;
++			}
++#endif
+ 
+ 	setupScriptOpcodeList();
+ 
 diff --git a/engines/saga/sndres.cpp b/engines/saga/sndres.cpp
 index 1ab5c8963b8..9832b5761ae 100644
 --- a/engines/saga/sndres.cpp
