@@ -601,6 +601,14 @@ public:
 			_adopted = true;
 		}
 	}
+	bool releaseCopy() {
+		if (_adopted || !_screen.getPixels()) return false;
+		int w = _screen.w, h = _screen.h;
+		plat_forget_frame();
+		_screen.free();
+		_screen.w = w; _screen.h = h;
+		return true;
+	}
 	bool ensureScreen() {
 		if (!_screen.getPixels() && _screen.w > 0 && _screen.h > 0)
 			gwCreate(_screen, _screen.w, _screen.h);
@@ -806,6 +814,7 @@ bool gwAdoptScreen(byte *pixels, int pitch, int w, int h)
 /* ...and has the backend a screen to draw on right now? */
 void gwAdoptable(const byte *, const byte *) {}    /* (SCUMM v7's and Lure's hooks: not in the Gob image) */
 void gwAdoptWhole(const byte *, uint32) {}
+bool gwReleaseScreenCopy() { return false; }
 
 bool gwScreenReady()
 {
@@ -828,6 +837,11 @@ void gwAdoptable(const byte *lo, const byte *hi) { if (g_gwGfx) g_gwGfx->adoptab
 /* (Lure, screen.cpp) its screen surface, 320x200, is the screen */
 void gwAdoptWhole(const byte *p, uint32 size) { if (g_gwGfx) g_gwGfx->adoptable(p, p ? p + size : nullptr, true); }
 bool gwScreenReady() { return g_gwGfx && g_gwGfx->_screen.getPixels() != nullptr; }
+/* patches/scummvm-slim.patch (SCUMM's createResource, out of memory): the screen copy of the
+   backend's own -- 64 KB while the game's main screen is not adopted (after a save state is
+   loaded, a video...) -- is let go; it is made again by the next drawing, or the game's screen
+   is adopted again. Full Throttle's tall room (320x400) needed that block for its mask. */
+bool gwReleaseScreenCopy() { return g_gwGfx && g_gwGfx->releaseCopy(); }
 void gwCopyRectHalf(const byte *buf, int pitch, int x, int y, int w, int h)
 {
 	GWGraphics *g = g_gwGfx;
