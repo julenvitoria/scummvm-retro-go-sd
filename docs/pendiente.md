@@ -43,5 +43,5 @@ falta comprobar.
     la primera vez en `gwx/` (63 MB en la tarjeta).
   - DreamWeb: las terminales piden escribir órdenes (teclado en pantalla, GAME).
 - Teenagent: sin ficheros del juego todavía (es gratuito, scummvm.org/games).
-- Igor: Objetivo Uikokahonia (motor `igor`, de puntero, en castellano): el usuario lo subió;
-  candidato a añadir.
+- Igor: Objetivo Uikokahonia: el motor `igor` ya no está en ScummVM (se quitó hace años); no
+  se puede sin portarlo de una versión antigua.
