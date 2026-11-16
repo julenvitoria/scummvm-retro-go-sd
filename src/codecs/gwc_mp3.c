@@ -1,10 +1,13 @@
 /*
  * MP3 with minimp3 (CC0; the File Manager's copy, src/third_party, whose 16 KB scratch can
- * live outside the stack: here it is part of the decoder, from the heap).
+ * live outside the stack: here one from the heap, shared by every MP3 being played -- it only
+ * holds what decoding one frame needs, and frames are decoded one at a time. Simon's speech and
+ * sound effects are each an MP3 stream).
  */
 #include "gwc_priv.h"
 
-static void *g_scratch;                   /* the decoding clip's, set before each frame */
+static void *g_scratch;                   /* the shared one (see above) */
+static int g_scratch_users;
 #define MINIMP3_SCRATCH_PTR g_scratch
 #define MINIMP3_ONLY_MP3
 #define MINIMP3_NO_SIMD
@@ -15,7 +18,6 @@ static void *g_scratch;                   /* the decoding clip's, set before eac
 
 typedef struct {
 	mp3dec_t dec;
-	mp3dec_scratch_t scratch;
 	uint32_t data_start;                  /* the first frame with samples (after an ID3v2 tag and
 	                                         a Xing/LAME frame, which counting alone would not spot) */
 	uint32_t frame_start;                 /* where the last frame returned began in the file */
@@ -51,7 +53,6 @@ static int next_frame(rd_t *r, mp3_t *m, int decode, int *rate, int *channels)
 		if (m->in_len == m->in_pos) return 0;
 		mp3dec_frame_info_t info = { 0 };   /* minimp3 leaves the rest unset for some frames */
 		uint32_t start = r->pos - (m->in_len - m->in_pos);
-		g_scratch = &m->scratch;
 		int n = mp3dec_decode_frame(&m->dec, m->in + m->in_pos, (int)(m->in_len - m->in_pos), decode ? m->pcm : NULL, &info);
 		if (!info.frame_bytes) {              /* no frame in what is buffered */
 			m->in_pos = m->in_len;
@@ -87,8 +88,13 @@ static void restart(rd_t *r, mp3_t *m)
 
 int gwc_mp3_open(gwc *c)
 {
+	if (!g_scratch && !(g_scratch = malloc(sizeof(mp3dec_scratch_t)))) return 0;
 	mp3_t *m = (mp3_t *)calloc(1, sizeof *m);
-	if (!m) return 0;
+	if (!m) {
+		if (!g_scratch_users) { free(g_scratch); g_scratch = NULL; }
+		return 0;
+	}
+	g_scratch_users++;
 	c->dec = m;
 	uint8_t id3[10];
 	if (rd_read(&c->r, id3, 10) == 10 && !memcmp(id3, "ID3", 3))
@@ -158,4 +164,9 @@ uint32_t gwc_mp3_length(gwc *c)
 	return m->length > 1 ? m->length : 0;
 }
 
-void gwc_mp3_close(gwc *c) { free(c->dec); }
+void gwc_mp3_close(gwc *c)
+{
+	if (!c->dec) return;
+	free(c->dec);
+	if (!--g_scratch_users) { free(g_scratch); g_scratch = NULL; }
+}

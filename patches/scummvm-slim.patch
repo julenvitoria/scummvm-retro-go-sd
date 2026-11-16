@@ -157,7 +157,7 @@ index dcda5a170ce..cb07974b75f 100644
  	for ( Bit8u i = 62; i < 76; i++ ) {
  		//This should provide instant volume maximizing
 diff --git a/base/commandLine.cpp b/base/commandLine.cpp
-index 87b0fafe9f2..59f0281b877 100644
+index 87b0fafe9f2..8b47b4151cc 100644
 --- a/base/commandLine.cpp
 +++ b/base/commandLine.cpp
 @@ -278,6 +278,18 @@ static const char *s_appName = "scummvm";
@@ -189,7 +189,7 @@ index 87b0fafe9f2..59f0281b877 100644
  static Common::String detectGames(const Common::Path &path, const Common::String &engineId, const Common::String &gameId, bool recursive) {
  	bool noPath = path.empty();
  	//Current directory
-@@ -1714,6 +1729,25 @@ static Common::String detectGames(const Common::Path &path, const Common::String
+@@ -1714,6 +1729,29 @@ static Common::String detectGames(const Common::Path &path, const Common::String
  		       v.path.toString(Common::Path::kNativeSeparator).c_str());
  	}
  
@@ -210,6 +210,10 @@ index 87b0fafe9f2..59f0281b877 100644
 +					warning("%s in the console's language: %s", v.gameId.c_str(), Common::getLanguageDescription(want));
 +					return buildQualifiedGameName(v.engineId, v.gameId);
 +				}
++		// AGOS (Simon) picks its verbs and menus by the "language" setting, which a target made
++		// in ScummVM's launcher holds: the game's own language, as found
++		if (candidates[0].engineId == "agos" && candidates[0].language != Common::UNK_LANG)
++			ConfMan.set("language", Common::getLanguageCode(candidates[0].language), Common::ConfigManager::kTransientDomain);
 +	}
 +#endif
  	return buildQualifiedGameName(candidates[0].engineId, candidates[0].gameId);
@@ -678,7 +682,7 @@ index c6e0e39e66a..6084b3840b1 100644
  	saveGameSlotId = _systemUI->askForSaveGameSlot();
  	if (saveGameSlotId >= 0) {
 diff --git a/engines/agos/agos.cpp b/engines/agos/agos.cpp
-index 7dda20f2c01..33acd7fff1d 100644
+index 7dda20f2c01..068343cfdcb 100644
 --- a/engines/agos/agos.cpp
 +++ b/engines/agos/agos.cpp
 @@ -42,6 +42,10 @@
@@ -714,13 +718,28 @@ index 7dda20f2c01..33acd7fff1d 100644
  
  	setupGame();
  
-@@ -1124,6 +1136,12 @@ AGOSEngine::~AGOSEngine() {
+@@ -955,6 +967,12 @@ void AGOSEngine::setupGame() {
+ 	setupVgaOpcodes();
+ 
+ 	setZoneBuffers();
++#ifdef GW_AGOS_SLIM
++	{
++		void gwAgosLowMemoryHook(AGOSEngine *vm);	// zones.cpp
++		gwAgosLowMemoryHook(this);
++	}
++#endif
+ 
+ 	_currentMouseCursor = 255;
+ 	_currentMouseAnim = 255;
+@@ -1124,6 +1142,14 @@ AGOSEngine::~AGOSEngine() {
  		_scaleBuf->free();
  	delete _scaleBuf;
  	free(_zoneBuffers);
 +#ifdef GW_AGOS_SLIM
 +	{
 +		void gwAgosFreeZones();			// zones.cpp
++		void gwAgosLowMemoryHook(AGOSEngine *vm);
++		gwAgosLowMemoryHook(nullptr);
 +		gwAgosFreeZones();
 +	}
 +#endif
@@ -728,15 +747,17 @@ index 7dda20f2c01..33acd7fff1d 100644
  	if (_window4BackScn)
  		_window4BackScn->free();
 diff --git a/engines/agos/agos.h b/engines/agos/agos.h
-index f0eb250c1f7..dd3606a7e82 100644
+index f0eb250c1f7..89b8e423e24 100644
 --- a/engines/agos/agos.h
 +++ b/engines/agos/agos.h
-@@ -1034,6 +1034,9 @@ protected:
+@@ -1034,6 +1034,11 @@ protected:
  	void writeChar(WindowBlock *window, int x, int y, int offs, int val);
  
  	byte *allocBlock(uint32 size);
 +#ifdef GW_AGOS_SLIM
++public:
 +	bool gwFreeZoneMemory();
++protected:
 +#endif
  	void checkNoOverWrite();
  	void checkRunningAnims();
@@ -771,11 +792,19 @@ index eee53c34c83..40c2b817fc5 100644
  		error("Out Of Memory - Tables");
  }
 diff --git a/engines/agos/zones.cpp b/engines/agos/zones.cpp
-index 37fc11af101..d007f4732dd 100644
+index 37fc11af101..d9dee5a2805 100644
 --- a/engines/agos/zones.cpp
 +++ b/engines/agos/zones.cpp
-@@ -29,12 +29,38 @@
+@@ -27,14 +27,50 @@
+ #include "agos/agos.h"
+ #include "agos/vga.h"
  
++#ifdef GW_AGOS_SLIM
++extern "C" int (*heap_low_memory_hook)(uint32 n);	// src/heap.c
++extern "C" uint32_t heap_total(void) __attribute__((weak));	// (the PC build without src/heap.c: none)
++extern "C" uint32_t heap_used(void) __attribute__((weak));
++#endif
++
  namespace AGOS {
  
 +#ifdef GW_AGOS_SLIM
@@ -786,13 +815,17 @@ index 37fc11af101..d007f4732dd 100644
 +// the game protects (_noOverWrite), those with running animations, nor those under a freeze.
 +struct GWZoneBlock {
 +	byte *p;
-+	uint32 seq;
++	uint32 seq, size;
 +};
 +static GWZoneBlock gwBlocks[96];
 +static uint gwBlockCount;
 +static uint32 gwSeq;
 +static uint16 gwLoadingZone = 0xFFFF;
 +static bool gwFrozen[450];
++// What the zones may take in all: what the heap had free when the game started, less some room
++// for the rest (a voice's MP3 decoder alone is 35 KB) -- past it, older zones go first
++static uint32 gwZoneBytes, gwZoneCap;
++static const uint32 kGWZoneReserve = 160 * 1024;
 +#endif
 +
  void AGOSEngine::freezeBottom() {
@@ -813,7 +846,7 @@ index 37fc11af101..d007f4732dd 100644
  	_vgaMemPtr = _vgaRealBase;
  	_vgaMemBase = _vgaRealBase;
  	_vgaFrozenBase = _vgaRealBase;
-@@ -76,6 +102,9 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
+@@ -76,6 +112,9 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
  	}
  
  	// Loading order is important due to resource management
@@ -823,7 +856,7 @@ index 37fc11af101..d007f4732dd 100644
  
  	if (getPlatform() == Common::kPlatformAmiga && getGameType() == GType_WW &&
  		zoneTable[zoneNum] == 3) {
-@@ -105,9 +134,42 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
+@@ -105,9 +144,63 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
  			vpe->sfxFileEnd = _blockEnd;
  		}
  	}
@@ -844,6 +877,7 @@ index 37fc11af101..d007f4732dd 100644
 +
 +static void gwForget(uint i)
 +{
++	gwZoneBytes -= gwBlocks[i].size;
 +	free(gwBlocks[i].p);
 +	gwBlocks[i] = gwBlocks[--gwBlockCount];
 +}
@@ -852,13 +886,33 @@ index 37fc11af101..d007f4732dd 100644
 +{
 +	while (gwBlockCount)
 +		gwForget(0);
++}
++
++// src/heap.c asks before an allocation fails: the zones give back what they can (a voice's MP3
++// decoder, 35 KB, comes after the zones have filled the heap)
++static AGOSEngine *gwAgos;
++static int gwAgosLowMemory(uint32)
++{
++	return gwAgos && gwAgos->gwFreeZoneMemory() ? 1 : 0;
  }
-+#endif
  
++void gwAgosLowMemoryHook(AGOSEngine *vm)	// (the engine's init and destructor)
++{
++	gwAgos = vm;
++	heap_low_memory_hook = vm ? gwAgosLowMemory : nullptr;
++}
++#endif
++
  void AGOSEngine::setZoneBuffers() {
 +#ifdef GW_AGOS_SLIM
 +	_zoneBuffers = nullptr;
 +	gwBlockCount = 0;
++	gwZoneBytes = 0;
++	{
++		uint32 freeNow = heap_total ? heap_total() - heap_used() : 8 * 1024 * 1024;
++		gwZoneCap = freeNow > kGWZoneReserve + 200 * 1024 ? freeNow - kGWZoneReserve : 200 * 1024;
++		warning("AGOS: %u KB for the zones", gwZoneCap / 1024);
++	}
 +	memset(gwFrozen, 0, sizeof(gwFrozen));
 +	_vgaMemPtr = _vgaMemBase = _vgaFrozenBase = _vgaRealBase = _vgaMemEnd = nullptr;
 +	return;
@@ -866,7 +920,7 @@ index 37fc11af101..d007f4732dd 100644
  	_zoneBuffers = (byte *)malloc(_vgaMemSize);
  
  	_vgaMemPtr = _zoneBuffers;
-@@ -115,9 +177,59 @@ void AGOSEngine::setZoneBuffers() {
+@@ -115,9 +208,79 @@ void AGOSEngine::setZoneBuffers() {
  	_vgaFrozenBase = _zoneBuffers;
  	_vgaRealBase = _zoneBuffers;
  	_vgaMemEnd = _zoneBuffers + _vgaMemSize;
@@ -882,37 +936,57 @@ index 37fc11af101..d007f4732dd 100644
 +			gwForget(i);
 +			return true;
 +		}
-+	// the zone loaded longest ago that may go
-+	int best = -1;
-+	uint32 bestSeq = 0xFFFFFFFF;
-+	for (uint i = 0; i < gwBlockCount; i++) {
-+		int z = gwZoneOf(this, _vgaBufferPointers, gwBlocks[i].p);
-+		if (z < 0 || z == gwLoadingZone || z == _noOverWrite || gwFrozen[z] || gwBlocks[i].seq >= bestSeq)
++	// zones in use: running animations, scripts asleep or timed in them, the one being loaded,
++	// the one the game protects; and those the game reads by number (the text sprites in 2, the
++	// arrows in 1, the VGA file the game loads into 11)
++	static bool busy[450];
++	memset(busy, 0, sizeof(busy));
++	for (VgaSprite *vsp = _vgaSprites; vsp->id; vsp++)
++		if (vsp->zoneNum < 450) busy[vsp->zoneNum] = true;
++	for (uint i = 0; i < ARRAYSIZE(_vgaTimerList); i++)
++		if (_vgaTimerList[i].delay && _vgaTimerList[i].zoneNum < 450) busy[_vgaTimerList[i].zoneNum] = true;
++	const VgaSleepStruct *tables[] = { _onStopTable, _waitEndTable, _waitSyncTable };
++	for (int t = 0; t < 3; t++)
++		for (int i = 0; i < 60; i++)
++			if (tables[t][i].ident && tables[t][i].zoneNum < 450) busy[tables[t][i].zoneNum] = true;
++	if (gwLoadingZone < 450) busy[gwLoadingZone] = true;
++	if (_noOverWrite < 450) busy[_noOverWrite] = true;
++	busy[1] = busy[2] = busy[11] = true;
++	// the one loaded longest ago -- one frozen by the game only when there is no other: it
++	// comes back from the file when an animation asks for it (gfx.cpp, loadZone)
++	for (int pass = 0; pass < 2; pass++) {
++		int best = -1;
++		uint32 bestSeq = 0xFFFFFFFF;
++		for (uint i = 0; i < gwBlockCount; i++) {
++			int z = gwZoneOf(this, _vgaBufferPointers, gwBlocks[i].p);
++			if (z < 0 || busy[z] || (pass == 0 && gwFrozen[z]) || gwBlocks[i].seq >= bestSeq)
++				continue;
++			best = z;
++			bestSeq = gwBlocks[i].seq;
++		}
++		if (best < 0)
 +			continue;
-+		bool running = false;
-+		for (VgaSprite *vsp = _vgaSprites; vsp->id; vsp++)
-+			if (vsp->zoneNum == z) { running = true; break; }
-+		if (running)
-+			continue;
-+		best = z;
-+		bestSeq = gwBlocks[i].seq;
++		VgaPointersEntry *vpe = &_vgaBufferPointers[best];
++		vpe->vgaFile1 = vpe->vgaFile1End = nullptr;
++		vpe->vgaFile2 = vpe->vgaFile2End = nullptr;
++		vpe->sfxFile = vpe->sfxFileEnd = nullptr;
++		gwFrozen[best] = false;
++		return true;                    // (its blocks now belong to no zone: the next call frees them)
 +	}
-+	if (best < 0)
-+		return false;
-+	VgaPointersEntry *vpe = &_vgaBufferPointers[best];
-+	vpe->vgaFile1 = vpe->vgaFile1End = nullptr;
-+	vpe->vgaFile2 = vpe->vgaFile2End = nullptr;
-+	vpe->sfxFile = vpe->sfxFileEnd = nullptr;
-+	return true;                        // (its blocks now belong to no zone: the next call frees them)
++	return false;
  }
 +#endif
  
  byte *AGOSEngine::allocBlock(uint32 size) {
 +#ifdef GW_AGOS_SLIM
++	while (gwZoneBytes + size > gwZoneCap && gwFreeZoneMemory())
++		;
 +	for (;;) {
 +		byte *p = gwBlockCount < ARRAYSIZE(gwBlocks) ? (byte *)malloc(size) : nullptr;
 +		if (p) {
 +			gwBlocks[gwBlockCount].p = p;
++			gwBlocks[gwBlockCount].size = size;
++			gwZoneBytes += size;
 +			gwBlocks[gwBlockCount].seq = ++gwSeq;
 +			gwBlockCount++;
 +			_block = p;
