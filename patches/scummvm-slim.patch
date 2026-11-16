@@ -2504,7 +2504,7 @@ index 74d08752b64..9b95d018660 100644
  };
  
 diff --git a/engines/queen/resource.cpp b/engines/queen/resource.cpp
-index c159d63b98b..d6e366b5400 100644
+index c159d63b98b..8058b922ef2 100644
 --- a/engines/queen/resource.cpp
 +++ b/engines/queen/resource.cpp
 @@ -74,6 +74,27 @@ ResourceEntry *Resource::resourceEntry(const char *filename) const {
@@ -2565,6 +2565,15 @@ index c159d63b98b..d6e366b5400 100644
  void Resource::loadTextFile(const char *filename, Common::StringArray &stringList) {
  	debug(7, "Resource::loadTextFile('%s')", filename);
  	ResourceEntry *re = resourceEntry(filename);
+@@ -159,7 +203,7 @@ void Resource::readTableFile(uint8 version, uint32 offset) {
+ 		// check if it is the english floppy version, for which we have a hardcoded version of the table
+ 		if (strcmp(_version.str, "PEM10") == 0) {
+ 			_resourceEntries = 1076;
+-			_resourceTable = _resourceTablePEM10;
++			_resourceTable = (ResourceEntry *)_resourceTablePEM10;
+ 		} else {
+ 			error("Could not find tablefile '%s'", _tableFilename);
+ 		}
 @@ -168,6 +212,12 @@ void Resource::readTableFile(uint8 version, uint32 offset) {
  
  void Resource::readTableEntries(Common::File *file) {
@@ -2579,7 +2588,7 @@ index c159d63b98b..d6e366b5400 100644
  	for (uint16 i = 0; i < _resourceEntries; ++i) {
  		ResourceEntry *re = &_resourceTable[i];
 diff --git a/engines/queen/resource.h b/engines/queen/resource.h
-index 7281d5018a8..be14fb7ac5d 100644
+index 7281d5018a8..6ad74c8cd6e 100644
 --- a/engines/queen/resource.h
 +++ b/engines/queen/resource.h
 @@ -47,6 +47,14 @@ public:
@@ -2610,6 +2619,32 @@ index 7281d5018a8..be14fb7ac5d 100644
  
  	//! verify the version of the selected game
  	void checkJASVersion();
+@@ -110,7 +124,11 @@ protected:
+ 	static const char *const _tableFilename;
+ 
+ 	//! resource table for english floppy version
++#ifdef GW_QUEEN_SLIM
++	static const ResourceEntry _resourceTablePEM10[]; // GW: in flash, not RAM (25 KB)
++#else
+ 	static ResourceEntry _resourceTablePEM10[];
++#endif
+ };
+ 
+ } // End of namespace Queen
+diff --git a/engines/queen/restables.cpp b/engines/queen/restables.cpp
+index 17263976c17..b5683fd03b6 100644
+--- a/engines/queen/restables.cpp
++++ b/engines/queen/restables.cpp
+@@ -24,6 +24,9 @@
+ namespace Queen {
+ 
+ //English Floppy Version
++#ifdef GW_QUEEN_SLIM
++const
++#endif
+ ResourceEntry Resource::_resourceTablePEM10[] = {
+ 	{ "1000SSSS.SB", 1, 0x00000000, 0x000027fe },
+ 	{ "1001SSSS.SB", 1, 0x000027fe, 0x00007af8 },
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea521f6..380eb1fa977 100644
 --- a/engines/scumm/dialogs.cpp
