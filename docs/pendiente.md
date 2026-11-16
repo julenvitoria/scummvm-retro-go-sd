@@ -37,11 +37,10 @@ falta comprobar.
 - Beneath a Steel Sky: podría usar la adopción de pantalla como Lure.
 - Full Throttle, sala 2: negra, 320x1200; no cabe ni con el doble de memoria. Puede que sean
   los créditos finales en texto. Rama `ft-wide` (barrido de salas del 2026-11-16).
-- Motores en prueba (2026-11-16), cada uno en su rama, encadenadas: `queen` -> `drascula` ->
-  `dreamweb`. Pendiente de que el usuario los pruebe en la consola antes de fusionar.
-  - Drascula: `drascula.dat` de ScummVM en la carpeta del juego; los packet se descomprimen
-    la primera vez en `gwx/` (63 MB en la tarjeta).
-  - DreamWeb: las terminales piden escribir órdenes (teclado en pantalla, GAME).
+- Queen, Drascula y DreamWeb: validados en la consola el 2026-11-16 y fusionados en `main`.
+- Pruebas en el PC con la memoria de la consola: `tools/host/gwheap.c` (calibrado con la torre
+  de FT). No es exacto (punteros de 64 bits): Lure falla en el PC y va en la consola; ante un
+  fallo en el PC, comparar siempre con la versión anterior.
 - Teenagent: sin ficheros del juego todavía (es gratuito, scummvm.org/games).
 - Igor: Objetivo Uikokahonia: el motor `igor` ya no está en ScummVM (se quitó hace años); no
   se puede sin portarlo de una versión antigua.
