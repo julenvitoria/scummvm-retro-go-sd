@@ -233,7 +233,7 @@ index ef3997f1203..e9553647c34 100644
  	}
  #ifdef USE_SDL_NET
 diff --git a/common/compression/unarj.cpp b/common/compression/unarj.cpp
-index ce182a84063..8b15e7f50d1 100644
+index ce182a84063..92b7c31af85 100644
 --- a/common/compression/unarj.cpp
 +++ b/common/compression/unarj.cpp
 @@ -38,8 +38,15 @@ namespace Common {
@@ -435,7 +435,7 @@ index ce182a84063..8b15e7f50d1 100644
  Common::SharedArchiveContents ArjArchive::readContentsForPath(const Common::Path &path) const {
  	if (!_headers.contains(path)) {
  		return Common::SharedArchiveContents();
-@@ -857,6 +986,108 @@ Common::SharedArchiveContents ArjArchive::readContentsForPath(const Common::Path
+@@ -857,6 +986,130 @@ Common::SharedArchiveContents ArjArchive::readContentsForPath(const Common::Path
  
  	return Common::SharedArchiveContents(uncompressedData, uncompressedSize);
  }
@@ -457,6 +457,8 @@ index ce182a84063..8b15e7f50d1 100644
 +	uint32 _n = 0, _pos = 0;
 +	bool _err = false;
 +public:
++	void (*_tick)(void *) = nullptr;		// after every 4 KB written
++	void *_tickArg = nullptr;
 +	GWPlatWriteStream(void *f) : _f(f) {}
 +	~GWPlatWriteStream() override { flush(); }
 +	uint32 write(const void *dataPtr, uint32 dataSize) override {
@@ -475,6 +477,8 @@ index ce182a84063..8b15e7f50d1 100644
 +		if (_n && plat_fwrite(_buf, _n, _f) != _n)
 +			_err = true;
 +		_n = 0;
++		if (_tick)
++			_tick(_tickArg);
 +		return !_err;
 +	}
 +	bool err() const override { return _err; }
@@ -497,7 +501,23 @@ index ce182a84063..8b15e7f50d1 100644
 +	delete header;
 +	uint32 done = 0;
 +	bool ok = true;
++	// progress while a file is decoded too (the animations are up to 4 MB: minutes on the
++	// console with nothing moving on screen)
++	struct Tick {
++		File *f;
++		uint32 base;
++		int64 start;
++		void (*progress)(uint32, void *);
++		void *arg;
++		static void call(void *p) {
++			Tick *t = (Tick *)p;
++			if (t->progress)
++				t->progress(t->base + (uint32)(t->f->pos() - t->start), t->arg);
++		}
++	} tick = { &arjFile, 0, 0, progress, arg };
 +	while (ok && (header = readHeader(arjFile)) != nullptr) {
++		tick.base = done;
++		tick.start = arjFile.pos();
 +		const char *name = header->filename;
 +		for (const char *p = header->filename; *p; p++)
 +			if (*p == '\\' || *p == '/')
@@ -509,6 +529,8 @@ index ce182a84063..8b15e7f50d1 100644
 +			ok = false;
 +		} else {
 +			GWPlatWriteStream out(f);
++			out._tick = Tick::call;
++			out._tickArg = &tick;
 +			if (header->method == 0) {
 +				byte buf[1024];
 +				for (int32 left = header->origSize; left > 0 && ok;) {
@@ -1571,7 +1593,7 @@ index 219d434bd67..ecb4f1fd50d 100644
  		act->addDefaultInputMapping("JOY_RIGHT");
  		gameKeyMap->addAction(act);
 diff --git a/engines/drascula/resource.cpp b/engines/drascula/resource.cpp
-index 952472f4cfd..fb3092f6982 100644
+index 952472f4cfd..97faf4b44d4 100644
 --- a/engines/drascula/resource.cpp
 +++ b/engines/drascula/resource.cpp
 @@ -21,6 +21,8 @@
@@ -1583,7 +1605,7 @@ index 952472f4cfd..fb3092f6982 100644
  
  namespace Drascula {
  
-@@ -28,6 +30,109 @@ ArchiveMan::ArchiveMan() {
+@@ -28,6 +30,114 @@ ArchiveMan::ArchiveMan() {
  	_fallBack = false;
  }
  
@@ -1642,6 +1664,8 @@ index 952472f4cfd..fb3092f6982 100644
 +	GWUnpackProgress *p = (GWUnpackProgress *)arg;
 +	int pct = (int)((uint64)(p->before + done) * 100 / (p->total ? p->total : 1));
 +	if (pct != p->last) {
++		if (pct / 10 != p->last / 10)
++			warning("Drascula: unpacking the archives, %d%%", pct);	// (scummvm.log)
 +		p->last = pct;
 +		plat_progress(pct);
 +	}
@@ -1665,6 +1689,8 @@ index 952472f4cfd..fb3092f6982 100644
 +			if (a.open(archives[i]))
 +				prog.total += a.size();
 +		}
++		warning("Drascula: unpacking %u archives into %s (first start only)", archives.size(), dir.c_str());
++		plat_progress(0);
 +		plat_mkdir(dir.c_str());
 +		for (uint i = 0; i < archives.size(); i++) {
 +			Common::File a;
@@ -1684,6 +1710,7 @@ index 952472f4cfd..fb3092f6982 100644
 +		}
 +		plat_fclose(f);
 +		plat_progress(100);
++		warning("Drascula: unpacked");
 +	}
 +	add(GW_UNPACK_DIR, new GWUnpackedDir(dir), 10);
 +	return true;
