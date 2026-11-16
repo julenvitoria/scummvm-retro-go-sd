@@ -707,31 +707,34 @@ static const gw_i18n_entry_t i18n_copying[] = {
 /* The bar is drawn in the overlay's CLUT slots, which hold the GAME's colours once it has set
    its palette: Drascula unpacking its archives with a black palette showed nothing but black
    for minutes. The firmware's overlay colours are stamped in while the bar is up. */
+/* A CLUT the overlay is visible with whatever palette the game had set: the theme's colours in
+   the overlay slots, white and greys after them, and a colour cube everywhere else (for what
+   the overlay picks by nearest colour). Drascula, black palette: the bar did not show, nor the
+   text of an error message ("a dark screen with green"). The game's own goes back with g_hw. */
+static void ui_clut(void)
+{
+	uint32_t ov[LCD_OVERLAY_CLUT_MAX] = { 0x101810, 0x40c040, 0xe0e0e0, 0x208020, 0xffffff, 0x808080, 0x404040 };
+	/* the launcher's theme, as Retro-Go's own bars have it (gui.c, gui_apply_colors_to_overlay_clut:
+	   background, main, selected, disabled) */
+	void **cc = gw_firmware_abi()->curr_colors_ptr;
+	const uint16_t *theme = cc ? (const uint16_t *)*cc : NULL;
+	for (int i = 0; theme && i < 4; i++) {
+		uint32_t c = theme[i], r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+		ov[i] = ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2);
+	}
+	static uint32_t clut[256];
+	for (int i = 0; i < 252; i++)
+		clut[i] = (uint32_t)(i / 42 * 51) << 16 | (uint32_t)(i / 6 % 7 * 42) << 8 | (uint32_t)(i % 6 * 51);
+	for (int i = 252; i < 256; i++) clut[i] = 0xffffff;
+	for (int i = 0; i < LCD_OVERLAY_CLUT_MAX; i++) clut[LCD_OVERLAY_CLUT_BASE + i] = ov[i];
+	lcd_sleep_while_swap_pending();
+	lcd_set_clut(clut, 256);
+}
+
 static void prepare_bar(int pct)
 {
 	static bool stamped;
-	if (!stamped) {
-		/* the firmware's begin/end of its overlay colours is not in the core ABI: colours of our
-		   own in those slots instead, all of them apart (whatever the theme draws with which) */
-		uint32_t ov[LCD_OVERLAY_CLUT_MAX] = { 0x101810, 0x40c040, 0xe0e0e0, 0x208020, 0xffffff, 0x404040, 0x202020 };
-		/* the launcher's theme, as Retro-Go's own bars have it (gui.c, gui_apply_colors_to_overlay_clut:
-		   background, main, selected, disabled) */
-		void **cc = gw_firmware_abi()->curr_colors_ptr;
-		const uint16_t *theme = cc ? (const uint16_t *)*cc : NULL;
-		for (int i = 0; theme && i < 4; i++) {
-			uint32_t c = theme[i], r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
-			ov[i] = ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2);
-		}
-		static uint32_t clut[256];
-		/* ...and a colour cube everywhere else, for what the overlay picks by nearest colour */
-		for (int i = 0; i < 252; i++)
-			clut[i] = (uint32_t)(i / 42 * 51) << 16 | (uint32_t)(i / 6 % 7 * 42) << 8 | (uint32_t)(i % 6 * 51);
-		for (int i = 252; i < 256; i++) clut[i] = 0xffffff;
-		for (int i = 0; i < LCD_OVERLAY_CLUT_MAX; i++) clut[LCD_OVERLAY_CLUT_BASE + i] = ov[i];
-		lcd_sleep_while_swap_pending();
-		lcd_set_clut(clut, 256);
-		stamped = true;
-	}
+	if (!stamped) { ui_clut(); stamped = true; }
 	show_bar(gw_i18n(i18n_preparing), pct);
 	if (pct >= 100) { lcd_sleep_while_swap_pending(); lcd_set_clut(g_hw, 256); stamped = false; }
 }
@@ -1363,6 +1366,7 @@ static void message4(const char *a, const char *b, const char *c, const char *d)
 	}
 	odroid_dialog_choice_t last = ODROID_DIALOG_CHOICE_LAST;
 	opts[n] = last;
+	ui_clut();
 	odroid_overlay_dialog("ScummVM", opts, 0, &repaint, 0);
 }
 static void message3(const char *a, const char *b, const char *c) { message4(a, b, c, NULL); }
