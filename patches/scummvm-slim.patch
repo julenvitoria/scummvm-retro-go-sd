@@ -677,70 +677,255 @@ index c6e0e39e66a..6084b3840b1 100644
  
  	saveGameSlotId = _systemUI->askForSaveGameSlot();
  	if (saveGameSlotId >= 0) {
-diff --git a/engines/agos/zones.cpp b/engines/agos/zones.cpp
-index 37fc11af101..49541570cbb 100644
---- a/engines/agos/zones.cpp
-+++ b/engines/agos/zones.cpp
-@@ -21,6 +21,10 @@
+diff --git a/engines/agos/agos.cpp b/engines/agos/agos.cpp
+index 7dda20f2c01..33acd7fff1d 100644
+--- a/engines/agos/agos.cpp
++++ b/engines/agos/agos.cpp
+@@ -42,6 +42,10 @@
  
- 
- 
-+#ifdef GW_AGOS_SLIM
-+#define FORBIDDEN_SYMBOL_EXCEPTION_getenv	// (PC test build: GW_AGOS_VGA)
-+#define FORBIDDEN_SYMBOL_EXCEPTION_atoi
-+#endif
- #include "common/file.h"
- 
- #include "agos/intern.h"
-@@ -107,8 +111,31 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
- 	}
- }
+ #include "audio/mididrv.h"
  
 +#ifdef GW_AGOS_SLIM
-+static const uint32 gwAgosVgaMem = 256 * 1024;	// measured: see docs
++extern "C" int heap_screen_hint;	// src/heap.c
 +#endif
 +
- void AGOSEngine::setZoneBuffers() {
+ namespace AGOS {
+ 
+ static const GameSpecificSettings simon1_settings = {
+@@ -676,6 +680,11 @@ Common::Error AGOSEngine::init() {
+ 	}
+ 
+ 	// allocate buffers
 +#ifdef GW_AGOS_SLIM
-+	// Game & Watch: the zones' memory is a ring the game reuses as it goes (allocBlock above
-+	// drops what a new block overlaps); 1 MB is more than the console has in all. At most
-+	// gwAgosVgaMem, less if the heap has not that much in one block.
-+	{
-+		uint32 want = MIN<uint32>(_vgaMemSize, gwAgosVgaMem);
-+#ifndef __arm__
-+		if (getenv("GW_AGOS_VGA"))			// (PC test build: to try sizes)
-+			want = atoi(getenv("GW_AGOS_VGA")) * 1024;
++	// Game & Watch: the buffers that live as long as the game go to the heap kept for screens
++	// (src/heap.c), leaving the main one in big pieces for the zones (a VGA file is up to 178 KB)
++	heap_screen_hint = 1;
 +#endif
-+		for (_zoneBuffers = nullptr; !_zoneBuffers && want >= 64 * 1024; want -= 16 * 1024)
-+			_zoneBuffers = (byte *)malloc(want);
-+		_vgaMemSize = want + 16 * 1024;
-+		if (!_zoneBuffers)
-+			error("setZoneBuffers: no memory");
-+		warning("AGOS: %u KB for the zones", _vgaMemSize / 1024);
-+	}
-+#else
- 	_zoneBuffers = (byte *)malloc(_vgaMemSize);
+ 	_backGroundBuf = new Graphics::Surface();
+ 	_backGroundBuf->create(_screenWidth, _screenHeight, Graphics::PixelFormat::createFormatCLUT8());
+ 
+@@ -708,6 +717,9 @@ Common::Error AGOSEngine::init() {
+ 		_window6BackScn = new Graphics::Surface();
+ 		_window6BackScn->create(48, 80, Graphics::PixelFormat::createFormatCLUT8());
+ 	}
++#ifdef GW_AGOS_SLIM
++	heap_screen_hint = 0;
 +#endif
  
- 	_vgaMemPtr = _zoneBuffers;
- 	_vgaMemBase = _zoneBuffers;
-@@ -118,7 +145,16 @@ void AGOSEngine::setZoneBuffers() {
+ 	setupGame();
+ 
+@@ -1124,6 +1136,12 @@ AGOSEngine::~AGOSEngine() {
+ 		_scaleBuf->free();
+ 	delete _scaleBuf;
+ 	free(_zoneBuffers);
++#ifdef GW_AGOS_SLIM
++	{
++		void gwAgosFreeZones();			// zones.cpp
++		gwAgosFreeZones();
++	}
++#endif
+ 
+ 	if (_window4BackScn)
+ 		_window4BackScn->free();
+diff --git a/engines/agos/agos.h b/engines/agos/agos.h
+index f0eb250c1f7..dd3606a7e82 100644
+--- a/engines/agos/agos.h
++++ b/engines/agos/agos.h
+@@ -1034,6 +1034,9 @@ protected:
+ 	void writeChar(WindowBlock *window, int x, int y, int offs, int val);
+ 
+ 	byte *allocBlock(uint32 size);
++#ifdef GW_AGOS_SLIM
++	bool gwFreeZoneMemory();
++#endif
+ 	void checkNoOverWrite();
+ 	void checkRunningAnims();
+ 	void checkAnims(uint a);
+diff --git a/engines/agos/subroutine.cpp b/engines/agos/subroutine.cpp
+index eee53c34c83..40c2b817fc5 100644
+--- a/engines/agos/subroutine.cpp
++++ b/engines/agos/subroutine.cpp
+@@ -28,6 +28,10 @@
+ #include "agos/intern.h"
+ #include "agos/sound.h"
+ 
++#ifdef GW_AGOS_SLIM
++extern "C" int heap_screen_hint;	// src/heap.c
++#endif
++
+ namespace AGOS {
+ 
+ // Script opcodes to load into memory
+@@ -245,7 +249,13 @@ void *AGOSEngine::allocateTable(uint size) {
+ void AGOSEngine::allocTablesHeap() {
+ 	_tablesHeapSize = _tableMemSize;
+ 	_tablesHeapCurPos = 0;
++#ifdef GW_AGOS_SLIM
++	heap_screen_hint = 1;				// (with the screen buffers, agos.cpp)
++#endif
+ 	_tablesHeapPtr = (byte *)calloc(_tableMemSize, 1);
++#ifdef GW_AGOS_SLIM
++	heap_screen_hint = 0;
++#endif
+ 	if (!_tablesHeapPtr)
+ 		error("Out Of Memory - Tables");
  }
+diff --git a/engines/agos/zones.cpp b/engines/agos/zones.cpp
+index 37fc11af101..d007f4732dd 100644
+--- a/engines/agos/zones.cpp
++++ b/engines/agos/zones.cpp
+@@ -29,12 +29,38 @@
+ 
+ namespace AGOS {
+ 
++#ifdef GW_AGOS_SLIM
++// Game & Watch: the zones' memory is not one ring of 1 MB (more than the console has in all) but a
++// block per file, from the heap. A block is let go only when memory runs short, as the ring
++// overwrote only when it went round: first the blocks no zone points at any more (unloaded or
++// replaced), then whole zones, the longest loaded first -- never the one being loaded, the one
++// the game protects (_noOverWrite), those with running animations, nor those under a freeze.
++struct GWZoneBlock {
++	byte *p;
++	uint32 seq;
++};
++static GWZoneBlock gwBlocks[96];
++static uint gwBlockCount;
++static uint32 gwSeq;
++static uint16 gwLoadingZone = 0xFFFF;
++static bool gwFrozen[450];
++#endif
++
+ void AGOSEngine::freezeBottom() {
++#ifdef GW_AGOS_SLIM
++	// (the zones loaded so far stay until unfreezeBottom)
++	for (int z = 0; z < 450; z++)
++		if (_vgaBufferPointers[z].vgaFile1 || _vgaBufferPointers[z].vgaFile2)
++			gwFrozen[z] = true;
++#endif
+ 	_vgaMemBase = _vgaMemPtr;
+ 	_vgaFrozenBase = _vgaMemPtr;
+ }
+ 
+ void AGOSEngine::unfreezeBottom() {
++#ifdef GW_AGOS_SLIM
++	memset(gwFrozen, 0, sizeof(gwFrozen));
++#endif
+ 	_vgaMemPtr = _vgaRealBase;
+ 	_vgaMemBase = _vgaRealBase;
+ 	_vgaFrozenBase = _vgaRealBase;
+@@ -76,6 +102,9 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
+ 	}
+ 
+ 	// Loading order is important due to resource management
++#ifdef GW_AGOS_SLIM
++	gwLoadingZone = zoneNum;
++#endif
+ 
+ 	if (getPlatform() == Common::kPlatformAmiga && getGameType() == GType_WW &&
+ 		zoneTable[zoneNum] == 3) {
+@@ -105,9 +134,42 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
+ 			vpe->sfxFileEnd = _blockEnd;
+ 		}
+ 	}
++#ifdef GW_AGOS_SLIM
++	gwLoadingZone = 0xFFFF;
++#endif
++}
++
++#ifdef GW_AGOS_SLIM
++
++static int gwZoneOf(AGOSEngine *vm, VgaPointersEntry *ptrs, byte *p)
++{
++	for (int z = 0; z < 450; z++)
++		if (ptrs[z].vgaFile1 == p || ptrs[z].vgaFile2 == p || ptrs[z].sfxFile == p)
++			return z;
++	return -1;
++}
++
++static void gwForget(uint i)
++{
++	free(gwBlocks[i].p);
++	gwBlocks[i] = gwBlocks[--gwBlockCount];
++}
++
++void gwAgosFreeZones()					// (the engine's destructor)
++{
++	while (gwBlockCount)
++		gwForget(0);
+ }
++#endif
+ 
+ void AGOSEngine::setZoneBuffers() {
++#ifdef GW_AGOS_SLIM
++	_zoneBuffers = nullptr;
++	gwBlockCount = 0;
++	memset(gwFrozen, 0, sizeof(gwFrozen));
++	_vgaMemPtr = _vgaMemBase = _vgaFrozenBase = _vgaRealBase = _vgaMemEnd = nullptr;
++	return;
++#else
+ 	_zoneBuffers = (byte *)malloc(_vgaMemSize);
+ 
+ 	_vgaMemPtr = _zoneBuffers;
+@@ -115,9 +177,59 @@ void AGOSEngine::setZoneBuffers() {
+ 	_vgaFrozenBase = _zoneBuffers;
+ 	_vgaRealBase = _zoneBuffers;
+ 	_vgaMemEnd = _zoneBuffers + _vgaMemSize;
++#endif
++}
++
++#ifdef GW_AGOS_SLIM
++// One block let go to make room: true if there was one
++bool AGOSEngine::gwFreeZoneMemory() {
++	// a block no zone points at
++	for (uint i = 0; i < gwBlockCount; i++)
++		if (gwZoneOf(this, _vgaBufferPointers, gwBlocks[i].p) < 0) {
++			gwForget(i);
++			return true;
++		}
++	// the zone loaded longest ago that may go
++	int best = -1;
++	uint32 bestSeq = 0xFFFFFFFF;
++	for (uint i = 0; i < gwBlockCount; i++) {
++		int z = gwZoneOf(this, _vgaBufferPointers, gwBlocks[i].p);
++		if (z < 0 || z == gwLoadingZone || z == _noOverWrite || gwFrozen[z] || gwBlocks[i].seq >= bestSeq)
++			continue;
++		bool running = false;
++		for (VgaSprite *vsp = _vgaSprites; vsp->id; vsp++)
++			if (vsp->zoneNum == z) { running = true; break; }
++		if (running)
++			continue;
++		best = z;
++		bestSeq = gwBlocks[i].seq;
++	}
++	if (best < 0)
++		return false;
++	VgaPointersEntry *vpe = &_vgaBufferPointers[best];
++	vpe->vgaFile1 = vpe->vgaFile1End = nullptr;
++	vpe->vgaFile2 = vpe->vgaFile2End = nullptr;
++	vpe->sfxFile = vpe->sfxFileEnd = nullptr;
++	return true;                        // (its blocks now belong to no zone: the next call frees them)
+ }
++#endif
  
  byte *AGOSEngine::allocBlock(uint32 size) {
 +#ifdef GW_AGOS_SLIM
-+	if (size >= _vgaMemSize)
-+		error("allocBlock: %u bytes, the zones' memory is %u", size, _vgaMemSize);
-+	uint32 gwTries = 0;
++	for (;;) {
++		byte *p = gwBlockCount < ARRAYSIZE(gwBlocks) ? (byte *)malloc(size) : nullptr;
++		if (p) {
++			gwBlocks[gwBlockCount].p = p;
++			gwBlocks[gwBlockCount].seq = ++gwSeq;
++			gwBlockCount++;
++			_block = p;
++			_blockEnd = p + size;
++			return p;
++		}
++		if (!gwFreeZoneMemory())
++			error("allocBlock: no memory for %u bytes (%u blocks in use)", size, gwBlockCount);
++	}
 +#endif
  	for (;;) {
-+#ifdef GW_AGOS_SLIM
-+		if (++gwTries == 100000)
-+			error("allocBlock: no room for %u bytes among the running animations (zones' memory %u)", size, _vgaMemSize);
-+#endif
  		_block = _vgaMemPtr;
  		_blockEnd = _block + size;
- 
 diff --git a/engines/cge/bitmap.cpp b/engines/cge/bitmap.cpp
 index 868dad8fa68..0fc18f32ae7 100644
 --- a/engines/cge/bitmap.cpp
