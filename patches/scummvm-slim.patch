@@ -4326,7 +4326,7 @@ index d4277061617..cbfee084c04 100644
  
  	// For some reason bg images in IHNM are upside down
 diff --git a/engines/saga/interface.cpp b/engines/saga/interface.cpp
-index e593a058e99..4188c2deb52 100644
+index e593a058e99..c1febb7e5a9 100644
 --- a/engines/saga/interface.cpp
 +++ b/engines/saga/interface.cpp
 @@ -324,6 +324,33 @@ Interface::Interface(SagaEngine *vm) : _vm(vm) {
@@ -4383,6 +4383,22 @@ index e593a058e99..4188c2deb52 100644
  	_vm->_gfx->drawRegion(rect, _optionPanel.image.getBuffer());
  
  	for (int i = 0; i < _optionPanel.buttonsCount; i++) {
+@@ -1654,6 +1687,15 @@ void Interface::setOption(PanelButton *panelButton) {
+ 
+ 		if (!_vm->isSaveListFull() && (_optionSaveFileTitleNumber == 0)) {
+ 			_textInputString[0] = 0;
++#ifdef GW_SAGA_SLIM
++			// Game & Watch: typing is slow (the GAME button's keyboard) -- a new save is named
++			// with the date and time, which can be changed or just saved
++			{
++				TimeDate t;
++				_vm->_system->getTimeAndDate(t);
++				Common::sprintf_s(_textInputString, "%02d/%02d %02d:%02d", t.tm_mday, t.tm_mon + 1, t.tm_hour, t.tm_min);
++			}
++#endif
+ 		} else {
+ 			Common::strcpy_s(_textInputString, _vm->getSaveFile(_optionSaveFileTitleNumber)->name);
+ 		}
 diff --git a/engines/saga/interface.h b/engines/saga/interface.h
 index 8872a44dc84..962197993f6 100644
 --- a/engines/saga/interface.h
