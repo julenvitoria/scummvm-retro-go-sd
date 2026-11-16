@@ -27,7 +27,8 @@
 #include <strings.h>
 
 #define PACK_MAGIC   0x4b505747u            /* "GWPK" */
-#define PACK_VERSION 1u
+#define PACK_VERSION 1u                 /* Beneath a Steel Sky's pack */
+#define PACK_VERSION_SCUMM7 2u          /* 2: blocks after a run of junk in an LFLF are packed too */
 #define COPY_CHUNK   (16u << 10)
 
 static uint32_t be32(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
@@ -35,6 +36,30 @@ static uint32_t be32(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t
 static int read_at(void *f, uint32_t off, void *buf, uint32_t n)
 {
 	return plat_fseek(f, (int32_t)off, 0) && plat_fread(buf, n, f) == n;
+}
+
+/* the blocks an LFLF of a SCUMM v7 data file holds */
+static int child_tag(const uint8_t *t)
+{
+	static const char tags[][5] = { "ROOM", "SCRP", "SOUN", "AKOS", "CHAR", "RMIM", "RMDA", "COST", "OBIM", "OBCD" };
+	for (unsigned i = 0; i < sizeof tags / sizeof *tags; i++)
+		if (!memcmp(t, tags[i], 4)) return 1;
+	return 0;
+}
+
+/* the first offset from 'from' on where a block that fits before 'end' starts, or 'end' */
+static uint32_t resync(void *f, uint32_t from, uint32_t end)
+{
+	static uint8_t buf[4096 + 8];
+	for (uint32_t at = from; at + 8 <= end; at += 4096) {
+		uint32_t n = end - at < sizeof buf ? end - at : sizeof buf;
+		if (!read_at(f, at, buf, n)) return end;
+		for (uint32_t i = 0; i + 8 <= n && i < 4096; i++) {
+			uint32_t s = be32(buf + i + 4);
+			if (child_tag(buf + i) && s >= 8 && s <= end - (at + i)) return at + i;
+		}
+	}
+	return end;
 }
 
 /* the data file's fingerprint: its size and the bytes of its first 4 KB */
@@ -79,7 +104,9 @@ int svm_pack_candidate(const char *path, uint32_t size)
 
 int svm_pack_valid(const pack_head_t *h, uint32_t pack_size, const char *src, uint32_t src_size)
 {
-	if (pack_size < sizeof *h || h->magic != PACK_MAGIC || h->version != PACK_VERSION ||
+	char dnr[320];
+	uint32_t version = sky_dnr_path(src, dnr, sizeof dnr) ? PACK_VERSION : PACK_VERSION_SCUMM7;
+	if (pack_size < sizeof *h || h->magic != PACK_MAGIC || h->version != version ||
 	    h->src_size != src_size || h->total != pack_size || !h->count ||
 	    h->data_off != sizeof *h + h->count * sizeof(pack_entry_t))
 		return 0;
@@ -120,7 +147,13 @@ int svm_pack_build(const char *src, uint32_t src_size, const char *dst, void (*p
 			while (p + 8 <= o + sz) {
 				if (!read_at(in, p, hd, 8)) goto done;
 				uint32_t s = be32(hd + 4);
-				if (s < 8 || p + s > o + sz) break;
+				if (s < 8 || p + s > o + sz || !child_tag(hd)) {
+					/* Full Throttle's room 88 has 34 KB of junk after a script, where the walk
+					   lost the three costumes behind it (one of them 229 KB, loaded into the heap
+					   instead): look for the next block that fits */
+					p = resync(in, p + 1, o + sz);
+					continue;
+				}
 				if (memcmp(hd, "SOUN", 4)) {
 					if (count == cap) {
 						cap = cap ? cap * 2 : 512;
@@ -140,7 +173,7 @@ int svm_pack_build(const char *src, uint32_t src_size, const char *dst, void (*p
 	if (!count) goto done;
 
 	h.magic = PACK_MAGIC;
-	h.version = PACK_VERSION;
+	h.version = PACK_VERSION_SCUMM7;
 	h.src_size = src_size;
 	h.count = count;
 	h.data_off = sizeof h + count * sizeof *e;
