@@ -4018,7 +4018,7 @@ index 32b0516f9e5..eaf410a9d6f 100644
  	{ "fe60d6b5ff51b0553ac59963123b5777", "comi", "", "", 76791, Common::UNK_LANG, Common::kPlatformWindows },
  	{ "febf4a983ea5faea1c9dd6c710ebb09c", "puttcircus", "", "", 36655, Common::DE_DEU, Common::kPlatformWindows },
 diff --git a/engines/scumm/scumm.cpp b/engines/scumm/scumm.cpp
-index 88e087d765e..8dabbf6c5bb 100644
+index 88e087d765e..6aaf0eeb52b 100644
 --- a/engines/scumm/scumm.cpp
 +++ b/engines/scumm/scumm.cpp
 @@ -120,6 +120,10 @@
@@ -4197,7 +4197,7 @@ index 88e087d765e..8dabbf6c5bb 100644
  	if (_game.id == GID_REBEL1) {
  		ScummEngine_v7 *vm7 = (ScummEngine_v7 *)this;
  		InsaneRebel1 *rebel = (InsaneRebel1 *)vm7->getInsane();
-@@ -3144,7 +3221,27 @@ void ScummEngine_v0::scummLoop(int delta) {
+@@ -3144,7 +3221,37 @@ void ScummEngine_v0::scummLoop(int delta) {
  	ScummEngine::scummLoop(delta);
  }
  
@@ -4219,6 +4219,16 @@ index 88e087d765e..8dabbf6c5bb 100644
 +				if (n < 0) script = atoi(q); else args[n] = atoi(q);
 +			warning("GW_SCRIPT: script %d(%d, %d, %d)", script, args[0], args[1], args[2]);
 +			runScript(script, false, false, args);
++		}
++		// GW_ROOM="ms:room": goes to that room once (no actor is moved)
++		const char *r = gw_test_env ? gw_test_env("GW_ROOM") : nullptr;
++		static bool roomDone;
++		if (r && !roomDone && _system->getMillis() >= (uint32)atoi(r) && strchr(r, ':')) {
++			roomDone = true;
++			int room = atoi(strchr(r, ':') + 1);
++			warning("GW_ROOM: %d (from %d)", room, _currentRoom);
++			startScene(room, nullptr, 0);
++			warning("GW_ROOM: room %d is %dx%d", _currentRoom, _roomWidth, _roomHeight);
 +		}
 +	}
 +#endif
@@ -4343,10 +4353,10 @@ index 0e5aa90007b..42aa7924a8a 100644
  	byte *_guiStringTransBuff = nullptr;
  };
 diff --git a/engines/scumm/smush/codec37.cpp b/engines/scumm/smush/codec37.cpp
-index cb3326797be..404bb8fa241 100644
+index cb3326797be..0ceda62e095 100644
 --- a/engines/scumm/smush/codec37.cpp
 +++ b/engines/scumm/smush/codec37.cpp
-@@ -33,12 +33,34 @@ SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(int width, int height, bool reb
+@@ -33,12 +33,44 @@ SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(int width, int height, bool reb
  	_width = width;
  	_height = height;
  	_frameSize = _width * _height;
@@ -4359,7 +4369,17 @@ index cb3326797be..404bb8fa241 100644
 +	_deltaSize = _frameSize + 2 * _gwMargin;
 +	_deltaBuf = nullptr;
 +	_gwBlock[0] = _gwBlock[1] = nullptr;
-+	for (int i = 0; i < 2; i++) {
++	// both frames in one block when there is room for it: the room's back buffer lives in
++	// them between videos (gwBlock()), and a scrolling room's is wider than one frame
++	// (Full Throttle, past the door the lock pick opens: 131 KB, and no hole that size left)
++	_gwOneBlock = (byte *)calloc(2 * _deltaSize, sizeof(byte));
++	if (_gwOneBlock) {
++		_gwBlock[0] = _gwOneBlock;
++		_gwBlock[1] = _gwOneBlock + _deltaSize;
++		_deltaBufs[0] = _gwBlock[0] + _gwMargin;
++		_deltaBufs[1] = _gwBlock[1] + _gwMargin;
++	}
++	for (int i = 0; i < 2 && !_gwOneBlock; i++) {
 +		_gwBlock[i] = (byte *)calloc(_deltaSize, sizeof(byte));
 +		if (_gwBlock[i] == nullptr) {
 +			// no memory: the video goes on without its frames of this codec (gwOk())
@@ -4381,19 +4401,24 @@ index cb3326797be..404bb8fa241 100644
  	_offsetTable = new int16[255];
  	if (_offsetTable == nullptr)
  		error("SmushDeltaBlocksDecoder::SmushDeltaBlocksDecoder(): ERROR: Unable to allocate decoder offset table.");
-@@ -55,6 +77,11 @@ SmushDeltaBlocksDecoder::~SmushDeltaBlocksDecoder() {
+@@ -55,6 +87,16 @@ SmushDeltaBlocksDecoder::~SmushDeltaBlocksDecoder() {
  		_tableLastPitch = -1;
  		_tableLastIndex = -1;
  	}
 +#ifdef GW_V7_SLIM
-+	free(_gwBlock[0]);
-+	free(_gwBlock[1]);
++	if (_gwOneBlock) {
++		free(_gwOneBlock);
++	} else {
++		free(_gwBlock[0]);
++		free(_gwBlock[1]);
++	}
++	_gwOneBlock = nullptr;
 +	_gwBlock[0] = _gwBlock[1] = nullptr;
 +#endif
  	if (_deltaBuf) {
  		free(_deltaBuf);
  		_deltaSize = 0;
-@@ -541,7 +568,22 @@ void SmushDeltaBlocksDecoder::proc4WithoutFDFE(byte *dst, const byte *src, int32
+@@ -541,7 +583,22 @@ void SmushDeltaBlocksDecoder::proc4WithoutFDFE(byte *dst, const byte *src, int32
  	} while (--bh);
  }
  
@@ -4416,7 +4441,7 @@ index cb3326797be..404bb8fa241 100644
  	int32 bw = (_width + 3) / 4, bh = (_height + 3) / 4;
  	int32 pitch = bw * 4;
  
-@@ -553,6 +595,11 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+@@ -553,6 +610,11 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
  
  	switch (src[0]) {
  	case 0:
@@ -4428,7 +4453,7 @@ index cb3326797be..404bb8fa241 100644
  		if ((_deltaBufs[_curTable] - _deltaBuf) > 0) {
  			memset(_deltaBuf, 0, _deltaBufs[_curTable] - _deltaBuf);
  		}
-@@ -560,6 +607,7 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+@@ -560,6 +622,7 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
  		if (tmp > 0) {
  			memset(_deltaBufs[_curTable] + decodedSize, 0, tmp);
  		}
@@ -4436,7 +4461,7 @@ index cb3326797be..404bb8fa241 100644
  		memcpy(_deltaBufs[_curTable], src + 16, decodedSize);
  		break;
  	case 1:
-@@ -570,6 +618,12 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+@@ -570,6 +633,12 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
  										bw, bh, pitch, _offsetTable);
  		break;
  	case 2:
@@ -4449,7 +4474,7 @@ index cb3326797be..404bb8fa241 100644
  		bompDecodeLine(_deltaBufs[_curTable], src + 16, decodedSize);
  		if ((_deltaBufs[_curTable] - _deltaBuf) > 0) {
  			memset(_deltaBuf, 0, _deltaBufs[_curTable] - _deltaBuf);
-@@ -578,6 +632,7 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
+@@ -578,6 +647,7 @@ void SmushDeltaBlocksDecoder::decode(byte *dst, const byte *src) {
  		if (tmp > 0) {
  			memset(_deltaBufs[_curTable] + decodedSize, 0, tmp);
  		}
@@ -4458,22 +4483,27 @@ index cb3326797be..404bb8fa241 100644
  	case 3:
  		if ((seqNb & 1) || !(maskFlags & 1)) {
 diff --git a/engines/scumm/smush/codec37.h b/engines/scumm/smush/codec37.h
-index 3cdc7fcafbc..81c096ff475 100644
+index 3cdc7fcafbc..06ed79fcce8 100644
 --- a/engines/scumm/smush/codec37.h
 +++ b/engines/scumm/smush/codec37.h
-@@ -32,6 +32,25 @@ private:
+@@ -32,6 +32,30 @@ private:
  	int32 _deltaSize;
  	byte *_deltaBufs[2];
  	byte *_deltaBuf;
 +#ifdef GW_V7_SLIM
 +	byte *_gwBlock[2];	// each frame in its own block, with its margins
++	byte *_gwOneBlock = nullptr;	// both of them, when they are one block
 +	int32 _gwMargin;
 +	void gwClearAround(int32 decodedSize);
 +public:
 +	bool gwOk() const { return _gwBlock[0] != nullptr; }
 +	bool gwFits(int w, int h) const { return w == _width && h == _height; }
 +	// one of the two frames' blocks, lent while no video plays (SmushPlayer::gwLendBlock)
-+	byte *gwBlock(int i, uint32 size) { return _gwBlock[i] && size <= (uint32)_deltaSize ? _gwBlock[i] : nullptr; }
++	byte *gwBlock(int i, uint32 size) {
++		if (i == 0 && _gwOneBlock)
++			return size <= 2 * (uint32)_deltaSize ? _gwOneBlock : nullptr;
++		return _gwBlock[i] && size <= (uint32)_deltaSize ? _gwBlock[i] : nullptr;
++	}
 +	void gwReset() {		// as new, for the next video (the decoder is kept: SmushPlayer)
 +		if (_gwBlock[0]) {
 +			memset(_gwBlock[0], 0, _deltaSize);
