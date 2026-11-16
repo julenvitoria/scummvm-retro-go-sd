@@ -56,6 +56,9 @@ its own in its notes.
 | Ween: The Prophecy | Gob | ✅ | saves from its own menu, not from Retro-Go's |
 | Cruise for a Corpse | Cruise | ✅ | its menu keeps one game; more with Retro-Go's save states |
 | Operation Stealth | Cine | ✅ | its menu keeps one game; more with Retro-Go's save states |
+| Flight of the Amazon Queen | Queen | ✅ | |
+| Drascula: The Vampire Strikes Back | Drascula | ✅ | first launch unpacks the game (a few minutes) |
+| DreamWeb | DreamWeb | ✅ | its computer terminals need typing: GAME opens the keyboard |
 | The Dig | SCUMM | ❌ | too big for the flash |
 | The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
 | Macintosh versions | — | ❌ | |
@@ -68,7 +71,7 @@ Open a section:
 
 1. Unzip the release at the root of the SD card. It holds the loader, `/cores/scummvm.bin`,
    and one file per game engine in `/cores/scummvm/` (`scumm.svm`, `sky.svm`, `cge.svm`,
-   `lure.svm`, `sword1.svm`, `gob.svm`), with `engines.txt`, the table that says which game is
+   `lure.svm`, `sword1.svm`, `gob.svm`…), with `engines.txt`, the table that says which game is
    for which engine: the loader looks at the game's files and starts the engine it needs. All of them must come from the same release. Delete nothing by hand when updating:
    the new files replace the old ones.
 2. Copy each game's files, as they are (`000.lfl`, `901.lfl`, `disk01.lec`…), to a folder of
@@ -108,7 +111,8 @@ a few minutes (if the bar seems stuck, it is still working). The sounds, voices 
 are read from the SD card as they play. If the
 game's files change, the pack is made again; it can be deleted at any time.
 
-The Dig does not fit: its characters' graphics alone are 57 MB.
+The Dig does not fit: its characters' graphics alone are 57 MB. It and The Curse of Monkey
+Island are told "not in this version of the core" instead of being started.
 
 **Beneath a Steel Sky**
 
@@ -170,6 +174,30 @@ game asks for its copy protection (the wheel), which ScummVM does not skip.
 
 The same as Cruise for a Corpse: both buttons at once open the game's menu, where *Save game*
 keeps **one** game and *Restore game* brings it back. *Backup Drive* does nothing here.
+
+**Flight of the Amazon Queen**
+
+Copy `queen.1c` (the CD version, freeware: scummvm.org/games) or `queen.1` into the game's
+folder. TIME opens the game's journal: touch a line, then *Save* (it is named "Save N", as
+there is no keyboard) or *Restore*.
+
+**Drascula: The Vampire Strikes Back**
+
+Copy the game's files (`Packet.001`, the other `packet` files and the CD music tracks) into
+its folder; the game is freeware (scummvm.org/games). ScummVM's `drascula.dat` is in the
+release zip and is copied into the game's folder on the first launch. The first launch also
+unpacks the `packet` archives into a `gwx` folder next to them (63 MB, so leave that much free
+on the card); a progress bar shows it, and it takes several minutes. A folder holding several
+languages (the international release) starts in the console's language; `language=en` (or
+`fr`, `de`, `it`) in the `.scummvm` file chooses another. TIME opens the game's save screen:
+touch a line (an empty one is named "Partida N"), then *Save* or *Load*.
+
+**DreamWeb**
+
+Copy the game's files as they are (`DREAMW*.*`, the speech folder and the music track) into
+its folder. The small icon at the top right opens the game's options: the disk icon there
+saves and loads (an empty slot is named "PARTIDA N"). The computer terminals in the game ask
+for typed commands (`LIST`, `READ`…): GAME opens the on-screen keyboard.
 
 </details>
 
@@ -389,6 +417,9 @@ los ficheros con identificador nuevo. Cada versión publica los suyos en sus not
 | Ween: The Prophecy | Gob | ✅ | se guarda desde su propio menú, no desde el de Retro-Go |
 | Cruise for a Corpse | Cruise | ✅ | su menú guarda una partida; más, con los save states de Retro-Go |
 | Operation Stealth | Cine | ✅ | su menú guarda una partida; más, con los save states de Retro-Go |
+| Flight of the Amazon Queen | Queen | ✅ | |
+| Drascula: The Vampire Strikes Back | Drascula | ✅ | el primer arranque descomprime el juego (unos minutos) |
+| DreamWeb | DreamWeb | ✅ | sus terminales piden escribir: GAME abre el teclado |
 | The Dig | SCUMM | ❌ | no cabe en la flash |
 | The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
 | Versiones de Macintosh | — | ❌ | |
@@ -401,7 +432,7 @@ Abre una sección:
 
 1. Descomprime la versión en la raíz de la SD. Lleva el cargador, `/cores/scummvm.bin`, y
    un fichero por motor de juegos en `/cores/scummvm/` (`scumm.svm`, `sky.svm`, `cge.svm`,
-   `lure.svm`, `sword1.svm`, `gob.svm`), con `engines.txt`, la tabla que dice qué motor lleva
+   `lure.svm`, `sword1.svm`, `gob.svm`…), con `engines.txt`, la tabla que dice qué motor lleva
    cada juego: el cargador mira los ficheros del juego y arranca el motor que le toca. Todos tienen que ser de la misma versión. Al actualizar no hace falta borrar
    nada: los ficheros nuevos sustituyen a los viejos.
 2. Copia los ficheros de cada juego, tal cual (`000.lfl`, `901.lfl`, `disk01.lec`…), en una
@@ -441,7 +472,8 @@ minutos (si la barra parece parada, sigue trabajando). Los sonidos, las voces y 
 se leen de la SD según se reproducen. Si los
 ficheros del juego cambian, el paquete se vuelve a hacer; se puede borrar cuando se quiera.
 
-The Dig no cabe: solo los gráficos de sus personajes ocupan 57 MB.
+The Dig no cabe: solo los gráficos de sus personajes ocupan 57 MB. Al abrirlo (y The Curse of
+Monkey Island) el core avisa de que no está en esta versión en vez de arrancarlo.
 
 **Beneath a Steel Sky**
 
@@ -495,6 +527,30 @@ Retro-Go. El juego pide su protección anticopia (la rueda), que ScummVM no se s
 Igual que Cruise for a Corpse: los dos botones a la vez abren el menú del juego, donde
 *Save game* guarda **una sola** partida y *Restore game* la recupera. *Backup Drive* no hace
 nada aquí.
+
+**Flight of the Amazon Queen**
+
+Copia `queen.1c` (la versión CD, gratuita: scummvm.org/games) o `queen.1` en la carpeta del
+juego. TIME abre el diario del juego: toca una línea y luego *Guardar* (se llama "Save N",
+porque no hay teclado) o *Recuperar*.
+
+**Drascula: The Vampire Strikes Back**
+
+Copia los ficheros del juego (`Packet.001`, los demás `packet` y las pistas de música del CD)
+en su carpeta; el juego es gratuito (scummvm.org/games). El `drascula.dat` de ScummVM va en el
+zip de la versión y se copia a la carpeta del juego en el primer arranque. El primer arranque
+también descomprime los `packet` en una carpeta `gwx` junto a ellos (63 MB, así que deja ese
+espacio libre en la tarjeta); lo indica una barra de progreso y tarda varios minutos. Si la
+carpeta tiene varios idiomas (la edición internacional), arranca en el idioma de la consola;
+`language=en` (o `fr`, `de`, `it`) en el fichero `.scummvm` elige otro. TIME abre la pantalla
+de guardar del juego: toca una línea (una vacía se llama "Partida N") y luego *Save* o *Load*.
+
+**DreamWeb**
+
+Copia los ficheros del juego tal cual (`DREAMW*.*`, la carpeta de voces y la pista de música)
+en su carpeta. El iconito de arriba a la derecha abre las opciones del juego: el del
+disquete guarda y carga (una línea vacía se llama "PARTIDA N"). Los ordenadores del juego
+piden escribir órdenes (`LIST`, `READ`…): GAME abre el teclado en pantalla.
 
 </details>
 
