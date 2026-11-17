@@ -1101,6 +1101,7 @@ engines/sci/sound/midiparser_sci.cpp
 engines/sci/sound/music.cpp
 engines/sci/sound/soundcmd.cpp
 engines/sci/sound/sync.cpp
+engines/sci/sound/decoders/sol.cpp
 engines/sci/sound/drivers/adlib.cpp
 engines/sci/sound/drivers/amigamac0.cpp
 engines/sci/sound/drivers/amigamac1.cpp
