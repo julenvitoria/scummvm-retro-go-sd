@@ -485,8 +485,14 @@ static int g_gwGain = 5;                /* output gain in eighths (GWMixer::pump
 
 bool gwScreenPeek;        /* the thumbnail only reads the screen it locks (thumbnail_intern.cpp) */
 
+/* A cursor colour drawn as the palette's whitest instead (gwCursorWhite): Simon the Sorcerer's
+   pointer is colour 1, which each room's palette makes something dark */
+static int g_cursorWhiteFrom = -1;
+void gwCursorWhite(int index) { g_cursorWhiteFrom = index; }
+
 class GWGraphics : public NullGraphicsManager {
 public:
+	int _whiteIdx = 15;
 	Graphics::Surface _screen;
 	byte _pal[256 * 3];
 	// mouse cursor, drawn by the platform when it copies the frame
@@ -654,12 +660,20 @@ public:
 			// the volume twice (driver and mixer), peaks at 2% of full scale. Full volume and
 			// eight times the output gain for it (the loudest passage then peaks at 80%).
 			bool lure = ConfMan.get("engineid").equalsIgnoreCase("lure");
-			int v = lure ? 255 : GW_ENGINE_VOLUME;
+			int v = lure ? 255 : GW_ENGINE_VOLUME, vm = v;
 			if (lure) g_gwGain = 40;
+			// Simon the Sorcerer's AdLib music is as quiet as Lure's (peaks at 2% of full scale
+			// beside its voices at 100%): the same gain, and its voices and effects turned down
+			// by as much, so that only the music comes up
+			if (ConfMan.get("engineid").equalsIgnoreCase("agos")) {
+				g_gwGain = 40;
+				vm = 192;                        // (scaled twice, driver and mixer: 57%)
+				v = GW_ENGINE_VOLUME / 10;
+			}
 			static const char *const vol[] = { "music_volume", "sfx_volume", "speech_volume" };
-			for (const char *k : vol) ConfMan.setInt(k, v, Common::ConfigManager::kTransientDomain);
+			for (const char *k : vol) ConfMan.setInt(k, k[0] == 'm' ? vm : v, Common::ConfigManager::kTransientDomain);
 			Audio::Mixer *m = g_system->getMixer();
-			m->setVolumeForSoundType(Audio::Mixer::kMusicSoundType, v);
+			m->setVolumeForSoundType(Audio::Mixer::kMusicSoundType, vm);
 			m->setVolumeForSoundType(Audio::Mixer::kSFXSoundType, v);
 			m->setVolumeForSoundType(Audio::Mixer::kSpeechSoundType, v);
 			m->setVolumeForSoundType(Audio::Mixer::kPlainSoundType, v);
@@ -672,6 +686,13 @@ public:
 	}
 	void setPalette(const byte *c, uint start, uint num) override {
 		memcpy(_pal + start * 3, c, num * 3);
+		if (g_cursorWhiteFrom >= 0) {
+			int best = -1;
+			for (int i = 1; i < 256; i++) {
+				int v = _pal[i * 3] + _pal[i * 3 + 1] + _pal[i * 3 + 2];
+				if (v > best) { best = v; _whiteIdx = i; }
+			}
+		}
 		plat_set_palette(c, start, num);
 	}
 	void grabPalette(byte *c, uint start, uint num) const override { memcpy(c, _pal + start * 3, num * 3); }
@@ -786,7 +807,7 @@ public:
 				byte *p = (byte *)_screen.getBasePtr(sx, sy);
 				under[y * 64 + x] = *p;
 				byte c = _cursor[(y << _sh) * _cw + (x << _sh)];
-				if (c != _key) *p = c;
+				if (c != _key) *p = c == g_cursorWhiteFrom ? _whiteIdx : c;
 			}
 		}
 		plat_present((const uint8_t *)_screen.getPixels(), _screen.pitch, _screen.w, _screen.h);
