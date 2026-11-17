@@ -667,7 +667,13 @@ public:
 			// by as much, so that only the music comes up
 			if (ConfMan.get("engineid").equalsIgnoreCase("agos")) {
 				g_gwGain = 40;
-				vm = 136;                        // (scaled twice, driver and mixer: 28%)
+				vm = 121;                        // (scaled twice, driver and mixer: 23%)
+				v = GW_ENGINE_VOLUME / 10;
+			}
+			// Kyrandia's is the same: AdLib music at 1-3% of full scale, voices at 60%
+			if (ConfMan.get("engineid").equalsIgnoreCase("kyra")) {
+				g_gwGain = 40;
+				vm = 140;                        // (scaled twice too: about as loud as Simon's)
 				v = GW_ENGINE_VOLUME / 10;
 			}
 			static const char *const vol[] = { "music_volume", "sfx_volume", "speech_volume" };
