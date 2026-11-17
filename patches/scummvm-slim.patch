@@ -320,6 +320,36 @@ index ef3997f1203..e9553647c34 100644
  		}
  	}
  #ifdef USE_SDL_NET
+diff --git a/common/archive.h b/common/archive.h
+index 6bc59a83f10..e62c0c96b11 100644
+--- a/common/archive.h
++++ b/common/archive.h
+@@ -155,6 +155,10 @@ public:
+ 	 * Check if a member with the given @p name exists and is a directory.
+ 	 */
+ 	virtual bool isPathDirectory(const Path &path) const;
++#ifdef GW_FS_PROBE
++	/** Game & Watch: let go of a directory listing kept (it is probed file by file again). */
++	virtual void gwUncache() const {}
++#endif
+ 
+ 	/**
+ 	 * Add all members of the Archive matching the specified pattern to the list.
+@@ -339,6 +343,14 @@ class SearchSet : public Archive {
+ 	};
+ 	typedef List<Node> ArchiveNodeList;
+ 	ArchiveNodeList _list;
++#ifdef GW_FS_PROBE
++public:
++	void gwUncache() const override {
++		for (ArchiveNodeList::const_iterator it = _list.begin(); it != _list.end(); ++it)
++			it->_arc->gwUncache();
++	}
++private:
++#endif
+ 
+ 	ArchiveNodeList::iterator find(const String &name);
+ 	ArchiveNodeList::const_iterator find(const String &name) const;
 diff --git a/common/compression/unarj.cpp b/common/compression/unarj.cpp
 index ce182a84063..92b7c31af85 100644
 --- a/common/compression/unarj.cpp
@@ -726,15 +756,29 @@ index 7dd97993956..0bcaa7bf607 100644
  	_cached = true;
  }
 diff --git a/common/fs.h b/common/fs.h
-index 70081d8f0f7..d24a71a4b74 100644
+index 70081d8f0f7..b56962cb37b 100644
 --- a/common/fs.h
 +++ b/common/fs.h
-@@ -358,6 +358,9 @@ class FSDirectory : public Archive {
+@@ -358,6 +358,23 @@ class FSDirectory : public Archive {
  
  	// look for a match
  	FSNode *lookupCache(NodeCache &cache, const Path &name) const;
 +#ifdef GW_FS_PROBE
 +	FSNode *gwProbe(NodeCache &cache, const Path &name) const;
++#endif
++#ifdef GW_FS_PROBE
++public:
++	// (SCI after its patch files were listed: 220 files of a CD game's folder, 130 KB)
++	void gwUncache() const override {
++		if (_flat || !_cached)
++			return;
++		_fileCache.clear(true);
++		_subDirCache.clear(true);
++		_fileMapCache.clear(true);
++		_dirMapCache.clear(true);
++		_cached = false;
++	}
++protected:
 +#endif
  
  	// cache management
@@ -8191,7 +8235,7 @@ index 46475ddc633..9dd24e8ab52 100644
  	// Reaching the compression terminator before writing _szUnpacked bytes is
  	// expected. For kCompLZW1View and kCompLZW1Pic, the unpacked size is not
 diff --git a/engines/sci/resource/resource.cpp b/engines/sci/resource/resource.cpp
-index c757692038a..49fcdd0e708 100644
+index c757692038a..7c34e753e97 100644
 --- a/engines/sci/resource/resource.cpp
 +++ b/engines/sci/resource/resource.cpp
 @@ -39,6 +39,10 @@
@@ -8253,12 +8297,14 @@ index c757692038a..49fcdd0e708 100644
  	res->_source->loadResource(this, res);
  	if (_patcher) {
  		_patcher->applyPatch(*res);
-@@ -630,7 +653,14 @@ void ResourceSource::loadResource(ResourceManager *resMan, Resource *res) {
+@@ -630,7 +653,16 @@ void ResourceSource::loadResource(ResourceManager *resMan, Resource *res) {
  }
  
  Resource *ResourceManager::testResource(const ResourceId &id) const {
 +#ifdef GW_SCI_SLIM
 +	Resource *res = _resMap.getValOrDefault(id, NULL);
++	if (!res && _gwPack)
++		res = const_cast<ResourceManager *>(this)->gwPackMake(id);
 +	if (!res && !_gwAudioMaps.empty())
 +		res = const_cast<ResourceManager *>(this)->gwAudioMap(id);
 +	return res;
@@ -8268,7 +8314,7 @@ index c757692038a..49fcdd0e708 100644
  }
  
  void ResourceManager::addAppropriateSources() {
-@@ -1004,7 +1034,212 @@ void ResourceManager::freeResourceSources() {
+@@ -1004,7 +1036,274 @@ void ResourceManager::freeResourceSources() {
  ResourceManager::ResourceManager(const bool detectionMode) :
  	_detectionMode(detectionMode) {}
  
@@ -8446,6 +8492,68 @@ index c757692038a..49fcdd0e708 100644
 +	return ok;
 +}
 +
++const void *ResourceManager::gwPackFind(const ResourceId &id) const {
++	const GWPackHead *h = (const GWPackHead *)_gwPack;
++	GWPackEnt key;
++	key.tn = id.getType() << 16 | id.getNumber();
++	key.tuple = id.getTuple();
++	const GWPackEnt *hit = (const GWPackEnt *)bsearch(&key, h + 1, h->count, sizeof(GWPackEnt), gwEntCmp);
++	return hit && hit->size != 0xffffffff && hit->off + hit->size <= h->total ? hit : nullptr;
++}
++
++// With the pack in the flash, a Resource for each of the game's 1,200-2,000 resources (and the
++// map's array of them) is 100+ KB of heap kept for nothing: those the pack has go, and are made
++// again when asked for (testResource -> gwPackMake), the oldest unused going when 256 are made.
++// The maps stay (readAudioMapSCI11 looks them up in _resMap directly).
++void ResourceManager::gwPackUnindex() {
++	Common::Array<ResourceId> gone;
++	for (ResourceMap::iterator it = _resMap.begin(); it != _resMap.end(); ++it) {
++		const Resource *res = it->_value;
++		if (res->_status == kResStatusNoMalloc && res->getType() != kResourceTypeMap && gwPackFind(res->_id))
++			gone.push_back(res->_id);
++	}
++	for (uint i = 0; i < gone.size(); i++) {
++		Resource *res = _resMap.getVal(gone[i]);
++		_resMap.erase(gone[i]);
++		delete res;
++	}
++	_resMap.compact();
++	_gwPackMade = 0;
++	debug("sci.gwpack: %u resources made when asked for, %u kept", gone.size(), _resMap.size());
++}
++
++Resource *ResourceManager::gwPackMake(const ResourceId &id) {
++	if (!gwPackFind(id))
++		return nullptr;
++	if (_gwPackMade >= 256) {
++		// the made ones not in use go, but the last 16 made (a caller may still hold one)
++		Common::Array<ResourceId> gone;
++		for (ResourceMap::iterator it = _resMap.begin(); it != _resMap.end(); ++it) {
++			const Resource *res = it->_value;
++			if (res->_source || res->_status != kResStatusNoMalloc)
++				continue;
++			bool recent = false;
++			for (uint i = 0; i < ARRAYSIZE(_gwPackRecent); i++)
++				recent |= _gwPackRecent[i] == res->_id;
++			if (!recent)
++				gone.push_back(res->_id);
++		}
++		for (uint i = 0; i < gone.size(); i++) {
++			Resource *res = _resMap.getVal(gone[i]);
++			_resMap.erase(gone[i]);
++			delete res;
++		}
++		_resMap.compact();
++		_gwPackMade -= MIN<uint>(_gwPackMade, gone.size());
++	}
++	Resource *res = new Resource(this, id);
++	res->_source = nullptr;	// (loaded from the pack only: gwPackLoad)
++	_resMap.setVal(id, res);
++	_gwPackMade++;
++	_gwPackRecent[_gwPackNext++ % ARRAYSIZE(_gwPackRecent)] = id;
++	return res;
++}
++
 +bool ResourceManager::gwPackLoad(Resource *res) {
 +	const GWPackHead *h = (const GWPackHead *)_gwPack;
 +	const GWPackEnt *e = (const GWPackEnt *)(h + 1);
@@ -8481,7 +8589,7 @@ index c757692038a..49fcdd0e708 100644
  	_maxMemoryLRU = 256 * 1024; // 256KiB
  	_memoryLocked = 0;
  	_memoryLRU = 0;
-@@ -1069,10 +1304,16 @@ void ResourceManager::init() {
+@@ -1069,10 +1368,24 @@ void ResourceManager::init() {
  
  	addScriptChunkSources();
  	scanNewSources();
@@ -8494,11 +8602,19 @@ index c757692038a..49fcdd0e708 100644
  	debugC(1, kDebugLevelResMan, "resMan: Detected %s", getSciVersionDesc(getSciVersion()));
 +#ifdef GW_SCI_SLIM
 +	gwPackInit();
++	if (!_detectionMode)
++		SearchMan.gwUncache();	// (the folder's listing, made to find the patch files)
++	if (!_detectionMode && _gwPack)
++		gwPackUnindex();
++	// a little room in the map's array: speech resources come and go there (gwAudioMap), and
++	// growing it whole wanted 32 KB in one piece late in the game (Space Quest IV)
++	if (!_detectionMode)
++		_resMap.shrink(32);
 +#endif
  
  	// Resources in SCI32 games are significantly larger than SCI16
  	// games and can cause immediate exhaustion of the LRU resource
-@@ -1108,6 +1349,12 @@ void ResourceManager::init() {
+@@ -1108,6 +1421,12 @@ void ResourceManager::init() {
  }
  
  ResourceManager::~ResourceManager() {
@@ -8511,8 +8627,59 @@ index c757692038a..49fcdd0e708 100644
  	// freeing resources
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
+@@ -1169,11 +1488,27 @@ Common::List<ResourceId> ResourceManager::listResources(ResourceType type, int m
+ 			resources.push_back(itr->_value->_id);
+ 		++itr;
+ 	}
++#ifdef GW_SCI_SLIM
++	if (_gwPack) {	// and those of the pack not made into a Resource (gwPackUnindex)
++		const GWPackHead *h = (const GWPackHead *)_gwPack;
++		const GWPackEnt *e = (const GWPackEnt *)(h + 1);
++		for (uint32 i = 0; i < h->count; i++) {
++			const ResourceId id((ResourceType)(e[i].tn >> 16), e[i].tn & 0xffff, e[i].tuple);
++			if (e[i].size != 0xffffffff && id.getType() == type && (mapNumber == -1 || id.getNumber() == mapNumber) &&
++			    !_resMap.contains(id))
++				resources.push_back(id);
++		}
++	}
++#endif
+ 
+ 	return resources;
+ }
+ 
+ bool ResourceManager::hasResourceType(ResourceType type) {
++#ifdef GW_SCI_SLIM
++	if (!listResources(type).empty())
++		return true;
++#endif
+ 	ResourceMap::iterator itr = _resMap.begin();
+ 	while (itr != _resMap.end()) {
+ 		if (itr->_value->getType() == type) {
+@@ -2188,6 +2523,10 @@ bool ResourceManager::validateResource(const ResourceId &resourceId, const Commo
+ }
+ 
+ Resource *ResourceManager::addResource(ResourceId resId, ResourceSource *src, uint32 offset, uint32 size, const Common::Path &sourceMapLocation) {
++#ifdef GW_SCI_SLIM
++	if (_gwAudioReading && !(resId == _gwAudioWant))
++		return nullptr;
++#endif
+ 	// Adding new resource only if it does not exist
+ 	// Hoyle 4 contains each audio resource twice. The first file is in an unknown
+ 	// format and only static sounds are heard when it's played. The second file
+@@ -3120,6 +3459,11 @@ bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {
+ }
+ 
+ const Common::Path &Resource::getResourceLocation() const {
++#ifdef GW_SCI_SLIM
++	static const Common::Path pack("sci.gwpack");
++	if (!_source)
++		return pack;	// (made from the pack: gwPackMake)
++#endif
+ 	return _source->getLocationName();
+ }
+ 
 diff --git a/engines/sci/resource/resource.h b/engines/sci/resource/resource.h
-index 70b3cf1dc90..55488b9f503 100644
+index 70b3cf1dc90..81fe368b70d 100644
 --- a/engines/sci/resource/resource.h
 +++ b/engines/sci/resource/resource.h
 @@ -25,6 +25,7 @@
@@ -8566,7 +8733,7 @@ index 70b3cf1dc90..55488b9f503 100644
  
  	bool loadPatch(Common::SeekableReadStream *file);
  	bool loadFromPatchFile();
-@@ -321,7 +338,65 @@ protected:
+@@ -321,7 +338,75 @@ protected:
  	int readResourceInfo(ResVersion volVersion, Common::SeekableReadStream *file, uint32 &szPacked, ResourceCompression &compression);
  };
  
@@ -8595,6 +8762,16 @@ index 70b3cf1dc90..55488b9f503 100644
 +	iterator begin() { return iterator(_a.begin(), _a.end()); }
 +	iterator end() { return iterator(_a.end(), _a.end()); }
 +	void clear() { _a.clear(); }
++	void reserve(uint n) { _a.reserve(n); }
++	// the array made again at its size and slack more (compact() keeps its capacity)
++	void shrink(uint slack) {
++		compact();
++		Common::Array<Node> a;
++		a.reserve(_a.size() + slack);
++		for (uint i = 0; i < _a.size(); i++)
++			a.push_back(_a[i]);
++		_a.swap(a);
++	}
 +	uint size() const { uint n = 0; for (uint i = 0; i < _a.size(); i++) if (_a[i]._value) n++; return n; }
 +	bool contains(const ResourceId &k) const { int i = find(k); return i >= 0 && _a[i]._value; }
 +	Resource *getVal(const ResourceId &k) const { int i = find(k); return i >= 0 ? _a[i]._value : nullptr; }
@@ -8632,7 +8809,7 @@ index 70b3cf1dc90..55488b9f503 100644
  
  class IntMapResourceSource;
  class ResourceManager {
-@@ -646,6 +721,31 @@ protected:
+@@ -646,6 +731,39 @@ protected:
  
  	void addToLRU(Resource *res);
  	void removeFromLRU(Resource *res);
@@ -8643,21 +8820,29 @@ index 70b3cf1dc90..55488b9f503 100644
 +	// (resource.cpp, gwPackInit)
 +	bool gwInPack(const byte *p) const { return p && p >= _gwPack && p < _gwPack + _gwPackSize; }
 +	Resource *gwAudioMap(const ResourceId &id);
++	// a digital audio resource's volume file at its start, to be played from there (no heap), or NULL
++	Common::SeekableReadStream *gwAudioFile(const ResourceId &id);
 +protected:
 +	// Game & Watch: a CD game's speech maps (one per room, 5,000+ entries in King's Quest VI)
-+	// are read when a room's speech is first asked for, not all at the start; the two most
-+	// recent stay (resource_audio.cpp)
++	// are not read at the start: each entry is looked up in its map when asked for, and only
++	// it made (resource_audio.cpp)
 +	struct GWAudioMap {
 +		IntMapResourceSource *src;
-+		uint32 used;	// 0: not read; else when last read
 +	};
 +	Common::Array<GWAudioMap> _gwAudioMaps;
-+	uint32 _gwAudioClock = 0;
++	ResourceId _gwAudioRecent[8];	// the last found: they stay, whatever goes
++	uint _gwAudioNext = 0;
 +	bool _gwAudioReading = false;
++	ResourceId _gwAudioWant;
 +	const byte *_gwPack = nullptr;
 +	uint32 _gwPackSize = 0;
 +	void gwPackInit();
 +	bool gwPackLoad(Resource *res);
++	const void *gwPackFind(const ResourceId &id) const;
++	void gwPackUnindex();
++	Resource *gwPackMake(const ResourceId &id);
++	uint _gwPackMade = 0, _gwPackNext = 0;
++	ResourceId _gwPackRecent[16];
 +	bool gwPackBuild(const Common::String &path, uint32 sig);
 +	uint32 gwSignature();
 +#endif
@@ -8665,10 +8850,10 @@ index 70b3cf1dc90..55488b9f503 100644
  	ResourceCompression getViewCompression();
  	ViewType detectViewType();
 diff --git a/engines/sci/resource/resource_audio.cpp b/engines/sci/resource/resource_audio.cpp
-index 69a31e05b4f..f429aef955e 100644
+index 69a31e05b4f..028c0918253 100644
 --- a/engines/sci/resource/resource_audio.cpp
 +++ b/engines/sci/resource/resource_audio.cpp
-@@ -352,7 +352,68 @@ void ResourceManager::removeAudioResource(ResourceId resId) {
+@@ -352,7 +352,83 @@ void ResourceManager::removeAudioResource(ResourceId resId) {
  // w syncSize (iff seq has bit 7 set)
  // w syncAscSize (iff seq has bit 6 set)
  
@@ -8677,59 +8862,74 @@ index 69a31e05b4f..f429aef955e 100644
 +	return t == kResourceTypeAudio36 || t == kResourceTypeSync36 || t == kResourceTypeRave;
 +}
 +
++Common::SeekableReadStream *ResourceManager::gwAudioFile(const ResourceId &id) {
++	Resource *res = testResource(id);
++	if (!res || !res->_source || res->_source->getSourceType() != kSourceAudioVolume ||
++	    res->_source->getAudioCompressionType())
++		return nullptr;
++	Common::File *file = new Common::File();
++	if (!file->open(res->_source->getLocationName()) || !file->seek(res->_fileOffset)) {
++		delete file;
++		return nullptr;
++	}
++	return file;
++}
++
 +Resource *ResourceManager::gwAudioMap(const ResourceId &id) {
 +	if (!gwSpeechType(id.getType()) || _gwAudioReading)
 +		return nullptr;
-+	GWAudioMap *want = nullptr;
++	IntMapResourceSource *src = nullptr;
 +	for (uint i = 0; i < _gwAudioMaps.size(); i++)
 +		if (_gwAudioMaps[i].src->_mapNumber == id.getNumber())
-+			want = &_gwAudioMaps[i];
-+	if (!want || want->used)
-+		return nullptr;	// (no such map, or read already: no such entry)
-+	// the least recently read of the others goes, while two are in
-+	int in = 0;
-+	for (uint i = 0; i < _gwAudioMaps.size(); i++)
-+		in += _gwAudioMaps[i].used != 0;
-+	while (in >= 2) {
-+		GWAudioMap *old = nullptr;
-+		for (uint i = 0; i < _gwAudioMaps.size(); i++)
-+			if (_gwAudioMaps[i].used && (!old || _gwAudioMaps[i].used < old->used))
-+				old = &_gwAudioMaps[i];
-+		const uint16 number = old->src->_mapNumber;
-+		old->used = 0;
-+		in--;
-+		Common::Array<ResourceId> gone;
-+		for (ResourceMap::iterator it = _resMap.begin(); it != _resMap.end(); ++it) {
-+			Resource *res = it->_value;
-+			if (!gwSpeechType(res->getType()) || res->getNumber() != number || res->_status == kResStatusLocked ||
-+			    res->_status == kResStatusAllocated)
-+				continue;	// (in use: stays)
-+			if (res->_status == kResStatusEnqueued)
-+				removeFromLRU(res);
-+			gone.push_back(res->_id);
++			src = _gwAudioMaps[i].src;
++	if (!src)
++		return nullptr;
++	// past 16, the speech resources found before go -- not those in use, nor the last 8 found
++	// (a caller may still hold one it tested for)
++	Common::Array<ResourceId> gone;
++	uint speech = 0;
++	for (ResourceMap::iterator it = _resMap.begin(); it != _resMap.end(); ++it)
++		speech += gwSpeechType(it->_value->getType());
++	for (ResourceMap::iterator it = _resMap.begin(); speech > 16 && it != _resMap.end(); ++it) {
++		Resource *res = it->_value;
++		if (!gwSpeechType(res->getType()) || res->_status == kResStatusLocked || res->_status == kResStatusAllocated)
++			continue;
++		bool recent = false;
++		for (uint i = 0; i < ARRAYSIZE(_gwAudioRecent); i++)
++			recent |= _gwAudioRecent[i] == res->_id;
++		if (recent)
++			continue;
++		if (res->_status == kResStatusEnqueued) {
++			removeFromLRU(res);
++			res->unalloc();
 +		}
-+		for (uint i = 0; i < gone.size(); i++) {
-+			Resource *res = _resMap.getVal(gone[i]);
-+			_resMap.erase(gone[i]);
-+			delete res;
-+		}
-+		_resMap.compact();
++		gone.push_back(res->_id);
 +	}
++	for (uint i = 0; i < gone.size(); i++) {
++		Resource *res = _resMap.getVal(gone[i]);
++		_resMap.erase(gone[i]);
++		delete res;
++	}
++	if (!gone.empty())
++		_resMap.compact();
++	// the map read again, for this one entry (addResource skips the others)
 +	_gwAudioReading = true;
-+	readAudioMapSCI11(want->src);
++	_gwAudioWant = id;
++	readAudioMapSCI11(src);
 +	_gwAudioReading = false;
-+	want->used = ++_gwAudioClock;
-+	return _resMap.getValOrDefault(id, NULL);
++	Resource *res = _resMap.getValOrDefault(id, NULL);
++	if (res)
++		_gwAudioRecent[_gwAudioNext++ % ARRAYSIZE(_gwAudioRecent)] = id;
++	return res;
 +}
 +#endif
 +
  int ResourceManager::readAudioMapSCI11(IntMapResourceSource *map) {
 +#ifdef GW_SCI_SLIM
-+	// a room's speech map: read when first needed (gwAudioMap)
++	// a room's speech map: looked up in for each entry asked for (gwAudioMap)
 +	if (map->_mapNumber != 65535 && !_gwAudioReading) {
 +		GWAudioMap m;
 +		m.src = map;
-+		m.used = 0;
 +		_gwAudioMaps.push_back(m);
 +		return 0;
 +	}
@@ -8737,6 +8937,21 @@ index 69a31e05b4f..f429aef955e 100644
  #ifndef ENABLE_SCI32
  	// SCI32 support is not built in. Check if this is a SCI32 game
  	// and if it is abort here.
+@@ -554,8 +630,14 @@ int ResourceManager::readAudioMapSCI11(IntMapResourceSource *map) {
+ 					// relocation table in a compressed volume only contains
+ 					// offsets that existed in the original audio map)
+ 					Resource *res = addResource(ResourceId(kResourceTypeRave, map->_mapNumber, n & 0xffffff3f), src, offset, syncSize + kq6HiresSyncSize, map->getLocationName());
++#ifdef GW_SCI_SLIM
++					if (res) {	// (not the one entry wanted: gwAudioMap)
++#endif
+ 					res->_fileOffset += syncSize;
+ 					res->_size -= syncSize;
++#ifdef GW_SCI_SLIM
++					}
++#endif
+ 					syncSize += kq6HiresSyncSize;
+ 				}
+ 			}
 diff --git a/engines/sci/sci.cpp b/engines/sci/sci.cpp
 index b4d28b797c5..90fb79dfea4 100644
 --- a/engines/sci/sci.cpp
@@ -8771,6 +8986,43 @@ index b4d28b797c5..90fb79dfea4 100644
  	} else if (hasMacFonts()) {
  		// Default to using hires Mac fonts if GUI option isn't present, as it was added later.
  		_useHiresGraphics = true;
+diff --git a/engines/sci/sound/audio.cpp b/engines/sci/sound/audio.cpp
+index 041cf364220..4c36a4fe140 100644
+--- a/engines/sci/sound/audio.cpp
++++ b/engines/sci/sound/audio.cpp
+@@ -23,6 +23,9 @@
+ #include "sci/engine/kernel.h"
+ #include "sci/engine/seg_manager.h"
+ #include "sci/sound/audio.h"
++#ifdef GW_SCI_SLIM
++#include "sci/sound/decoders/sol.h"
++#endif
+ 
+ #include "backends/audiocd/audiocd.h"
+ 
+@@ -372,6 +375,22 @@ Audio::RewindableAudioStream *AudioPlayer::getAudioStream(uint32 number, uint32
+ 
+ 	*sampleLen = 0;
+ 
++#ifdef GW_SCI_SLIM
++	// Game & Watch: SOL audio played from its volume file (the card, or the flash), not loaded
++	// whole: a 100 KB sound effect was copied twice and then unpacked in the heap
++	{
++		const ResourceId id = volume == 65535 ? ResourceId(kResourceTypeAudio, number) : ResourceId(kResourceTypeAudio36, volume, number);
++		if (Common::SeekableReadStream *file = _resMan->gwAudioFile(id)) {
++			Audio::SeekableAudioStream *sol = makeSOLStream(file, DisposeAfterUse::YES);
++			if (sol) {
++				*sampleLen = (sol->getLength().msecs() * 60) / 1000;
++				return sol;
++			}
++			delete file;	// (not SOL: loaded as before)
++		}
++	}
++#endif
++
+ 	if (volume == 65535) {
+ 		audioRes = _resMan->findResource(ResourceId(kResourceTypeAudio, number), false);
+ 		if (!audioRes) {
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea521f6..380eb1fa977 100644
 --- a/engines/scumm/dialogs.cpp
