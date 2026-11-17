@@ -667,7 +667,7 @@ public:
 			// by as much, so that only the music comes up
 			if (ConfMan.get("engineid").equalsIgnoreCase("agos")) {
 				g_gwGain = 40;
-				vm = 192;                        // (scaled twice, driver and mixer: 57%)
+				vm = 157;                        // (scaled twice, driver and mixer: 38%)
 				v = GW_ENGINE_VOLUME / 10;
 			}
 			static const char *const vol[] = { "music_volume", "sfx_volume", "speech_volume" };
