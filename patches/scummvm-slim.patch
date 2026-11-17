@@ -7517,6 +7517,31 @@ index 325ceb7771d..6e6f785e815 100644
  
  	uint16 languageSplitter = 0;
  	Common::String splitText;
+diff --git a/engines/sci/engine/kpathing.cpp b/engines/sci/engine/kpathing.cpp
+index 335f1e0ce8c..c01ff1dbf2e 100644
+--- a/engines/sci/engine/kpathing.cpp
++++ b/engines/sci/engine/kpathing.cpp
+@@ -42,6 +42,10 @@
+ 
+ namespace Sci {
+ 
++#ifdef GW_SCI_SLIM
++extern "C" void gw_wdog_kick(void);
++#endif
++
+ // TODO: Code cleanup
+ 
+ #define AVOIDPATH_DYNMEM_STRING "AvoidPath polyline"
+@@ -1371,6 +1375,9 @@ static void AStar(PathfindingState *s) {
+ 	s->vertex_start->costF = (uint32)sqrt((float)s->vertex_start->v.sqrDist(s->vertex_end->v));
+ 
+ 	while (!openSet.empty()) {
++#ifdef GW_SCI_SLIM
++		gw_wdog_kick();
++#endif
+ 		// Find vertex in open set with lowest F cost
+ 		VertexList::iterator vertex_min_it = openSet.end();
+ 		Vertex *vertex_min = nullptr;
 diff --git a/engines/sci/engine/savegame.cpp b/engines/sci/engine/savegame.cpp
 index 763ad49083c..d9fccdb9497 100644
 --- a/engines/sci/engine/savegame.cpp
@@ -7536,15 +7561,24 @@ index 763ad49083c..d9fccdb9497 100644
  	s.syncAsUint32LE(obj._tuple);
  }
 diff --git a/engines/sci/engine/vm.cpp b/engines/sci/engine/vm.cpp
-index f99d6d0731f..104045499d1 100644
+index f99d6d0731f..5c4f410c2a3 100644
 --- a/engines/sci/engine/vm.cpp
 +++ b/engines/sci/engine/vm.cpp
-@@ -39,6 +39,14 @@
+@@ -21,6 +21,7 @@
+ 
+ #include "common/config-manager.h"
+ #include "common/debug.h"
++#include "common/system.h"
+ #include "common/debug-channels.h"
+ 
+ #include "sci/sci.h"
+@@ -39,6 +40,15 @@
  
  namespace Sci {
  
 +#ifdef GW_SCI_SLIM
 +extern "C" uint32 heap_free_bytes(void);	// src/heap.c
++extern "C" void gw_wdog_kick(void);	// src/platform_*.c
 +static bool gwHeapLow() {
 +	static uint16 n;
 +	return !(++n & 255) && heap_free_bytes() < 128 * 1024;
@@ -7554,7 +7588,23 @@ index f99d6d0731f..104045499d1 100644
  const reg_t NULL_REG = {0, 0};
  const reg_t SIGNAL_REG = {0, SIGNAL_OFFSET};
  const reg_t TRUE_REG = {0, 1};
-@@ -852,7 +860,13 @@ void run_vm(EngineState *s) {
+@@ -574,6 +584,15 @@ void run_vm(EngineState *s) {
+ #endif
+ 
+ 	while (1) {
++#ifdef GW_SCI_SLIM
++		// (Game & Watch: the watchdog is fed every 1,024 opcodes -- a script that computes,
++		// with nothing else between, ran past it on the console: Larry 5's intro)
++		{
++			static uint16 gwOps;
++			if (!(++gwOps & 1023))
++				gw_wdog_kick();
++		}
++#endif
+ 		int var_type; // See description below
+ 		int var_number;
+ 
+@@ -852,9 +871,16 @@ void run_vm(EngineState *s) {
  
  		case op_callk: { // 0x21 (33)
  			// Run the garbage collector, if needed
@@ -7562,12 +7612,16 @@ index f99d6d0731f..104045499d1 100644
 +			// (Game & Watch: also when the heap runs low -- King's Quest V's intro leaves 1,300
 +			// clones behind before the 32,768 calls are up)
 +			if (s->gcCountDown-- <= 0 || gwHeapLow()) {
++				gw_wdog_kick();
 +#else
  			if (s->gcCountDown-- <= 0) {
 +#endif
  				s->gcCountDown = s->scriptGCInterval;
- 				run_gc(s);
+-				run_gc(s);
++				{ static uint32 n, tot; uint32 t0 = g_system->getMillis(); run_gc(s); tot += g_system->getMillis() - t0; if (!(++n & 15)) warning("GWDBG gc %u runs, %u ms", n, tot); }
  			}
+ 
+ 			// Call kernel function
 diff --git a/engines/sci/graphics/cache.cpp b/engines/sci/graphics/cache.cpp
 index fda7797e852..e83d8f723a5 100644
 --- a/engines/sci/graphics/cache.cpp
@@ -7675,10 +7729,21 @@ index 50233468656..d780963f44c 100644
  enum ShakeDirection {
  	kShakeVertical   = 1,
 diff --git a/engines/sci/graphics/picture.cpp b/engines/sci/graphics/picture.cpp
-index fef1cd011ed..2f4a7b19ef1 100644
+index fef1cd011ed..cc976bddc50 100644
 --- a/engines/sci/graphics/picture.cpp
 +++ b/engines/sci/graphics/picture.cpp
-@@ -163,6 +163,103 @@ void GfxPicture::drawCelData(const SciSpan<const byte> &inbuffer, int headerPos,
+@@ -33,6 +33,10 @@
+ 
+ namespace Sci {
+ 
++#ifdef GW_SCI_SLIM
++extern "C" void gw_wdog_kick(void);
++#endif
++
+ //#define DEBUG_PICTURE_DRAW
+ 
+ GfxPicture::GfxPicture(ResourceManager *resMan, GfxCoordAdjuster16 *coordAdjuster, GfxPorts *ports, GfxScreen *screen, GfxPalette *palette, GuiResourceId resourceId, bool EGAdrawingVisualize)
+@@ -163,6 +167,103 @@ void GfxPicture::drawCelData(const SciSpan<const byte> &inbuffer, int headerPos,
  	else
  		clearColor = headerPtr[6];
  
@@ -7782,6 +7847,16 @@ index fef1cd011ed..2f4a7b19ef1 100644
  	// We will unpack cel-data into a temporary buffer and then plot it to screen
  	//  That needs to be done cause a mirrored picture may be requested
  	int pixelCount = width * height;
+@@ -450,6 +551,9 @@ void GfxPicture::drawVectorData(const SciSpan<const byte> &data) {
+ 		_screen->copyToScreen();
+ 		g_system->updateScreen();
+ 		g_system->delayMillis(400);
++#endif
++#ifdef GW_SCI_SLIM
++		gw_wdog_kick();	// (a picture of many fills runs long on the console)
+ #endif
+ 		switch (pic_op = data[curPos++]) {
+ 		case PIC_OP_SET_COLOR:
 diff --git a/engines/sci/graphics/screen.cpp b/engines/sci/graphics/screen.cpp
 index d26a388c2cd..d0fffcab817 100644
 --- a/engines/sci/graphics/screen.cpp
@@ -8116,10 +8191,21 @@ index f6b2bc765ad..51fcee3b482 100644
  	Common::Rect oldMoveRect = _picRect;
  	Common::Rect oldScreenRect = _picRect;
 diff --git a/engines/sci/graphics/view.cpp b/engines/sci/graphics/view.cpp
-index f6a66fa4fa1..533dc561970 100644
+index f6a66fa4fa1..4d73d3d98da 100644
 --- a/engines/sci/graphics/view.cpp
 +++ b/engines/sci/graphics/view.cpp
-@@ -39,7 +39,55 @@ GfxView::GfxView(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette
+@@ -32,6 +32,10 @@
+ 
+ namespace Sci {
+ 
++#ifdef GW_SCI_SLIM
++extern "C" void gw_wdog_kick(void);
++#endif
++
+ GfxView::GfxView(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette, GuiResourceId resourceId)
+ 	: _resMan(resMan), _screen(screen), _palette(palette), _resourceId(resourceId) {
+ 	assert(resourceId != -1);
+@@ -39,7 +43,55 @@ GfxView::GfxView(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette
  	initData();
  }
  
@@ -8175,7 +8261,7 @@ index f6a66fa4fa1..533dc561970 100644
  	_loop.clear();
  	_resMan->unlockResource(_resource);
  }
-@@ -663,6 +711,9 @@ const SciSpan<const byte> &GfxView::getBitmap(int16 loopNo, int16 celNo) {
+@@ -663,6 +715,9 @@ const SciSpan<const byte> &GfxView::getBitmap(int16 loopNo, int16 celNo) {
  	const Common::String sourceName = Common::String::format("%s loop %d cel %d", _resource->name().c_str(), loopNo, celNo);
  
  	SciSpan<byte> outBitmap = cel.rawBitmap->allocate(pixelCount, sourceName);
@@ -8185,6 +8271,26 @@ index f6a66fa4fa1..533dc561970 100644
  
  	// unpack the actual cel bitmap data
  	unpackCel(loopNo, celNo, outBitmap);
+@@ -800,6 +855,9 @@ void GfxView::draw(const Common::Rect &rect, const Common::Rect &clipRect, const
+ 	const int16 celWidth = celInfo->width;
+ 	const byte clearKey = celInfo->clearKey;
+ 	const byte drawMask = priority > 15 ? GFX_SCREEN_MASK_VISUAL : GFX_SCREEN_MASK_VISUAL|GFX_SCREEN_MASK_PRIORITY;
++#ifdef GW_SCI_SLIM
++	gw_wdog_kick();	// (a frame of many big cels, each unpacked anew, ran long on the console)
++#endif
+ 
+ 	if (_embeddedPal)
+ 		// Merge view palette in...
+@@ -860,6 +918,9 @@ void GfxView::drawScaled(const Common::Rect &rect, const Common::Rect &clipRect,
+ 	const int16 celWidth = celInfo->width;
+ 	const byte clearKey = celInfo->clearKey;
+ 	const byte drawMask = priority > 15 ? GFX_SCREEN_MASK_VISUAL : GFX_SCREEN_MASK_VISUAL|GFX_SCREEN_MASK_PRIORITY;
++#ifdef GW_SCI_SLIM
++	gw_wdog_kick();	// (a frame of many big cels, each unpacked anew, ran long on the console)
++#endif
+ 
+ 	if (_embeddedPal)
+ 		// Merge view palette in...
 diff --git a/engines/sci/graphics/view.h b/engines/sci/graphics/view.h
 index 64f20a1810a..ae180237b0c 100644
 --- a/engines/sci/graphics/view.h
