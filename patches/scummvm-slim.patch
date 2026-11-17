@@ -100,6 +100,89 @@ index d8ee41aca0c..73bdddd1ae0 100644
  
  class MidiDriver_BASE;
  
+diff --git a/audio/midiparser_xmidi.cpp b/audio/midiparser_xmidi.cpp
+index 29619ce3b6f..5c8a2b5737b 100644
+--- a/audio/midiparser_xmidi.cpp
++++ b/audio/midiparser_xmidi.cpp
+@@ -20,6 +20,7 @@
+  */
+ 
+ #include "audio/midiparser.h"
++#include "common/array.h"
+ #include "audio/mididrv.h"
+ #include "audio/miles.h"
+ #include "common/textconsole.h"
+@@ -47,7 +48,16 @@ protected:
+ 	 * The sequence branches defined for each track. These point to
+ 	 * positions in the MIDI data.
+ 	 */
+-	const byte *_trackBranches[MAXIMUM_TRACKS][MAXIMUM_TRACK_BRANCHES];
++	// Game & Watch: the branch points as a list, not 120 x 128 pointers (61 KB of the console's
++	// heap for each parser -- Simon the Sorcerer II ran out of memory)
++	struct GWBranch { uint8 track, index; const byte *pos; };
++	Common::Array<GWBranch> _gwBranches;
++	const byte *gwBranch(uint8 track, uint8 index) const {
++		for (uint i = 0; i < _gwBranches.size(); i++)
++			if (_gwBranches[i].track == track && _gwBranches[i].index == index)
++				return _gwBranches[i].pos;
++		return nullptr;
++	}
+ 
+ 	XMidiCallbackProc _callbackProc;
+ 	void *_callbackData;
+@@ -87,7 +97,6 @@ public:
+ 			_newTimbreListDriver(nullptr),
+ 			_loopCount(-1) {
+ 		memset(_loop, 0, sizeof(_loop));
+-		memset(_trackBranches, 0, sizeof(_trackBranches));
+ 		memset(_tracksTimbreList, 0, sizeof(_tracksTimbreList));
+ 		memset(_tracksTimbreListSize, 0, sizeof(_tracksTimbreListSize));
+ 	}
+@@ -119,14 +128,14 @@ bool MidiParser_XMIDI::hasJumpIndex(uint8 index) {
+ 	if (_activeTrack >= _numTracks)
+ 		return false;
+ 
+-	return index < MAXIMUM_TRACK_BRANCHES && _trackBranches[_activeTrack][index] != nullptr;
++	return index < MAXIMUM_TRACK_BRANCHES && gwBranch(_activeTrack, index) != nullptr;
+ }
+ 
+ bool MidiParser_XMIDI::jumpToIndex(uint8 index, bool stopNotes) {
+ 	if (_activeTrack >= _numTracks || _pause)
+ 		return false;
+ 
+-	if (index >= MAXIMUM_TRACK_BRANCHES || _trackBranches[_activeTrack][index] == nullptr) {
++	if (index >= MAXIMUM_TRACK_BRANCHES || gwBranch(_activeTrack, index) == nullptr) {
+ 		warning("MidiParser-XMIDI: jumpToIndex called with invalid sequence branch index %x", index);
+ 		return false;
+ 	}
+@@ -144,7 +153,7 @@ bool MidiParser_XMIDI::jumpToIndex(uint8 index, bool stopNotes) {
+ 	}
+ 
+ 	resetTracking();
+-	_position._subtracks[0]._playPos = _trackBranches[_activeTrack][index];
++	_position._subtracks[0]._playPos = gwBranch(_activeTrack, index);
+ 	parseNextEvent(*_nextEvent);
+ 
+ 	_jumpingToTick = false;
+@@ -433,7 +442,7 @@ bool MidiParser_XMIDI::loadMusic(const byte *data, uint32 size) {
+ 		int tracksRead = 0;
+ 		uint32 branchOffsets[128];
+ 		memset(branchOffsets, 0, sizeof(branchOffsets));
+-		memset(_trackBranches, 0, sizeof(_trackBranches));
++		_gwBranches.clear();
+ 		memset(_tracksTimbreList, 0, sizeof(_tracksTimbreList));
+ 		memset(_tracksTimbreListSize, 0, sizeof(_tracksTimbreListSize));
+ 		while (tracksRead < _numTracks) {
+@@ -470,7 +479,8 @@ bool MidiParser_XMIDI::loadMusic(const byte *data, uint32 size) {
+ 							warning("Invalid sequence branch position (after track end)");
+ 							branchPos = _tracks[tracksRead][0];
+ 						}
+-						_trackBranches[tracksRead][j] = branchPos;
++						GWBranch b = { (uint8)tracksRead, (uint8)j, branchPos };
++						_gwBranches.push_back(b);
+ 					}
+ 				}
+ 				// Clear the branch offsets for the next track
 diff --git a/audio/softsynth/opl/dbopl.cpp b/audio/softsynth/opl/dbopl.cpp
 index dcda5a170ce..cb07974b75f 100644
 --- a/audio/softsynth/opl/dbopl.cpp
@@ -1043,10 +1126,99 @@ index 9d8fb351528..09e6bbf9899 100644
  
  	return (shouldQuit()) ? 1 : getScriptReturn();
 diff --git a/engines/agos/sound.cpp b/engines/agos/sound.cpp
-index ba4e0354eed..f799f9b0038 100644
+index ba4e0354eed..c2eb478299a 100644
 --- a/engines/agos/sound.cpp
 +++ b/engines/agos/sound.cpp
-@@ -649,7 +649,19 @@ void Sound::playVoiceData(byte *soundData, uint sound) {
+@@ -47,6 +47,19 @@ protected:
+ 	uint32 *_offsets;
+ 	Audio::Mixer *_mixer;
+ 	bool _freeOffsets;
++	// Game & Watch: a voice file's table of offsets read from the file when a sound is played,
++	// not kept (Simon the Sorcerer II's: 12,000 of them, 48 KB of the heap)
++	bool _gwFile = false, _gwBig = false;
++	uint32 _gwBase = 0, _gwCount = 0, _gwSize = 0;
++	uint32 off(Common::SeekableReadStream *f, uint i) const {
++		if (!_gwFile)
++			return _offsets[i];
++		if (i >= _gwCount)
++			return _gwSize;
++		f->seek(_gwBase + 4 * i, SEEK_SET);
++		return _gwBase + (_gwBig ? f->readUint32BE() : f->readUint32LE());
++	}
++	bool hasOffsets() const { return _offsets || _gwFile; }
+ 
+ 	Common::SeekableReadStream *getSoundStream(uint sound) const;
+ public:
+@@ -83,6 +96,15 @@ BaseSound::BaseSound(Audio::Mixer *mixer, const Common::Path &filename, uint32 b
+ 
+ 	res = size / sizeof(uint32);
+ 
++#ifdef GW_AGOS_SLIM
++	_gwFile = true;
++	_gwBig = bigEndian;
++	_gwBase = base;
++	_gwCount = res;
++	_gwSize = file.size();
++	_freeOffsets = false;
++	return;
++#endif
+ 	_offsets = (uint32 *)malloc(size + sizeof(uint32));
+ 	_freeOffsets = true;
+ 
+@@ -108,7 +130,7 @@ BaseSound::~BaseSound() {
+ }
+ 
+ Common::SeekableReadStream *BaseSound::getSoundStream(uint sound) const {
+-	if (_offsets == nullptr)
++	if (!hasOffsets())
+ 		return nullptr;
+ 
+ 	Common::File *file = new Common::File();
+@@ -119,16 +141,17 @@ Common::SeekableReadStream *BaseSound::getSoundStream(uint sound) const {
+ 	}
+ 
+ 	int i = 1;
+-	while (_offsets[sound + i] == _offsets[sound])
++	uint32 start = off(file, sound);
++	while (off(file, sound + i) == start)
+ 		i++;
+ 	uint end;
+-	if (_offsets[sound + i] > _offsets[sound]) {
+-		end = _offsets[sound + i];
++	if (off(file, sound + i) > start) {
++		end = off(file, sound + i);
+ 	} else {
+ 		end = file->size();
+ 	}
+ 
+-	return new Common::SeekableSubReadStream(file, _offsets[sound], end, DisposeAfterUse::YES);
++	return new Common::SeekableSubReadStream(file, start, end, DisposeAfterUse::YES);
+ }
+ 
+ ///////////////////////////////////////////////////////////////////////////////
+@@ -234,7 +257,7 @@ public:
+ };
+ 
+ Audio::RewindableAudioStream *RawSound::makeAudioStream(uint sound) {
+-	if (_offsets == nullptr)
++	if (!hasOffsets())
+ 		return nullptr;
+ 
+ 	Common::File *file = new Common::File();
+@@ -244,9 +267,10 @@ Audio::RewindableAudioStream *RawSound::makeAudioStream(uint sound) {
+ 		return nullptr;
+ 	}
+ 
+-	file->seek(_offsets[sound], SEEK_SET);
++	uint32 start = off(file, sound);
++	file->seek(start, SEEK_SET);
+ 	uint size = file->readUint32BE();
+-	return Audio::makeRawStream(new Common::SeekableSubReadStream(file, _offsets[sound] + 4, _offsets[sound] + 4 + size, DisposeAfterUse::YES), 22050, _flags, DisposeAfterUse::YES);
++	return Audio::makeRawStream(new Common::SeekableSubReadStream(file, start + 4, start + 4 + size, DisposeAfterUse::YES), 22050, _flags, DisposeAfterUse::YES);
+ }
+ 
+ void RawSound::playSound(uint sound, uint loopSound, Audio::Mixer::SoundType type, Audio::SoundHandle *handle, bool loop, int vol) {
+@@ -649,7 +673,19 @@ void Sound::playVoiceData(byte *soundData, uint sound) {
  	_voicePlaying = sound;
  }
  
