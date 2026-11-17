@@ -3250,6 +3250,24 @@ index d7a3853b17d..ba727087c1c 100644
  };
  
  class WSAMovieAmiga : public WSAMovie_v1 {
+diff --git a/engines/kyra/gui/gui_lok.cpp b/engines/kyra/gui/gui_lok.cpp
+index 216d8544eb5..e21e5d1e0f3 100644
+--- a/engines/kyra/gui/gui_lok.cpp
++++ b/engines/kyra/gui/gui_lok.cpp
+@@ -821,6 +821,13 @@ int GUI_LoK::saveGame(Button *button) {
+ 
+ 	if (_savegameOffset == 0 && _vm->_gameToLoad == 0) {
+ 		_savegameName[0] = 0;
++#ifdef GW_KYRA_SLIM
++		// Game & Watch: a new save is named with the date and time (typing is the GAME button's
++		// keyboard): "Salvar" right away keeps it, or the name can be changed
++		TimeDate t;
++		g_system->getTimeAndDate(t);
++		Common::sprintf_s(_savegameName, "%02d.%02d.%04d %02d:%02d", t.tm_mday, t.tm_mon + 1, t.tm_year + 1900, t.tm_hour, t.tm_min);
++#endif
+ 	} else {
+ 		for (int i = 0; i < 5; i++) {
+ 			if (_menu[2].item[i].saveSlot == _vm->_gameToLoad) {
 diff --git a/engines/kyra/gui/saveload_lok.cpp b/engines/kyra/gui/saveload_lok.cpp
 index 32c8da35f3e..223b1059426 100644
 --- a/engines/kyra/gui/saveload_lok.cpp
