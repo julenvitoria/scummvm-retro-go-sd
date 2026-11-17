@@ -822,6 +822,49 @@ static void cache_pack(const char *name, uint32_t size)
 	      (unsigned long)h.count, (unsigned long)(h.total / 1024), P->pieces);
 }
 
+const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size)
+{
+	uint32_t got = 0;
+	const uint8_t *p = lookup_data_in_flash(key, &got);
+	plat_stat_t st = { 0 };
+	if (path) st = plat_stat(path);
+	if (p && (!st.exists || got == st.size)) { *size = got; return p; }
+	if (!st.exists || st.is_dir || !st.size) return NULL;
+	void *f = plat_fopen(path, "rb");
+	uint8_t *buf = f ? (uint8_t *)malloc(16384) : NULL;
+	static flash_stream_t fs;                 /* (the firmware's: the caller owns it) */
+	if (!buf || !store_data_begin(&fs, key, st.size)) {
+		free(buf);
+		if (f) plat_fclose(f);
+		logf_("ScummVM: no room in external flash for %s (%lu KB)\n", path, (unsigned long)(st.size / 1024));
+		return NULL;
+	}
+	ui_clut();
+	uint8_t last = 0xff;
+	uint32_t done = 0;
+	for (uint32_t left = st.size; left;) {
+		uint32_t n = left < 16384 ? left : 16384;
+		if (plat_fread(buf, n, f) != n || !store_data_append(&fs, buf, n)) {
+			store_data_abort(&fs);
+			p = NULL;
+			goto out;
+		}
+		left -= n;
+		done += n;
+		uint8_t pct = (uint8_t)((uint64_t)done * 100 / st.size);
+		if (pct != last) { show_bar(gw_i18n(i18n_copying), pct); last = pct; }
+	}
+	p = store_data_finish(&fs);
+out:
+	free(buf);
+	plat_fclose(f);
+	lcd_sleep_while_swap_pending();
+	lcd_set_clut(g_hw, 256);
+	if (p) *size = st.size;
+	logf_("ScummVM: %s %s external flash\n", path, p ? "copied into" : "could not be copied into");
+	return p;
+}
+
 const void *plat_map_pack(const char *path)
 {
 	size_t gl = strlen(g_game);
