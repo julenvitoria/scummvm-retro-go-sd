@@ -25,6 +25,8 @@ lan_000.res  = teenagent
 ite.rsc      = saga
 gamepc       = agos
 *.gme        = agos
+gemcut.pak   = kyra
+gemcut.emc   = kyra
 
 # engines there is no file for yet (the loader says so instead of starting the game). The Dig
 # and The Curse of Monkey Island are SCUMM games this core does not run (too big for the flash):
@@ -39,8 +41,6 @@ logdir       = agi
 general.clu  = sword2
 touche.dat   = touche
 dw.scn       = tinsel
-gemcut.pak   = kyra
-gemcut.emc   = kyra
 
 # SCUMM last: its files are named after each game
 *.lfl        = scumm

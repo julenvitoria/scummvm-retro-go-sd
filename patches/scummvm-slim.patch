@@ -2743,6 +2743,450 @@ index 9f637fbfb09..a5cbbd356b9 100644
  
  		if (_splitSurf) {
  
+diff --git a/engines/kyra/engine/kyra_lok.cpp b/engines/kyra/engine/kyra_lok.cpp
+index b1d54702e60..cf9674ced98 100644
+--- a/engines/kyra/engine/kyra_lok.cpp
++++ b/engines/kyra/engine/kyra_lok.cpp
+@@ -385,6 +385,9 @@ Common::Error KyraEngine_LoK::go() {
+ 
+ void KyraEngine_LoK::startup() {
+ 	static const uint8 colorMap[] = { 0, 0, 0, 0, 12, 12, 12, 0, 0, 0, 0, 0 };
++#ifdef GW_KYRA_SLIM
++	_screen->gwReleasePage(6);	// (the intro's: the game itself does not use it)
++#endif
+ 	_screen->setTextColorMap(colorMap);
+ 
+ 	_sound->selectAudioResourceSet(kMusicIngame);
+@@ -649,6 +652,9 @@ void KyraEngine_LoK::setupShapes123(const Shape *shapeTable, int endShape, int f
+ 		_defaultShapeTable[i - 7].h = shapeTable[i - 123].h;
+ 	}
+ 	_screen->_curPage = curPageBackUp;
++#ifdef GW_KYRA_SLIM
++	_screen->gwReleasePage(8);	// (scratch: the character's images, now in _shapes)
++#endif
+ }
+ 
+ void KyraEngine_LoK::freeShapes123() {
+diff --git a/engines/kyra/graphics/screen.cpp b/engines/kyra/graphics/screen.cpp
+index 2ec438c65b5..a64b5da475b 100644
+--- a/engines/kyra/graphics/screen.cpp
++++ b/engines/kyra/graphics/screen.cpp
+@@ -38,6 +38,11 @@
+ 
+ #define KYRA_SCREEN_IDLE_REFRESH
+ 
++#ifdef GW_KYRA_SLIM
++extern "C" int heap_screen_hint;	// src/heap.c
++void gwAdoptWhole(const byte *p, uint32 size);	// src/gw_system.cpp: page 0 is the screen
++#endif
++
+ namespace Kyra {
+ 
+ Screen::Screen(KyraEngine_v1 *vm, OSystem *system, const ScreenDim *dimTable, const int dimTableSize)
+@@ -63,6 +68,9 @@ Screen::Screen(KyraEngine_v1 *vm, OSystem *system, const ScreenDim *dimTable, co
+ 	memset(_fonts, 0, sizeof(_fonts));
+ 
+ 	_pagePtrsBuff = nullptr;
++#ifdef GW_KYRA_SLIM
++	memset(_gwPageBuf, 0, sizeof(_gwPageBuf));
++#endif
+ 	memset(_pagePtrs, 0, sizeof(_pagePtrs));
+ 	memset(_pageMapping, 0, sizeof(_pageMapping));
+ 	memset(_sjisOverlayPtrs, 0, sizeof(_sjisOverlayPtrs));
+@@ -109,6 +117,9 @@ Screen::~Screen() {
+ 	for (int i = 0; i < SCREEN_OVLS_NUM; ++i)
+ 		delete[] _sjisOverlayPtrs[i];
+ 
++#ifdef GW_KYRA_SLIM
++	gwFreePages();
++#endif
+ 	delete[] _pagePtrsBuff;
+ 
+ 	for (int f = 0; f < ARRAYSIZE(_fonts); ++f)
+@@ -600,7 +611,60 @@ void Screen::setScreenDim(int dim) {
+ 	_curDimIndex = dim;
+ }
+ 
++#ifdef GW_KYRA_SLIM
++
++void Screen::gwFreePages() {
++	if (_gwPageBuf[0])
++		gwAdoptWhole(nullptr, 0);
++	for (int i = 0; i < SCREEN_PAGE_NUM; i++) {
++		delete[] _gwPageBuf[i];
++		_gwPageBuf[i] = nullptr;
++	}
++	memset(_pagePtrs, 0, sizeof(_pagePtrs));
++}
++
++void Screen::gwReleasePage(int pageNum) {
++	int real = _pageMapping[pageNum];
++	if (real < 6 || !_gwPageBuf[real])
++		return;
++	delete[] _gwPageBuf[real];
++	_gwPageBuf[real] = nullptr;
++	for (int i = 0; i < SCREEN_PAGE_NUM; i++)
++		if (_pageMapping[i] == real)
++			_pagePtrs[i] = nullptr;
++}
++
++uint8 *Screen::gwPage(int pageNum) {
++	if (_pagePtrs[pageNum])
++		return _pagePtrs[pageNum];
++	int real = _pageMapping[pageNum];
++	if (real >= 6)
++		debug(1, "Kyra: page %d made (%d bytes)", real, _screenPageSize);
++	if (!_gwPageBuf[real]) {
++		// pages 4 and 6 (loading, the scene's mask) in the screens' heap, beside the backend
++		heap_screen_hint = (real == 4 || real == 6);
++		_gwPageBuf[real] = new uint8[_screenPageSize]();
++		heap_screen_hint = 0;
++	}
++	for (int i = 0; i < SCREEN_PAGE_NUM; i++)
++		if (_pageMapping[i] == real)
++			_pagePtrs[i] = _gwPageBuf[real];
++	return _pagePtrs[pageNum];
++}
++
+ void Screen::resetPagePtrsAndBuffers(int pageSize) {
++	gwFreePages();
++	_screenPageSize = pageSize;
++	for (int i = 0; i < 6; i++)
++		gwPage(i);
++	if (_screenPageSize >= SCREEN_W * SCREEN_H && _internalBytesPerPixel == 1)
++		gwAdoptWhole(_pagePtrs[0], SCREEN_W * SCREEN_H);
++}
++
++void Screen::gwUnusedResetPagePtrsAndBuffers(int pageSize) {
++#else
++void Screen::resetPagePtrsAndBuffers(int pageSize) {
++#endif
+ 	_screenPageSize = pageSize;
+ 
+ 	delete[] _pagePtrsBuff;
+@@ -633,11 +697,17 @@ void Screen::resetPagePtrsAndBuffers(int pageSize) {
+ 
+ uint8 *Screen::getPagePtr(int pageNum) {
+ 	assert(pageNum < SCREEN_PAGE_NUM);
++#ifdef GW_KYRA_SLIM
++	return gwPage(pageNum);
++#endif
+ 	return _pagePtrs[pageNum];
+ }
+ 
+ const uint8 *Screen::getCPagePtr(int pageNum) const {
+ 	assert(pageNum < SCREEN_PAGE_NUM);
++#ifdef GW_KYRA_SLIM
++	return const_cast<Screen *>(this)->gwPage(pageNum);
++#endif
+ 	return _pagePtrs[pageNum];
+ }
+ 
+@@ -645,6 +715,9 @@ uint8 *Screen::getPageRect(int pageNum, int x, int y, int w, int h) {
+ 	assert(pageNum < SCREEN_PAGE_NUM);
+ 	if (pageNum == 0 || pageNum == 1)
+ 		addDirtyRect(x, y, w, h);
++#ifdef GW_KYRA_SLIM
++	gwPage(pageNum);
++#endif
+ 	return _pagePtrs[pageNum] + y * SCREEN_W + x;
+ }
+ 
+@@ -816,6 +889,9 @@ void Screen::copyWsaRect(int x, int y, int w, int h, int dimState, int plotFunc,
+ template <typename T> int Screen::getPagePixelImpl(int pageNum, int x, int y) {
+ 	assert(pageNum < SCREEN_PAGE_NUM);
+ 	assert(x >= 0 && x < SCREEN_W && y >= 0 && y < _screenHeight);
++#ifdef GW_KYRA_SLIM
++	gwPage(pageNum);
++#endif
+ 	if (sizeof(T) == 1)
+ 		return _pagePtrs[pageNum][y * SCREEN_W + x];
+ 	else
+@@ -829,6 +905,9 @@ void Screen::setPagePixelImpl(int pageNum, int x, int y, uint8 color) {
+ 
+ 	if (pageNum == 0 || pageNum == 1)
+ 		addDirtyRect(x, y, 1, 1);
++#ifdef GW_KYRA_SLIM
++	gwPage(pageNum);
++#endif
+ 
+ 	if (sizeof(T) == 1) {
+ 		if (_4bitPixelPacking) {
+@@ -2862,6 +2941,9 @@ void Screen::wrapped_decodeFrameDeltaPage(uint8 *dst, const uint8 *src, int pitc
+ }
+ 
+ uint8 *Screen::encodeShape(int x, int y, int w, int h, int flags) {
++#ifdef GW_KYRA_SLIM
++	gwPage(_curPage);
++#endif
+ 	uint8 *srcPtr = &_pagePtrs[_curPage][y * SCREEN_W + x];
+ 	int16 shapeSize = 0;
+ 	uint8 *tmp = srcPtr;
+@@ -3216,6 +3298,10 @@ bool Screen::isMouseVisible() const {
+ }
+ 
+ void Screen::setShapePages(int page1, int page2, int minY, int maxY) {
++#ifdef GW_KYRA_SLIM
++	gwPage(page1);
++	gwPage(page2);
++#endif
+ 	_shapePages[0] = _pagePtrs[page1];
+ 	_shapePages[1] = _pagePtrs[page2];
+ 	_maskMinY = minY;
+@@ -3243,6 +3329,15 @@ void Screen::setMouseCursor(int x, int y, const byte *shape) {
+ 	}
+ 
+ 	uint8 *cursor = new uint8[mouseHeight * mouseWidth];
++#ifdef GW_KYRA_SLIM
++	// page 8 is a scratch page (the original used page 2, saved first): the cursor is drawn on
++	// a strip of it only, so without page 8 a strip of that height does instead
++	uint8 *gwStrip = nullptr;
++	if (!_pagePtrs[8]) {
++		gwStrip = new uint8[SCREEN_W * (mouseHeight + 2) * _internalBytesPerPixel]();
++		_pagePtrs[8] = _pagePtrs[9] = gwStrip;
++	}
++#endif
+ 	fillRect(0, 0, mouseWidth, mouseHeight, _cursorColorKey, 8);
+ 	drawShape(8, shape, 0, 0, 0, 0);
+ 
+@@ -3258,6 +3353,12 @@ void Screen::setMouseCursor(int x, int y, const byte *shape) {
+ 
+ 	CursorMan.showMouse(false);
+ 	copyRegionToBuffer(8, xOffset, 0, mouseWidth, mouseHeight, cursor);
++#ifdef GW_KYRA_SLIM
++	if (gwStrip) {
++		_pagePtrs[8] = _pagePtrs[9] = nullptr;
++		delete[] gwStrip;
++	}
++#endif
+ 	CursorMan.replaceCursor(cursor, mouseWidth, mouseHeight, x, y, _cursorColorKey);
+ 	if (isMouseVisible())
+ 		CursorMan.showMouse(true);
+diff --git a/engines/kyra/graphics/screen.h b/engines/kyra/graphics/screen.h
+index 92605cdaab3..52978b1a683 100644
+--- a/engines/kyra/graphics/screen.h
++++ b/engines/kyra/graphics/screen.h
+@@ -825,6 +825,9 @@ public:
+ 
+ protected:
+ 	void resetPagePtrsAndBuffers(int pageSize);
++#ifdef GW_KYRA_SLIM
++	void gwUnusedResetPagePtrsAndBuffers(int pageSize);
++#endif
+ 	uint8 *getPagePtr(int pageNum);
+ 	virtual void updateDirtyRects();
+ 	void updateDirtyRectsAmiga();
+@@ -871,6 +874,17 @@ protected:
+ 
+ 	uint8 *_pagePtrs[16];
+ 	const uint8 *_pagePtrsBuff;
++#ifdef GW_KYRA_SLIM
++public:
++	// Game & Watch: one block per page, pages 6-15 only made when something first uses them
++	// (Kyrandia 1 plays on pages 0, 2 and 4: page 6 is the intro's and the ending's, page 8
++	// scratch -- 5 x 64 KB the console does not have spare)
++	uint8 *gwPage(int pageNum);
++	void gwReleasePage(int pageNum);	// a page from 6 up given back (made again if used)
++protected:
++	uint8 *_gwPageBuf[SCREEN_PAGE_NUM];
++	void gwFreePages();
++#endif
+ 	uint8 *_sjisOverlayPtrs[SCREEN_OVLS_NUM];
+ 	uint8 _pageMapping[SCREEN_PAGE_NUM];
+ 
+diff --git a/engines/kyra/metaengine.cpp b/engines/kyra/metaengine.cpp
+index 2c25eedc970..41bf1af7cf9 100644
+--- a/engines/kyra/metaengine.cpp
++++ b/engines/kyra/metaengine.cpp
+@@ -27,6 +27,8 @@
+ #include "kyra/engine/darkmoon.h"
+ 
+ #include "common/config-manager.h"
++#include "common/fs.h"
++#include "common/ptr.h"
+ #include "common/system.h"
+ #include "common/savefile.h"
+ #include "common/translation.h"
+@@ -280,6 +282,35 @@ Common::Error KyraMetaEngine::createInstance(OSystem *syst, Engine **engine, con
+ 			flags.lang = Common::EN_ANY;
+ 	}
+ 
++#ifdef GW_KYRA_SLIM
++	// Game & Watch: a Spanish fan translation of the CD version that the detection table does not
++	// know (its GEMCUT.PAK is the English one) is told by its texts -- STARTUP.PAK in Spanish --
++	// and then played as the one it knows: the Spanish texts of kyra.dat, subtitles on
++	if (flags.gameID == Kyra::GI_KYRA1 && flags.isTalkie && flags.lang == Common::EN_ANY &&
++	        flags.fanLang == Common::UNK_LANG && flags.platform == Common::kPlatformDOS) {
++		Common::FSDirectory dir(ConfMan.getPath("path"));
++		Common::ScopedPtr<Common::SeekableReadStream> f(dir.createReadStreamForMember("STARTUP.PAK"));
++		int es = 0, en = 0;
++		if (f) {
++			Common::Array<char> buf(f->size() + 1);
++			buf[f->read(buf.data(), f->size())] = 0;
++			const char *b = buf.data(), *end = b + buf.size() - 1;
++			for (const char *q = b; q < end; q++) {
++				if (!memcmp(q, " que ", MIN<int>(5, end - q)) || !memcmp(q, " de la ", MIN<int>(7, end - q)))
++					es++;
++				if (!memcmp(q, " the ", MIN<int>(5, end - q)) || !memcmp(q, " you ", MIN<int>(5, end - q)))
++					en++;
++			}
++		}
++		debug(1, "Kyra: STARTUP.PAK %s, %d Spanish and %d English words", f ? "read" : "missing", es, en);
++		if (es > 8 && es > en * 4) {
++			flags.lang = Common::ES_ESP;
++			flags.fanLang = Common::ES_ESP;
++			flags.replacedLang = Common::EN_ANY;
++		}
++	}
++#endif
++
+ 	switch (flags.gameID) {
+ 	case Kyra::GI_KYRA1:
+ 		*engine = new Kyra::KyraEngine_LoK(syst, flags);
+diff --git a/engines/kyra/resource/resource_intern.cpp b/engines/kyra/resource/resource_intern.cpp
+index 34c4145a66b..ebfd7afa64b 100644
+--- a/engines/kyra/resource/resource_intern.cpp
++++ b/engines/kyra/resource/resource_intern.cpp
+@@ -34,6 +34,80 @@ namespace Kyra {
+ 
+ // -> PlainArchive implementation
+ 
++#ifdef GW_KYRA_SLIM
++PlainArchive::PlainArchive(Common::ArchiveMemberPtr file)
++	: _file(file) {
++}
++
++static uint32 gwNameHash(const Common::String &s) {
++	uint32 h = 2166136261u;
++	for (uint i = 0; i < s.size(); i++)
++		{ byte ch = (byte)s[i]; if (ch >= 'a' && ch <= 'z') ch -= 32; h = (h ^ ch) * 16777619u; }
++	return h;
++}
++
++const PlainArchive::GWEnt *PlainArchive::gwFind(const Common::Path &path) const {
++	Common::String s = path.toString('/');
++	uint32 h = gwNameHash(s);
++	for (uint i = _ents.size(); i-- > 0;)        // the last one added wins, as the HashMap did
++		if (_ents[i].hash == h && !scumm_stricmp(&_names[_ents[i].name], s.c_str()))
++			return &_ents[i];
++	return nullptr;
++}
++
++bool PlainArchive::hasFile(const Common::Path &path) const {
++	return gwFind(path) != nullptr;
++}
++
++int PlainArchive::listMembers(Common::ArchiveMemberList &list) const {
++	int count = 0;
++	for (uint i = 0; i < _ents.size(); ++i) {
++		const char *n = &_names[_ents[i].name];
++		if (gwFind(Common::Path(n)) != &_ents[i])  // a name added again later: once
++			continue;
++		list.push_back(Common::ArchiveMemberList::value_type(new Common::GenericArchiveMember(Common::Path(n), *this)));
++		++count;
++	}
++	return count;
++}
++
++const Common::ArchiveMemberPtr PlainArchive::getMember(const Common::Path &path) const {
++	if (!hasFile(path))
++		return Common::ArchiveMemberPtr();
++
++	return Common::ArchiveMemberPtr(new Common::GenericArchiveMember(path, *this));
++}
++
++Common::SeekableReadStream *PlainArchive::createReadStreamForMember(const Common::Path &path) const {
++	const GWEnt *e = gwFind(path);
++	if (!e)
++		return nullptr;
++
++	Common::SeekableReadStream *parent = _file->createReadStream();
++	if (!parent)
++		return nullptr;
++
++	return new Common::SeekableSubReadStream(parent, e->offset, e->offset + e->size, DisposeAfterUse::YES);
++}
++
++void PlainArchive::addFileEntry(const Common::Path &name, const Entry entry) {
++	Common::String s = name.toString('/');
++	GWEnt e;
++	e.hash = gwNameHash(s);
++	e.name = _names.size();
++	e.offset = entry.offset;
++	e.size = entry.size;
++	for (uint i = 0; i <= s.size(); i++)
++		_names.push_back(s.c_str()[i]);
++	_ents.push_back(e);
++}
++
++PlainArchive::Entry PlainArchive::getFileEntry(const Common::Path &name) const {
++	const GWEnt *e = gwFind(name);
++	return e ? Entry(e->offset, e->size) : Entry();
++}
++
++#else
+ PlainArchive::PlainArchive(Common::ArchiveMemberPtr file)
+ 	: _file(file), _files() {
+ }
+@@ -83,6 +157,8 @@ PlainArchive::Entry PlainArchive::getFileEntry(const Common::Path &name) const {
+ 	return fDesc->_value;
+ }
+ 
++#endif
++
+ // -> TlkArchive implementation
+ 
+ TlkArchive::TlkArchive(Common::ArchiveMemberPtr file, uint16 entryCount, const uint32 *fileEntries)
+diff --git a/engines/kyra/resource/resource_intern.h b/engines/kyra/resource/resource_intern.h
+index 55863c9cff7..452e29b4e80 100644
+--- a/engines/kyra/resource/resource_intern.h
++++ b/engines/kyra/resource/resource_intern.h
+@@ -55,10 +55,20 @@ public:
+ 	const Common::ArchiveMemberPtr getMember(const Common::Path &path) const override;
+ 	Common::SeekableReadStream *createReadStreamForMember(const Common::Path &path) const override;
+ private:
++#ifdef GW_KYRA_SLIM
++	// Game & Watch: a talkie's PAKs (and kyra.dat) hold thousands of names -- a HashMap of Paths
++	// costs ~300 KB of the heap for them; this is one array of 16 bytes per name plus its text
++	struct GWEnt { uint32 hash, name, offset, size; };
++	Common::Array<GWEnt> _ents;
++	Common::Array<char> _names;
++	const GWEnt *gwFind(const Common::Path &path) const;
++	Common::ArchiveMemberPtr _file;
++#else
+ 	typedef Common::HashMap<Common::Path, Entry, Common::Path::IgnoreCase_Hash, Common::Path::IgnoreCase_EqualTo> FileMap;
+ 
+ 	Common::ArchiveMemberPtr _file;
+ 	FileMap _files;
++#endif
+ };
+ 
+ class TlkArchive : public Common::Archive {
+diff --git a/engines/kyra/sound/sound_pc_v1.cpp b/engines/kyra/sound/sound_pc_v1.cpp
+index 4af86ebca52..d3132547fc6 100644
+--- a/engines/kyra/sound/sound_pc_v1.cpp
++++ b/engines/kyra/sound/sound_pc_v1.cpp
+@@ -251,6 +251,12 @@ void SoundPC_v1::internalLoadFile(const Common::Path &file) {
+ 	}
+ 
+ 	uint8 *oldData = _soundDataPtr;
++#ifdef GW_KYRA_SLIM
++	// Game & Watch: the file's own buffer is kept (no third copy beside the old and the new)
++	memmove(fileData, p, soundDataSize);
++	_soundDataPtr = fileData;
++	_driver->setSoundData(_soundDataPtr, soundDataSize);
++#else
+ 	_soundDataPtr = new uint8[soundDataSize];
+ 	assert(_soundDataPtr);
+ 
+@@ -258,6 +264,7 @@ void SoundPC_v1::internalLoadFile(const Common::Path &file) {
+ 	_driver->setSoundData(_soundDataPtr, soundDataSize);
+ 
+ 	delete[] fileData;
++#endif
+ 	delete[] oldData;
+ 
+ 	_soundFileLoaded = path;
 diff --git a/engines/lure/animseq.cpp b/engines/lure/animseq.cpp
 index cc1c4e47db0..8ebd4896fd1 100644
 --- a/engines/lure/animseq.cpp
