@@ -22,7 +22,13 @@ DEFS     := -DHAVE_CONFIG_H -DENABLE_SCUMM=STATIC_PLUGIN -DENABLE_SCUMM_7_8 -DEN
             -DDISABLE_LAUNCHERDISPLAY_GRID -DDISABLE_TOWNS_DUAL_LAYER_MODE \
             -DDISABLE_PC98_RHYTHM_CHANNEL -DDISABLE_MAME_OPL -DREDUCE_MEMORY_USAGE -DGW_SCUMM_SLIM -DGW_FS_PROBE $(V7_SLIM)
 INCS     := -Iconfig -I$(SVM) -I$(SVM)/engines -Isrc
-CXXSTD   := -std=c++11 -fno-exceptions -fcheck-new -fno-operator-names
+CXXSTD   := -std=c++11 -fno-exceptions -fcheck-new -fno-operator-names \
+            -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
+# (-fno-builtin-malloc and the rest: GCC takes malloc() for a call that touches no memory of the
+#  caller's, and keeps variables in registers across it -- but the heap's low-memory hooks run
+#  inside malloc() and change them (AGOS's list of zone blocks: Simon 2 freed blocks twice).
+#  GCC 15 assumes the same of operator new: ARM_SANE says otherwise.)
+ARM_SANE := -fno-assume-sane-operators-new-delete
 WARN     := -Wno-multichar -Wno-reorder -Wno-unknown-pragmas -Wno-unused-parameter
 
 .PHONY: all host core clean dist
@@ -94,7 +100,7 @@ OPT      := -Os -ffunction-sections -fdata-sections -fno-common
 # header dependencies: an object is rebuilt when a header it includes changes (a class that grew
 # a member, seen by half the objects only, crashed Full Throttle on the console on 2026-11-16)
 DEP      := -MMD -MP
-ARM_CXX  := $(MCU) $(OPT) $(CXXSTD) -fno-threadsafe-statics $(WARN) $(DEFS) $(INCS) $(DEP)
+ARM_CXX  := $(MCU) $(OPT) $(CXXSTD) $(ARM_SANE) -fno-threadsafe-statics $(WARN) $(DEFS) $(INCS) $(DEP)
 
 SDKDEFS  := -DUSE_HAL_DRIVER -DSTM32H7B0xx -DSD_CARD=1 -DGNW_DISABLE_COMPRESSION -DIS_LITTLE_ENDIAN \
             -DCOVERFLOW=0 -DCHEAT_CODES=0 -DGNW_CORE_ENTRY_TARGET=app_main_scummvm -DSVM_BUILD_ID=$(BUILD_ID)
@@ -279,7 +285,7 @@ define ENGINE_RULES
 # the table of plugins, with this engine alone
 $(AB)/eng/$(1)/plugins.o: $(SVM)/base/plugins.cpp Makefile | $(PATCHED)
 	@mkdir -p $$(dir $$@)
-	@$(CROSS)g++ -c $(MCU) $(OPT) $(CXXSTD) -fno-threadsafe-statics $(WARN) $(filter-out $(ENGDEFS_ALL),$(DEFS)) $(ENGDEFS_$(1)) $(INCS) $(DEP) $$< -o $$@
+	@$(CROSS)g++ -c $(MCU) $(OPT) $(CXXSTD) $(ARM_SANE) -fno-threadsafe-statics $(WARN) $(filter-out $(ENGDEFS_ALL),$(DEFS)) $(ENGDEFS_$(1)) $(INCS) $(DEP) $$< -o $$@
 
 ARM_ENG_$(1) := $$(patsubst %,$(AB)/svm/%.o,$$(filter engines/$(1)/%,$(SVM_SRC)))
 ifneq ($(ENGGFX_$(1)),)
