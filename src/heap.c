@@ -79,6 +79,18 @@ uint32_t heap_total(void) { return g_total; }
 uint32_t heap_used(void) { return g_used; }
 uint32_t heap_peak(void) { return g_peak; }
 
+/* nonzero if a heap's bookkeeping is broken (something wrote over a block's header): for
+   finding the writer on the PC -- each pool walked, so not for every allocation */
+int heap_check(void)
+{
+	int bad = 0;
+	for (int k = 0; k < HEAPS; k++)
+		if (g_tlsf[k]) bad |= tlsf_check(g_tlsf[k]);
+	for (int i = 0; i < g_pools; i++)
+		bad |= tlsf_check_pool(g_pool[i].pool);
+	return bad;
+}
+
 static tlsf_t owner(void *p)
 {
 	for (int i = 0; i < g_pools; i++)

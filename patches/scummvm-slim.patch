@@ -808,7 +808,7 @@ index 31019c5fc75..4a50ce27ca1 100644
  
  static const byte mouseCursorPalette[] = {
 diff --git a/engines/agos/event.cpp b/engines/agos/event.cpp
-index 785c692e2c5..13d9e35258d 100644
+index 785c692e2c5..f16ec9087ad 100644
 --- a/engines/agos/event.cpp
 +++ b/engines/agos/event.cpp
 @@ -25,6 +25,7 @@
@@ -819,10 +819,27 @@ index 785c692e2c5..13d9e35258d 100644
  #include "common/events.h"
  #include "common/system.h"
  #include "common/textconsole.h"
-@@ -473,6 +474,24 @@ void AGOSEngine::delay(uint amount) {
+@@ -36,6 +37,12 @@
+ #include "graphics/surface.h"
+ 
+ 
++#ifndef __arm__ // HEAPCHK
++extern "C" int heap_check(void); extern "C" const char *gw_test_env(const char *name);
++namespace AGOS { void gwCanaries(const char *what, int a); }
++#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") != nullptr; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
++#endif
++
+ namespace AGOS {
+ 
+ void AGOSEngine::addTimeEvent(int32 timeout, uint16 subroutine_id) {
+@@ -472,6 +479,27 @@ void AGOSEngine::delay(uint amount) {
+ 	uint this_delay, vgaPeriod;
  
  	_system->getAudioCDManager()->update();
- 
++#ifndef __arm__ // HEAPCHK
++	GWCHK("delay", amount);
++#endif
++
 +#ifdef GW_AGOS_SLIM
 +	// Game & Watch: a game resumed from Retro-Go's menu (ScummVM's -x, "save_slot") -- the intro
 +	// is skipped as ESC would, and the save is loaded as soon as the game lets one in
@@ -840,10 +857,9 @@ index 785c692e2c5..13d9e35258d 100644
 +		}
 +	}
 +#endif
-+
+ 
  	vgaPeriod = (_fastMode) ? 10 : _vgaPeriod;
  	if (getGameType() == GType_PP && getGameId() != GID_DIMP) {
- 		if (vgaPeriod == 15 && _variableArray[999] == 0)
 diff --git a/engines/agos/res.cpp b/engines/agos/res.cpp
 index 1ef1d3c9391..51eaa745211 100644
 --- a/engines/agos/res.cpp
@@ -999,6 +1015,75 @@ index 9161fc54fab..049b7cfcbde 100644
  				enableBox(208 + result);
  				if (_saveLoadEdit) {
  					userGameBackSpace(_windowArray[5], 8);
+diff --git a/engines/agos/script.cpp b/engines/agos/script.cpp
+index 9d8fb351528..01f094b22cd 100644
+--- a/engines/agos/script.cpp
++++ b/engines/agos/script.cpp
+@@ -29,6 +29,12 @@
+ #include "agos/agos.h"
+ #include "agos/intern.h"
+ 
++#ifndef __arm__ // HEAPCHK
++extern "C" int heap_check(void); extern "C" const char *gw_test_env(const char *name);
++namespace AGOS { void gwCanaries(const char *what, int a); }
++#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") != nullptr; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
++#endif
++
+ namespace AGOS {
+ 
+ void AGOSEngine::setupOpcodes() {
+@@ -1033,6 +1039,9 @@ int AGOSEngine::runScript() {
+ 			error("Invalid opcode '%d' encountered", _opcode);
+ 
+ 		executeOpcode(_opcode);
++#ifndef __arm__ // HEAPCHK
++		GWCHK("script opcode", _opcode);
++#endif
+ 	} while (getScriptCondition() != flag && !getScriptReturn() && !shouldQuit());
+ 
+ 	return (shouldQuit()) ? 1 : getScriptReturn();
+diff --git a/engines/agos/sound.cpp b/engines/agos/sound.cpp
+index ba4e0354eed..f799f9b0038 100644
+--- a/engines/agos/sound.cpp
++++ b/engines/agos/sound.cpp
+@@ -649,7 +649,19 @@ void Sound::playVoiceData(byte *soundData, uint sound) {
+ 	_voicePlaying = sound;
+ }
+ 
++#ifdef GW_AGOS_SLIM
++const byte *Sound::gwPlaying(int i) const {
++	const Audio::SoundHandle *h[3] = { &_effectsHandle, &_ambientHandle, &_sfx5Handle };
++	return _gwData[i] && _mixer->isSoundHandleActive(*h[i]) ? _gwData[i] : nullptr;
++}
++#endif
++
+ void Sound::playSoundData(Audio::SoundHandle *handle, byte *soundData, uint sound, int pan, int vol, bool loop) {
++#ifdef GW_AGOS_SLIM
++	if (handle == &_effectsHandle) _gwData[0] = soundData;
++	else if (handle == &_ambientHandle) _gwData[1] = soundData;
++	else if (handle == &_sfx5Handle) _gwData[2] = soundData;
++#endif
+ 	int size = READ_LE_UINT32(soundData + 4) + 8;
+ 	Common::SeekableReadStream *stream = new Common::MemoryReadStream(soundData, size);
+ 	Audio::RewindableAudioStream *sndStream = Audio::makeWAVStream(stream, DisposeAfterUse::YES);
+diff --git a/engines/agos/sound.h b/engines/agos/sound.h
+index d192feb9057..fba3380bc8c 100644
+--- a/engines/agos/sound.h
++++ b/engines/agos/sound.h
+@@ -54,6 +54,13 @@ private:
+ 	Audio::SoundHandle _effectsHandle;
+ 	Audio::SoundHandle _ambientHandle;
+ 	Audio::SoundHandle _sfx5Handle;
++#ifdef GW_AGOS_SLIM
++	const byte *_gwData[3] = { nullptr, nullptr, nullptr };	// (effects, ambient, sfx5: the bytes each plays)
++public:
++	// the sound data still being played, for the zones (zones.cpp): not let go under it
++	const byte *gwPlaying(int i) const;
++private:
++#endif
+ 
+ 	bool _hasEffectsFile;
+ 	bool _hasVoiceFile;
 diff --git a/engines/agos/subroutine.cpp b/engines/agos/subroutine.cpp
 index eee53c34c83..40c2b817fc5 100644
 --- a/engines/agos/subroutine.cpp
@@ -1028,18 +1113,58 @@ index eee53c34c83..40c2b817fc5 100644
  	if (!_tablesHeapPtr)
  		error("Out Of Memory - Tables");
  }
+diff --git a/engines/agos/vga.cpp b/engines/agos/vga.cpp
+index cf01a1c5e33..1ddb0d4a25f 100644
+--- a/engines/agos/vga.cpp
++++ b/engines/agos/vga.cpp
+@@ -35,6 +35,12 @@
+ #include "graphics/paletteman.h"
+ #include "graphics/surface.h"
+ 
++#ifndef __arm__ // HEAPCHK
++extern "C" int heap_check(void); extern "C" const char *gw_test_env(const char *name);
++namespace AGOS { void gwCanaries(const char *what, int a); }
++#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") != nullptr; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
++#endif
++
+ namespace AGOS {
+ 
+ // Opcode tables
+@@ -175,6 +181,9 @@ void AGOSEngine::runVgaScript() {
+ 			error("runVgaScript: Invalid VGA opcode '%d' encountered", opcode);
+ 
+ 		(this->*_vga_opcode_table[opcode]) ();
++#ifndef __arm__ // HEAPCHK
++		GWCHK("vga opcode", opcode);
++#endif
+ 	}
+ }
+ 
 diff --git a/engines/agos/zones.cpp b/engines/agos/zones.cpp
-index 37fc11af101..91819342f1c 100644
+index 37fc11af101..9a0a6db6b95 100644
 --- a/engines/agos/zones.cpp
 +++ b/engines/agos/zones.cpp
-@@ -27,14 +27,51 @@
+@@ -25,16 +25,64 @@
+ 
+ #include "agos/intern.h"
  #include "agos/agos.h"
++#include "agos/sound.h"
  #include "agos/vga.h"
  
 +#ifdef GW_AGOS_SLIM
 +extern "C" int (*heap_low_memory_hook)(uint32 n);	// src/heap.c
 +extern "C" uint32_t heap_total(void) __attribute__((weak));	// (the PC build without src/heap.c: none)
 +extern "C" uint32_t heap_used(void) __attribute__((weak));
++#endif
++
++#ifndef __arm__
++extern "C" const char *gw_test_env(const char *name);
++#endif
++
++#ifndef __arm__ // HEAPCHK
++extern "C" int heap_check(void);
++namespace AGOS { void gwCanaries(const char *what, int a); }
++#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") != nullptr; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
 +#endif
 +
  namespace AGOS {
@@ -1084,7 +1209,7 @@ index 37fc11af101..91819342f1c 100644
  	_vgaMemPtr = _vgaRealBase;
  	_vgaMemBase = _vgaRealBase;
  	_vgaFrozenBase = _vgaRealBase;
-@@ -76,6 +113,9 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
+@@ -76,6 +124,9 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
  	}
  
  	// Loading order is important due to resource management
@@ -1094,15 +1219,15 @@ index 37fc11af101..91819342f1c 100644
  
  	if (getPlatform() == Common::kPlatformAmiga && getGameType() == GType_WW &&
  		zoneTable[zoneNum] == 3) {
-@@ -105,9 +145,64 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
+@@ -105,9 +156,111 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
  			vpe->sfxFileEnd = _blockEnd;
  		}
  	}
 +#ifdef GW_AGOS_SLIM
 +	gwLoadingZone = 0xFFFF;
 +#endif
-+}
-+
+ }
+ 
 +#ifdef GW_AGOS_SLIM
 +
 +static int gwZoneOf(AGOSEngine *vm, VgaPointersEntry *ptrs, byte *p)
@@ -1113,9 +1238,52 @@ index 37fc11af101..91819342f1c 100644
 +	return -1;
 +}
 +
++#ifndef __arm__
++// The PC test build, GW_AGOS_POISON: a block let go is filled with 0xDB and kept a while
++// before it is freed, and checked then -- a zone used after it was let go shows
++static struct { byte *p; uint32 len; } gwQuar[8];
++static uint gwQuarN;
++static void gwQuarantine(byte *p, uint32 len) {
++	uint k = gwQuarN++ % ARRAYSIZE(gwQuar);
++	if (gwQuar[k].p) {
++		for (uint32 j = 0; j < gwQuar[k].len; j++)
++			if (gwQuar[k].p[j] != 0xDB) {
++				error("AGOS: a zone block was written after it was let go (+%u of %u)", j, gwQuar[k].len);
++			}
++		free(gwQuar[k].p);
++	}
++	memset(p, 0xDB, len);
++	gwQuar[k].p = p;
++	gwQuar[k].len = len;
++}
++#endif
++
++#ifndef __arm__ // HEAPCHK
++void gwCanaries(const char *what, int a) {
++	static int on = -1;
++	if (on < 0) on = gw_test_env("GW_HEAP_CHECK") != nullptr;
++	if (!on) return;
++	for (uint i = 0; i < gwBlockCount; i++) {
++		if (gwBlocks[i].flash) continue;
++		for (int k = 0; k < 64; k++)
++			if (gwBlocks[i].p[gwBlocks[i].len + k] != 0xC5) {
++				int z = -1;
++				error("zone block %p (zone %d, %u bytes) written past its end (+%d) by %s %d", gwBlocks[i].p, z, gwBlocks[i].len, k, what, a);
++			}
++	}
++}
++#endif
++
 +static void gwForget(uint i)
 +{
 +	gwZoneBytes -= gwBlocks[i].size;
++#ifndef __arm__
++	if (!gwBlocks[i].flash && gw_test_env("GW_AGOS_POISON")) {
++		gwQuarantine(gwBlocks[i].p, gwBlocks[i].len);
++		gwBlocks[i] = gwBlocks[--gwBlockCount];
++		return;
++	}
++#endif
 +	if (!gwBlocks[i].flash)
 +		free(gwBlocks[i].p);
 +	gwBlocks[i] = gwBlocks[--gwBlockCount];
@@ -1139,9 +1307,9 @@ index 37fc11af101..91819342f1c 100644
 +{
 +	gwAgos = vm;
 +	heap_low_memory_hook = vm ? gwAgosLowMemory : nullptr;
- }
++}
 +#endif
- 
++
  void AGOSEngine::setZoneBuffers() {
 +#ifdef GW_AGOS_SLIM
 +	_zoneBuffers = nullptr;
@@ -1150,6 +1318,10 @@ index 37fc11af101..91819342f1c 100644
 +	{
 +		uint32 freeNow = heap_total ? heap_total() - heap_used() : 8 * 1024 * 1024;
 +		gwZoneCap = freeNow > kGWZoneReserve + 200 * 1024 ? freeNow - kGWZoneReserve : 200 * 1024;
++#ifndef __arm__		// (the PC test build: GW_AGOS_ZONECAP=<KB> forces the cap, to evict often)
++		if (gw_test_env("GW_AGOS_ZONECAP"))
++			gwZoneCap = atoi(gw_test_env("GW_AGOS_ZONECAP")) * 1024;
++#endif
 +		warning("AGOS: %u KB for the zones", gwZoneCap / 1024);
 +	}
 +	memset(gwFrozen, 0, sizeof(gwFrozen));
@@ -1159,20 +1331,25 @@ index 37fc11af101..91819342f1c 100644
  	_zoneBuffers = (byte *)malloc(_vgaMemSize);
  
  	_vgaMemPtr = _zoneBuffers;
-@@ -115,9 +210,116 @@ void AGOSEngine::setZoneBuffers() {
+@@ -115,9 +268,129 @@ void AGOSEngine::setZoneBuffers() {
  	_vgaFrozenBase = _zoneBuffers;
  	_vgaRealBase = _zoneBuffers;
  	_vgaMemEnd = _zoneBuffers + _vgaMemSize;
 +#endif
- }
- 
++}
++
 +#ifdef GW_AGOS_SLIM
 +// One block let go to make room: true if there was one
 +bool AGOSEngine::gwFreeZoneMemory() {
++#ifndef __arm__ // HEAPCHK
++	GWCHK("entering gwFreeZoneMemory", 0);
++#endif
 +	// never the block a script is running in or the engine is reading from right now: the
 +	// hook can be called from inside a VGA script (vc62 loads music) -- Simon 2 freed the
 +	// script under its own feet
-+	const byte *live[] = { _vcPtr, _curVgaFile1, _curVgaFile2, _curSfxFile };
++	const byte *live[] = { _vcPtr, _curVgaFile1, _curVgaFile2, _curSfxFile,
++	                       _sound ? _sound->gwPlaying(0) : nullptr, _sound ? _sound->gwPlaying(1) : nullptr,
++	                       _sound ? _sound->gwPlaying(2) : nullptr };	// (and the effects being played)
 +	auto inUse = [&](uint i) {
 +		for (const byte *q : live)
 +			if (q && q >= gwBlocks[i].p && q < gwBlocks[i].p + gwBlocks[i].len)
@@ -1229,7 +1406,7 @@ index 37fc11af101..91819342f1c 100644
 +		return true;                    // (its blocks now belong to no zone: the next call frees them)
 +	}
 +	return false;
-+}
+ }
 +#endif
 +
 +#ifdef GW_AGOS_SLIM
@@ -1250,13 +1427,21 @@ index 37fc11af101..91819342f1c 100644
 +	_blockEnd = b.p + size;
 +}
 +#endif
-+
+ 
  byte *AGOSEngine::allocBlock(uint32 size) {
++#ifndef __arm__ // HEAPCHK
++	GWCHK("entering allocBlock", size);
++#endif
 +#ifdef GW_AGOS_SLIM
 +	while (gwZoneBytes + size > gwZoneCap && gwFreeZoneMemory())
 +		;
 +	for (;;) {
++#ifndef __arm__ // HEAPCHK: 64 bytes of 0xC5 after each block, checked (gwCanaries)
++		byte *p = gwBlockCount < ARRAYSIZE(gwBlocks) ? (byte *)malloc(size + 64) : nullptr;
++		if (p) memset(p + size, 0xC5, 64);
++#else
 +		byte *p = gwBlockCount < ARRAYSIZE(gwBlocks) ? (byte *)malloc(size) : nullptr;
++#endif
 +		if (p) {
 +			gwBlocks[gwBlockCount].p = p;
 +			gwBlocks[gwBlockCount].size = size;
