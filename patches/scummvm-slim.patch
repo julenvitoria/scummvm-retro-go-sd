@@ -1029,7 +1029,7 @@ index eee53c34c83..40c2b817fc5 100644
  		error("Out Of Memory - Tables");
  }
 diff --git a/engines/agos/zones.cpp b/engines/agos/zones.cpp
-index 37fc11af101..e2ba38605d8 100644
+index 37fc11af101..91819342f1c 100644
 --- a/engines/agos/zones.cpp
 +++ b/engines/agos/zones.cpp
 @@ -27,14 +27,51 @@
@@ -1052,7 +1052,7 @@ index 37fc11af101..e2ba38605d8 100644
 +// the game protects (_noOverWrite), those with running animations, nor those under a freeze.
 +struct GWZoneBlock {
 +	byte *p;
-+	uint32 seq, size;
++	uint32 seq, size, len;		// (size: what it counts against the cap; len: its bytes)
 +	bool flash;					// (a file's bytes where they lie in flash: nothing to free)
 +};
 +static GWZoneBlock gwBlocks[96];
@@ -1159,7 +1159,7 @@ index 37fc11af101..e2ba38605d8 100644
  	_zoneBuffers = (byte *)malloc(_vgaMemSize);
  
  	_vgaMemPtr = _zoneBuffers;
-@@ -115,9 +210,98 @@ void AGOSEngine::setZoneBuffers() {
+@@ -115,9 +210,116 @@ void AGOSEngine::setZoneBuffers() {
  	_vgaFrozenBase = _zoneBuffers;
  	_vgaRealBase = _zoneBuffers;
  	_vgaMemEnd = _zoneBuffers + _vgaMemSize;
@@ -1169,9 +1169,19 @@ index 37fc11af101..e2ba38605d8 100644
 +#ifdef GW_AGOS_SLIM
 +// One block let go to make room: true if there was one
 +bool AGOSEngine::gwFreeZoneMemory() {
++	// never the block a script is running in or the engine is reading from right now: the
++	// hook can be called from inside a VGA script (vc62 loads music) -- Simon 2 freed the
++	// script under its own feet
++	const byte *live[] = { _vcPtr, _curVgaFile1, _curVgaFile2, _curSfxFile };
++	auto inUse = [&](uint i) {
++		for (const byte *q : live)
++			if (q && q >= gwBlocks[i].p && q < gwBlocks[i].p + gwBlocks[i].len)
++				return true;
++		return false;
++	};
 +	// a block no zone points at
 +	for (uint i = 0; i < gwBlockCount; i++)
-+		if (gwZoneOf(this, _vgaBufferPointers, gwBlocks[i].p) < 0) {
++		if (gwZoneOf(this, _vgaBufferPointers, gwBlocks[i].p) < 0 && !inUse(i)) {
 +			gwForget(i);
 +			return true;
 +		}
@@ -1191,6 +1201,12 @@ index 37fc11af101..e2ba38605d8 100644
 +	if (gwLoadingZone < 450) busy[gwLoadingZone] = true;
 +	if (_noOverWrite < 450) busy[_noOverWrite] = true;
 +	busy[1] = busy[2] = busy[11] = true;
++	for (uint i = 0; i < gwBlockCount; i++)
++		if (inUse(i)) {
++			int z = gwZoneOf(this, _vgaBufferPointers, gwBlocks[i].p);
++			if (z >= 0)
++				busy[z] = true;
++		}
 +	// the one loaded longest ago -- one frozen by the game only when there is no other: it
 +	// comes back from the file when an animation asks for it (gfx.cpp, loadZone)
 +	for (int pass = 0; pass < 2; pass++) {
@@ -1227,6 +1243,7 @@ index 37fc11af101..e2ba38605d8 100644
 +	GWZoneBlock &b = gwBlocks[gwBlockCount++];
 +	b.p = const_cast<byte *>(p);
 +	b.size = 0;
++	b.len = size;
 +	b.flash = true;
 +	b.seq = ++gwSeq;
 +	_block = b.p;
@@ -1243,6 +1260,7 @@ index 37fc11af101..e2ba38605d8 100644
 +		if (p) {
 +			gwBlocks[gwBlockCount].p = p;
 +			gwBlocks[gwBlockCount].size = size;
++			gwBlocks[gwBlockCount].len = size;
 +			gwBlocks[gwBlockCount].flash = false;
 +			gwZoneBytes += size;
 +			gwBlocks[gwBlockCount].seq = ++gwSeq;
