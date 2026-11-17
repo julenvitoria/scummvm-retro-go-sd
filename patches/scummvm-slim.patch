@@ -780,6 +780,70 @@ index f0eb250c1f7..ef2e82e1951 100644
  
  	void openTextWindow();
  	void tidyIconArray(uint i);
+diff --git a/engines/agos/cursor.cpp b/engines/agos/cursor.cpp
+index 31019c5fc75..4a50ce27ca1 100644
+--- a/engines/agos/cursor.cpp
++++ b/engines/agos/cursor.cpp
+@@ -28,6 +28,10 @@
+ #include "agos/agos.h"
+ #include "agos/intern.h"
+ 
++#ifdef GW_AGOS_SLIM
++void gwCursorWhite(int index);	// src/gw_system.cpp
++#endif
++
+ namespace AGOS {
+ 
+ static const uint16 _common_mouseInfo[32] = {
+@@ -857,6 +861,11 @@ void AGOSEngine_Simon1::initMouse() {
+ 	}
+ 
+ 	CursorMan.replaceCursor(_mouseData, 16, 16, 0, 0, 0xFF);
++#ifdef GW_AGOS_SLIM
++	// Game & Watch: the pointer's colour 1 is drawn in the palette's whitest (on the small screen
++	// the room's colour 1 all but hid it)
++	gwCursorWhite(1);
++#endif
+ }
+ 
+ static const byte mouseCursorPalette[] = {
+diff --git a/engines/agos/event.cpp b/engines/agos/event.cpp
+index 785c692e2c5..13d9e35258d 100644
+--- a/engines/agos/event.cpp
++++ b/engines/agos/event.cpp
+@@ -25,6 +25,7 @@
+ #include "agos/sound.h"
+ #include "agos/intern.h"
+ 
++#include "common/config-manager.h"
+ #include "common/events.h"
+ #include "common/system.h"
+ #include "common/textconsole.h"
+@@ -473,6 +474,24 @@ void AGOSEngine::delay(uint amount) {
+ 
+ 	_system->getAudioCDManager()->update();
+ 
++#ifdef GW_AGOS_SLIM
++	// Game & Watch: a game resumed from Retro-Go's menu (ScummVM's -x, "save_slot") -- the intro
++	// is skipped as ESC would, and the save is loaded as soon as the game lets one in
++	static int gwLoadAtStart = -2;
++	if (gwLoadAtStart == -2)
++		gwLoadAtStart = ConfMan.hasKey("save_slot") ? ConfMan.getInt("save_slot") : -1;
++	if (gwLoadAtStart >= 0 && !_inCallBack) {
++		if (canLoadGameStateCurrently()) {
++			int slot = gwLoadAtStart;
++			gwLoadAtStart = -1;
++			if (loadGameState(slot).getCode() != Common::kNoError)
++				warning("AGOS: could not load the saved game %d", slot);
++		} else {
++			_exitCutscene = true;
++		}
++	}
++#endif
++
+ 	vgaPeriod = (_fastMode) ? 10 : _vgaPeriod;
+ 	if (getGameType() == GType_PP && getGameId() != GID_DIMP) {
+ 		if (vgaPeriod == 15 && _variableArray[999] == 0)
 diff --git a/engines/agos/res.cpp b/engines/agos/res.cpp
 index 1ef1d3c9391..51eaa745211 100644
 --- a/engines/agos/res.cpp
