@@ -1179,6 +1179,21 @@ static void cache_game(void)
 		snprintf(p, sizeof p, "%s/packet.001", g_game);
 		g_drascula = plat_stat(p).exists;
 	}
+	{
+		/* SCI: none of the folder's files. The engine makes its resources into one file
+		   (sci.gwpack) and puts that in the flash itself (plat_blob); King's Quest V's 155
+		   files and the pack were past the firmware's count, which then erased files still in
+		   use -- the pack's among them: a garbage room and a view read past its end. */
+		char p[340];
+		snprintf(p, sizeof p, "%s/resource.map", g_game);
+		bool sci = plat_stat(p).exists;
+		snprintf(p, sizeof p, "%s/resmap.000", g_game);
+		sci = sci || plat_stat(p).exists;
+		if (sci) {
+			logf_("ScummVM: SCI game: its files are read from the card, its resources from sci.gwpack\n");
+			return;
+		}
+	}
 	plat_list_dir(g_game, cache_one, NULL);
 	for (int i = 0; i < g_nsubdirs; i++) {
 		char path[320];

@@ -8396,7 +8396,7 @@ index 46475ddc633..9dd24e8ab52 100644
  	// Reaching the compression terminator before writing _szUnpacked bytes is
  	// expected. For kCompLZW1View and kCompLZW1Pic, the unpacked size is not
 diff --git a/engines/sci/resource/resource.cpp b/engines/sci/resource/resource.cpp
-index c757692038a..60a38727fdc 100644
+index c757692038a..21b9c8241c4 100644
 --- a/engines/sci/resource/resource.cpp
 +++ b/engines/sci/resource/resource.cpp
 @@ -39,6 +39,10 @@
@@ -8563,7 +8563,7 @@ index c757692038a..60a38727fdc 100644
 +		return;
 +	const uint32 sig = gwSignature();
 +	char key[48];
-+	snprintf(key, sizeof(key), "svm-sci|%08x|%u", sig, _resMap.size());
++	snprintf(key, sizeof(key), "svm-sci2|%08x|%u", sig, _resMap.size());	// (2: copied again -- a first copy could be erased under the game: platform_core.c, cache_game)
 +	const Common::String path = Common::String(plat_game_path()) + "/sci.gwpack";
 +	uint32 size = 0;
 +	const byte *p = plat_blob(key, nullptr, &size);
