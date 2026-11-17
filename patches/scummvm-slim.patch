@@ -3557,10 +3557,27 @@ index 55863c9cff7..452e29b4e80 100644
  
  class TlkArchive : public Common::Archive {
 diff --git a/engines/kyra/sound/sound_pc_v1.cpp b/engines/kyra/sound/sound_pc_v1.cpp
-index 4af86ebca52..d3132547fc6 100644
+index 4af86ebca52..ba25da9d5b9 100644
 --- a/engines/kyra/sound/sound_pc_v1.cpp
 +++ b/engines/kyra/sound/sound_pc_v1.cpp
-@@ -251,6 +251,12 @@ void SoundPC_v1::internalLoadFile(const Common::Path &file) {
+@@ -226,6 +226,16 @@ void SoundPC_v1::internalLoadFile(const Common::Path &file) {
+ 
+ 	uint8 *fileData = nullptr; uint32 fileSize = 0;
+ 
++#ifdef GW_KYRA_SLIM
++	// Game & Watch: the old music goes before the new one is read (not both at once: 2 x 26 KB)
++	if (_soundDataPtr) {
++		_driver->stopAllChannels();
++		_driver->setSoundData(nullptr, 0);
++		delete[] _soundDataPtr;
++		_soundDataPtr = nullptr;
++		_soundFileLoaded.clear();
++	}
++#endif
+ 	fileData = _vm->resource()->fileData(path, &fileSize);
+ 	if (!fileData) {
+ 		warning("Couldn't find music file: '%s'", path.toString().c_str());
+@@ -251,6 +261,12 @@ void SoundPC_v1::internalLoadFile(const Common::Path &file) {
  	}
  
  	uint8 *oldData = _soundDataPtr;
@@ -3573,7 +3590,7 @@ index 4af86ebca52..d3132547fc6 100644
  	_soundDataPtr = new uint8[soundDataSize];
  	assert(_soundDataPtr);
  
-@@ -258,6 +264,7 @@ void SoundPC_v1::internalLoadFile(const Common::Path &file) {
+@@ -258,6 +274,7 @@ void SoundPC_v1::internalLoadFile(const Common::Path &file) {
  	_driver->setSoundData(_soundDataPtr, soundDataSize);
  
  	delete[] fileData;
