@@ -1113,6 +1113,7 @@ static void cache_game(void)
 	provide_dat("disk1.vga", "lure.dat");
 	provide_dat("packet.001", "drascula.dat");
 	provide_dat("lan_000.res", "teenagent.dat");
+	provide_dat("gemcut.pak", "kyra.dat");
 	{
 		char p[340];
 		snprintf(p, sizeof p, "%s/packet.001", g_game);
