@@ -2825,7 +2825,7 @@ index b1d54702e60..cf9674ced98 100644
  
  void KyraEngine_LoK::freeShapes123() {
 diff --git a/engines/kyra/graphics/screen.cpp b/engines/kyra/graphics/screen.cpp
-index 2ec438c65b5..a64b5da475b 100644
+index 2ec438c65b5..5ce149e8fa7 100644
 --- a/engines/kyra/graphics/screen.cpp
 +++ b/engines/kyra/graphics/screen.cpp
 @@ -38,6 +38,11 @@
@@ -3019,6 +3019,38 @@ index 2ec438c65b5..a64b5da475b 100644
  	CursorMan.replaceCursor(cursor, mouseWidth, mouseHeight, x, y, _cursorColorKey);
  	if (isMouseVisible())
  		CursorMan.showMouse(true);
+@@ -3429,7 +3530,12 @@ void Screen::shakeScreen(int times) {
+ 
+ void Screen::loadBitmap(const char *filename, int tempPage, int dstPage, Palette *pal, bool skip) {
+ 	uint32 fileSize;
++#ifdef GW_KYRA_SLIM
++	bool gwOwned = true;
++	const uint8 *srcData = _vm->resource()->gwFileView(filename, &fileSize, &gwOwned);
++#else
+ 	uint8 *srcData = _vm->resource()->fileData(filename, &fileSize);
++#endif
+ 
+ 	if (!srcData) {
+ 		warning("couldn't load bitmap: '%s'", filename);
+@@ -3447,7 +3553,7 @@ void Screen::loadBitmap(const char *filename, int tempPage, int dstPage, Palette
+ 	if (pal && palSize)
+ 		loadPalette(srcData + 10, *pal, palSize);
+ 
+-	uint8 *srcPtr = srcData + 10 + palSize;
++	const uint8 *srcPtr = srcData + 10 + palSize;
+ 	uint8 *dstData = getPagePtr(dstPage);
+ 	memset(dstData, 0, _screenPageSize);
+ 	if (dstPage == 0 || tempPage == 0)
+@@ -3473,6 +3579,9 @@ void Screen::loadBitmap(const char *filename, int tempPage, int dstPage, Palette
+ 	if (skip)
+ 		srcData -= 4;
+ 
++#ifdef GW_KYRA_SLIM
++	if (gwOwned)
++#endif
+ 	delete[] srcData;
+ }
+ 
 diff --git a/engines/kyra/graphics/screen.h b/engines/kyra/graphics/screen.h
 index 92605cdaab3..52978b1a683 100644
 --- a/engines/kyra/graphics/screen.h
@@ -3051,6 +3083,208 @@ index 92605cdaab3..52978b1a683 100644
  	uint8 *_sjisOverlayPtrs[SCREEN_OVLS_NUM];
  	uint8 _pageMapping[SCREEN_PAGE_NUM];
  
+diff --git a/engines/kyra/graphics/screen_lok.cpp b/engines/kyra/graphics/screen_lok.cpp
+index 1c6f3408176..00a47cde869 100644
+--- a/engines/kyra/graphics/screen_lok.cpp
++++ b/engines/kyra/graphics/screen_lok.cpp
+@@ -23,6 +23,7 @@
+ #include "kyra/engine/kyra_lok.h"
+ 
+ #include "common/system.h"
++#include "common/savefile.h"
+ 
+ #include "graphics/paletteman.h"
+ 
+@@ -124,7 +125,46 @@ void Screen_LoK::bitBlitRects() {
+ 	}
+ }
+ 
++#ifdef GW_KYRA_SLIM
++// Game & Watch: a page put aside (the options menu, some scenes) goes to the card, as the original
++// did, not to a 64 KB block of memory the console does not have in one piece while playing
++static uint32 gwPagesOnCard;
++static Common::String gwPageFile(int page) { return Common::String::format("kyra-page%d.tmp", page / 2); }
++
++static bool gwReadPage(int page, uint8 *dst) {
++	if (!(gwPagesOnCard & (1 << (page / 2))))
++		return false;
++	Common::ScopedPtr<Common::InSaveFile> f(g_system->getSavefileManager()->openForLoading(gwPageFile(page)));
++	return f && f->read(dst, 320 * 200) == 320 * 200;
++}
++
++static void gwForgetPage(int page) {
++	if (gwPagesOnCard & (1 << (page / 2))) {
++		gwPagesOnCard &= ~(1 << (page / 2));
++		g_system->getSavefileManager()->removeSavefile(gwPageFile(page));
++	}
++}
++#endif
++
+ void Screen_LoK::savePageToDisk(const char *file, int page) {
++#ifdef GW_KYRA_SLIM
++	if (!_useOverlays) {
++		Common::OutSaveFile *f = g_system->getSavefileManager()->openForSaving(gwPageFile(page), false);
++		if (f) {
++			f->write(getPagePtr(page), SCREEN_W * SCREEN_H);
++			f->finalize();
++			bool ok = !f->err();
++			delete f;
++			if (ok) {
++				gwPagesOnCard |= 1 << (page / 2);
++				delete[] _saveLoadPage[page / 2];
++				_saveLoadPage[page / 2] = nullptr;
++				return;
++			}
++		}
++		gwForgetPage(page);
++	}
++#endif
+ 	if (!_saveLoadPage[page / 2]) {
+ 		_saveLoadPage[page / 2] = new uint8[SCREEN_W * SCREEN_H];
+ 		assert(_saveLoadPage[page / 2]);
+@@ -148,6 +188,18 @@ void Screen_LoK::savePageToDisk(const char *file, int page) {
+ }
+ 
+ void Screen_LoK::loadPageFromDisk(const char *file, int page) {
++#ifdef GW_KYRA_SLIM
++	if (gwPagesOnCard & (1 << (page / 2))) {
++		if (gwReadPage(page, getPagePtr(page))) {
++			if (page == 0 || page == 1)
++				addDirtyRect(0, 0, SCREEN_W, SCREEN_H);
++		} else {
++			warning("trying to restore page %d, but its copy on the card could not be read", page);
++		}
++		gwForgetPage(page);
++		return;
++	}
++#endif
+ 	if (!_saveLoadPage[page / 2]) {
+ 		warning("trying to restore page %d, but no backup found", page);
+ 		return;
+@@ -171,6 +223,10 @@ void Screen_LoK::loadPageFromDisk(const char *file, int page) {
+ }
+ 
+ void Screen_LoK::queryPageFromDisk(const char *file, int page, uint8 *buffer) {
++#ifdef GW_KYRA_SLIM
++	if (gwReadPage(page, buffer))
++		return;
++#endif
+ 	if (!_saveLoadPage[page / 2]) {
+ 		warning("trying to query page %d, but no backup found", page);
+ 		return;
+@@ -180,6 +236,9 @@ void Screen_LoK::queryPageFromDisk(const char *file, int page, uint8 *buffer) {
+ }
+ 
+ void Screen_LoK::deletePageFromDisk(int page) {
++#ifdef GW_KYRA_SLIM
++	gwForgetPage(page);
++#endif
+ 	delete[] _saveLoadPage[page / 2];
+ 	_saveLoadPage[page / 2] = nullptr;
+ 
+diff --git a/engines/kyra/graphics/wsamovie.cpp b/engines/kyra/graphics/wsamovie.cpp
+index f049893af75..722421e1048 100644
+--- a/engines/kyra/graphics/wsamovie.cpp
++++ b/engines/kyra/graphics/wsamovie.cpp
+@@ -39,7 +39,14 @@ int WSAMovie_v1::open(const char *filename, int offscreenDecode, Palette *palBuf
+ 
+ 	uint32 flags = 0;
+ 	uint32 fileSize;
++#ifdef GW_KYRA_SLIM
++	// Game & Watch: a WSA in external flash is played from there (its frames are only read)
++	bool gwOwned = true;
++	const uint8 *p = _vm->resource()->gwFileView(filename, &fileSize, &gwOwned);
++	_gwFrameView = !gwOwned;
++#else
+ 	uint8 *p = _vm->resource()->fileData(filename, &fileSize);
++#endif
+ 	if (!p)
+ 		return 0;
+ 
+@@ -107,13 +114,24 @@ int WSAMovie_v1::open(const char *filename, int offscreenDecode, Palette *palBuf
+ 
+ 	// read frame data
+ 	const int frameDataSize = p + fileSize - wsaData;
++#ifdef GW_KYRA_SLIM
++	if (_gwFrameView) {
++		_frameData = const_cast<uint8 *>(wsaData);
++	} else {
++#endif
+ 	_frameData = new uint8[frameDataSize];
+ 	memcpy(_frameData, wsaData, frameDataSize);
++#ifdef GW_KYRA_SLIM
++	}
++#endif
+ 
+ 	// decode first frame
+ 	if (firstFrame)
+ 		Screen::decodeFrame4(_frameData, _deltaBuffer, _deltaBufferSize);
+ 
++#ifdef GW_KYRA_SLIM
++	if (!_gwFrameView)
++#endif
+ 	delete[] p;
+ 	_opened = true;
+ 
+@@ -125,6 +143,9 @@ void WSAMovie_v1::close() {
+ 		delete[] _deltaBuffer;
+ 		delete[] _offscreenBuffer;
+ 		delete[] _frameOffsTable;
++#ifdef GW_KYRA_SLIM
++		if (!_gwFrameView)
++#endif
+ 		delete[] _frameData;
+ 		_opened = false;
+ 	}
+diff --git a/engines/kyra/graphics/wsamovie.h b/engines/kyra/graphics/wsamovie.h
+index d7a3853b17d..ba727087c1c 100644
+--- a/engines/kyra/graphics/wsamovie.h
++++ b/engines/kyra/graphics/wsamovie.h
+@@ -94,6 +94,9 @@ protected:
+ 	uint8 *_offscreenBuffer;
+ 	uint32 *_frameOffsTable;
+ 	uint8 *_frameData;
++#ifdef GW_KYRA_SLIM
++	bool _gwFrameView = false;	// _frameData is the file in flash, not ours
++#endif
+ };
+ 
+ class WSAMovieAmiga : public WSAMovie_v1 {
+diff --git a/engines/kyra/gui/saveload_lok.cpp b/engines/kyra/gui/saveload_lok.cpp
+index 32c8da35f3e..223b1059426 100644
+--- a/engines/kyra/gui/saveload_lok.cpp
++++ b/engines/kyra/gui/saveload_lok.cpp
+@@ -154,18 +154,26 @@ Common::Error KyraEngine_LoK::loadGameState(int slot) {
+ 		}
+ 	}
+ 
+-	loadMainScreen(8);
++#ifdef GW_KYRA_SLIM
++	// Game & Watch: the main screen and the amulet are put together on page 2, not on the scratch
++	// pages 8 and 10 (64 KB each, made only when used) -- page 2 is the scene's background, which
++	// enterNewScene() below loads again anyway
++	const int gwTmp = 2;
++#else
++	const int gwTmp = 10;
++#endif
++	loadMainScreen(gwTmp == 2 ? 3 : 8);
+ 
+ 	if (queryGameFlag(0x2D)) {
+-		_screen->loadBitmap("AMULET3.CPS", 10, 10, nullptr);
++		_screen->loadBitmap("AMULET3.CPS", gwTmp, gwTmp, nullptr);
+ 		if (!queryGameFlag(0xF1)) {
+ 			for (int i = 0x55; i <= 0x5A; ++i) {
+ 				if (queryGameFlag(i))
+-					seq_createAmuletJewel(i - 0x55, 10, 1, 1);
++					seq_createAmuletJewel(i - 0x55, gwTmp, 1, 1);
+ 			}
+ 		}
+ 
+-		_screen->copyRegion(8, 8, 8, 8, 304, 212, 10, 0);
++		_screen->copyRegion(8, 8, 8, 8, 304, 212, gwTmp, 0);
+ 	}
+ 
+ 	setHandItem(_itemInHand);
 diff --git a/engines/kyra/metaengine.cpp b/engines/kyra/metaengine.cpp
 index 2c25eedc970..41bf1af7cf9 100644
 --- a/engines/kyra/metaengine.cpp
@@ -3100,11 +3334,67 @@ index 2c25eedc970..41bf1af7cf9 100644
  	switch (flags.gameID) {
  	case Kyra::GI_KYRA1:
  		*engine = new Kyra::KyraEngine_LoK(syst, flags);
+diff --git a/engines/kyra/resource/resource.cpp b/engines/kyra/resource/resource.cpp
+index 935caf40f43..7e01ab81488 100644
+--- a/engines/kyra/resource/resource.cpp
++++ b/engines/kyra/resource/resource.cpp
+@@ -354,6 +354,26 @@ uint8 *Resource::fileData(const Common::Path &file, uint32 *size) {
+ 	return buffer;
+ }
+ 
++#ifdef GW_KYRA_SLIM
++const byte *gwKyraView(Common::SeekableReadStream *s);	// resource_intern.cpp
++
++const uint8 *Resource::gwFileView(const Common::Path &file, uint32 *size, bool *owned) {
++	Common::SeekableReadStream *stream = createReadStream(file);
++	if (!stream)
++		return nullptr;
++	const uint8 *p = gwKyraView(stream);
++	if (p) {
++		*size = stream->size();
++		*owned = false;
++		delete stream;
++		return p;
++	}
++	delete stream;
++	*owned = true;
++	return fileData(file, size);
++}
++#endif
++
+ bool Resource::exists(const Common::Path &file, bool errorOutOnFail) {
+ 	if (_files.hasFile(file))
+ 		return true;
+diff --git a/engines/kyra/resource/resource.h b/engines/kyra/resource/resource.h
+index 34751398ace..d8e54546e87 100644
+--- a/engines/kyra/resource/resource.h
++++ b/engines/kyra/resource/resource.h
+@@ -75,6 +75,10 @@ public:
+ 	bool exists(const Common::Path &file, bool errorOutOnFail=false);
+ 	uint32 getFileSize(const Common::Path &file);
+ 	uint8 *fileData(const Common::Path &file, uint32 *size);
++#ifdef GW_KYRA_SLIM
++	// the file's bytes where they lie in external flash (*owned false), or a copy (delete[])
++	const uint8 *gwFileView(const Common::Path &file, uint32 *size, bool *owned);
++#endif
+ 	Common::SeekableReadStream *createReadStream(const Common::Path &file);
+ 
+ 	enum Endianness {
 diff --git a/engines/kyra/resource/resource_intern.cpp b/engines/kyra/resource/resource_intern.cpp
-index 34c4145a66b..ebfd7afa64b 100644
+index 34c4145a66b..0cf9332fb91 100644
 --- a/engines/kyra/resource/resource_intern.cpp
 +++ b/engines/kyra/resource/resource_intern.cpp
-@@ -34,6 +34,80 @@ namespace Kyra {
+@@ -28,12 +28,119 @@
+ #include "common/macresman.h"
+ #include "common/compression/stuffit.h"
+ 
++#ifdef GW_KYRA_SLIM
++const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte enc);	// src/gw_system.cpp
++#endif
++
+ namespace Kyra {
+ 
+ // Implementation of various Archive subclasses
  
  // -> PlainArchive implementation
  
@@ -3152,6 +3442,28 @@ index 34c4145a66b..ebfd7afa64b 100644
 +	return Common::ArchiveMemberPtr(new Common::GenericArchiveMember(path, *this));
 +}
 +
++// A member of a PAK in external flash: read where it lies (Resource::gwFileView hands out the
++// bytes themselves, no copy -- a scene's picture was a 30-40 KB buffer at each room change)
++class GWViewStream : public Common::MemoryReadStream {
++public:
++	GWViewStream *_next;
++	const byte *_view;
++	static GWViewStream *_open;
++	GWViewStream(const byte *p, uint32 n) : Common::MemoryReadStream(p, n), _view(p) { _next = _open; _open = this; }
++	~GWViewStream() override {
++		for (GWViewStream **q = &_open; *q; q = &(*q)->_next)
++			if (*q == this) { *q = _next; break; }
++	}
++};
++GWViewStream *GWViewStream::_open;
++
++const byte *gwKyraView(Common::SeekableReadStream *s) {
++	for (GWViewStream *v = GWViewStream::_open; v; v = v->_next)
++		if (v == s)
++			return v->_view;
++	return nullptr;
++}
++
 +Common::SeekableReadStream *PlainArchive::createReadStreamForMember(const Common::Path &path) const {
 +	const GWEnt *e = gwFind(path);
 +	if (!e)
@@ -3160,6 +3472,13 @@ index 34c4145a66b..ebfd7afa64b 100644
 +	Common::SeekableReadStream *parent = _file->createReadStream();
 +	if (!parent)
 +		return nullptr;
++	if (parent->seek(e->offset, SEEK_SET)) {
++		const byte *p = gwDirectResource(parent, e->size, 0);
++		if (p) {
++			delete parent;
++			return new GWViewStream(p, e->size);
++		}
++	}
 +
 +	return new Common::SeekableSubReadStream(parent, e->offset, e->offset + e->size, DisposeAfterUse::YES);
 +}
@@ -3185,7 +3504,7 @@ index 34c4145a66b..ebfd7afa64b 100644
  PlainArchive::PlainArchive(Common::ArchiveMemberPtr file)
  	: _file(file), _files() {
  }
-@@ -83,6 +157,8 @@ PlainArchive::Entry PlainArchive::getFileEntry(const Common::Path &name) const {
+@@ -83,6 +190,8 @@ PlainArchive::Entry PlainArchive::getFileEntry(const Common::Path &name) const {
  	return fDesc->_value;
  }
  
