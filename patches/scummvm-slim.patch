@@ -880,10 +880,10 @@ index 1ef1d3c9391..51eaa745211 100644
  		readGameFile(dst, offs, dstSize);
  	}
 diff --git a/engines/agos/saveload.cpp b/engines/agos/saveload.cpp
-index 9161fc54fab..ba81307cdc9 100644
+index 9161fc54fab..51e46e438d8 100644
 --- a/engines/agos/saveload.cpp
 +++ b/engines/agos/saveload.cpp
-@@ -209,6 +209,61 @@ void AGOSEngine::quickLoadOrSave() {
+@@ -209,6 +209,67 @@ void AGOSEngine::quickLoadOrSave() {
  	_saveLoadType = 0;
  }
  
@@ -904,6 +904,10 @@ index 9161fc54fab..ba81307cdc9 100644
 +}
 +
 +Common::Error AGOSEngine::loadGameState(int slot) {
++	// a load from Retro-Go's menu can come in the middle of a script (the walk to where the
++	// player clicked): that script is then dropped as a cutscene's is (endCutscene), or it ran on
++	// over the loaded game -- Simon walked on, out of the room he was loaded into
++	bool inScript = _recursionDepth > 0;
 +	if (!loadGame(genSaveName(slot)))
 +		return Common::kReadingFailed;
 +	Subroutine *sub;
@@ -938,6 +942,8 @@ index 9161fc54fab..ba81307cdc9 100644
 +		sub = getSubroutineByID(131);
 +		startSubroutine(sub);
 +	}
++	if (inScript)
++		_runScriptReturn1 = true;
 +	return Common::kNoError;
 +}
 +#endif
@@ -945,7 +951,7 @@ index 9161fc54fab..ba81307cdc9 100644
  bool AGOSEngine_Waxworks::confirmOverWrite(WindowBlock *window) {
  	Subroutine *sub = getSubroutineByID(80);
  	if (sub != nullptr)
-@@ -727,7 +782,9 @@ restart:;
+@@ -727,7 +788,9 @@ restart:;
  	if_1:;
  		result = i;
  
@@ -955,7 +961,7 @@ index 9161fc54fab..ba81307cdc9 100644
  		leaveHitAreaById(208 + i);
  
  		window = _windowArray[5];
-@@ -771,6 +828,19 @@ restart:;
+@@ -771,6 +834,19 @@ restart:;
  			}
  			_saveGameNameLen++;
  		}
@@ -975,7 +981,7 @@ index 9161fc54fab..ba81307cdc9 100644
  
  		while (!shouldQuit()) {
  			windowPutChar(window, 127);
-@@ -782,6 +852,12 @@ restart:;
+@@ -782,6 +858,12 @@ restart:;
  			if (b) {
  				if (i == 205)
  					goto get_out;
