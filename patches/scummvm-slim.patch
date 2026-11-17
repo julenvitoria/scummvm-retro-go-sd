@@ -738,6 +738,99 @@ index 70081d8f0f7..d24a71a4b74 100644
  
  	// cache management
  	void cacheDirectoryRecursive(FSNode node, int depth, const Path& prefix) const;
+diff --git a/common/span.h b/common/span.h
+index 864a14bd560..e900914dc0d 100644
+--- a/common/span.h
++++ b/common/span.h
+@@ -731,29 +731,44 @@ public:
+ 						 const String &name_ = String(),
+ 						 const size_type sourceByteOffset_ = 0) :
+ 		super_type(data_, size_),
++#ifndef GW_SCI_SLIM
+ 		_name(name_),
++#endif
+ 		_sourceByteOffset(sourceByteOffset_) {}
+ 
+ 	template <typename Other>
+ 	inline NamedSpanImpl(const Other &other) :
+ 		super_type(other),
++#ifndef GW_SCI_SLIM
+ 		_name(other.name()),
++#endif
+ 		_sourceByteOffset(other.sourceByteOffset()) {}
+ 
+ 	inline void clear() {
+ 		super_type::clear();
++#ifndef GW_SCI_SLIM
+ 		_name.clear();
++#endif
+ 		_sourceByteOffset = 0;
+ 	}
+ 
++#ifdef GW_SCI_SLIM
++	// Game & Watch: no name kept (only error messages read it): SCI keeps a span per resource,
++	// 1,200 of them for King's Quest V -- 32 bytes each
++	const String &name() const { static const String none; return none; }
++	String &name() { static String none; none.clear(); return none; }
++#else
+ 	const String &name() const { return _name; }
+ 	String &name() { return _name; }
++#endif
+ 
+ 	const size_type &sourceByteOffset() const { return _sourceByteOffset; }
+ 	size_type &sourceByteOffset() { return _sourceByteOffset; }
+ 
+ private:
++#ifndef GW_SCI_SLIM
+ 	String _name;
++#endif
+ 	size_type _sourceByteOffset = 0;
+ 
+ #pragma mark -
+@@ -789,11 +804,13 @@ protected:
+ 	void populateSubspan(Derived<NewValueType> &span, const index_type index, size_type numEntries, const String &name_, const size_type sourceByteOffset_ = kSpanKeepOffset) const {
+ 		super_type::template populateSubspan<NewValueType>(span, index, numEntries);
+ 
++#ifndef GW_SCI_SLIM
+ 		if (name_.empty()) {
+ 			span._name = _name;
+ 		} else {
+ 			span._name = name_;
+ 		}
++#endif
+ 
+ 		if (sourceByteOffset_ == kSpanKeepOffset) {
+ 			span._sourceByteOffset = _sourceByteOffset + index * sizeof(value_type);
+@@ -827,7 +844,9 @@ private:
+ public:
+ 	mutable_value_derived_type &allocate(const size_type numEntries, const String &name_ = String()) {
+ 		super_type::allocate(numEntries);
++#ifndef GW_SCI_SLIM
+ 		_name = name_;
++#endif
+ 		_sourceByteOffset = 0;
+ 		return reinterpret_cast<mutable_value_derived_type &>(const_cast<Derived<value_type> &>(this->impl()));
+ 	}
+@@ -835,7 +854,9 @@ public:
+ 	template <typename OtherValueType>
+ 	mutable_value_derived_type &allocateFromSpan(const NamedSpanImpl<OtherValueType, Derived> &other) {
+ 		super_type::allocateFromSpan(other);
++#ifndef GW_SCI_SLIM
+ 		_name = other.name();
++#endif
+ 		_sourceByteOffset = other.sourceByteOffset();
+ 		return reinterpret_cast<mutable_value_derived_type &>(const_cast<Derived<value_type> &>(this->impl()));
+ 	}
+@@ -848,7 +869,9 @@ public:
+ 
+ 	mutable_value_derived_type &allocateFromStream(SeekableReadStream &stream, size_type numEntries = kSpanMaxSize, const String &name_ = String()) {
+ 		super_type::allocateFromStream(stream, numEntries);
++#ifndef GW_SCI_SLIM
+ 		_name = name_;
++#endif
+ 		_sourceByteOffset = 0;
+ 		return reinterpret_cast<mutable_value_derived_type &>(const_cast<Derived<value_type> &>(this->impl()));
+ 	}
 diff --git a/engines/agi/saveload.cpp b/engines/agi/saveload.cpp
 index c6e0e39e66a..6084b3840b1 100644
 --- a/engines/agi/saveload.cpp
@@ -7173,6 +7266,391 @@ index 5a24cb41ea0..c91de632c3c 100644
  };
  
  } // End of namespace Saga
+diff --git a/engines/sci/engine/kernel.cpp b/engines/sci/engine/kernel.cpp
+index 3b9ce62eb92..df97ab376b7 100644
+--- a/engines/sci/engine/kernel.cpp
++++ b/engines/sci/engine/kernel.cpp
+@@ -68,8 +68,13 @@ const Common::String &Kernel::getSelectorName(uint selector) {
+ 	}
+ 
+ 	// Ensure that the selector has a name
++#ifdef GW_SCI_SLIM
++	if (_selectorNames.isEmpty(selector))
++		_selectorNames.set(selector, Common::String::format("<noname%d>", selector));
++#else
+ 	if (_selectorNames[selector].empty())
+ 		_selectorNames[selector] = Common::String::format("<noname%d>", selector);
++#endif
+ 
+ 	return _selectorNames[selector];
+ }
+@@ -102,7 +107,11 @@ int Kernel::findKernelFuncPos(Common::String kernelFuncName) {
+ 
+ int Kernel::findSelector(const char *selectorName) const {
+ 	for (uint pos = 0; pos < _selectorNames.size(); ++pos) {
++#ifdef GW_SCI_SLIM
++		if (_selectorNames.equals(pos, selectorName))
++#else
+ 		if (_selectorNames[pos] == selectorName)
++#endif
+ 			return pos;
+ 	}
+ 
+diff --git a/engines/sci/engine/kernel.h b/engines/sci/engine/kernel.h
+index 4cef9674018..6f0391a7fe9 100644
+--- a/engines/sci/engine/kernel.h
++++ b/engines/sci/engine/kernel.h
+@@ -266,7 +266,38 @@ private:
+ 	SegManager *_segMan;
+ 
+ 	// Kernel-related lists
++#ifdef GW_SCI_SLIM
++	// Game & Watch: the selectors' names in one block of text (a String each was 40 KB)
++	class GWNames {
++		Common::Array<char> _pool;
++		Common::Array<uint32> _off;
++		mutable Common::String _tmp[4];
++		mutable uint _k = 0;
++	public:
++		uint size() const { return _off.size(); }
++		bool empty() const { return _off.empty(); }
++		void push_back(const Common::String &s) {
++			_off.push_back(_pool.size());
++			for (uint i = 0; i <= s.size(); i++)
++				_pool.push_back(s.c_str()[i]);
++		}
++		void set(uint i, const Common::String &s) {
++			_off[i] = _pool.size();
++			for (uint j = 0; j <= s.size(); j++)
++				_pool.push_back(s.c_str()[j]);
++		}
++		bool isEmpty(uint i) const { return !_pool[_off[i]]; }
++		bool equals(uint i, const char *s) const { return !strcmp(&_pool[_off[i]], s); }
++		const Common::String &operator[](uint i) const {
++			Common::String &t = _tmp[_k++ & 3];
++			t = &_pool[_off[i]];
++			return t;
++		}
++	};
++	GWNames _selectorNames;
++#else
+ 	Common::StringArray _selectorNames;
++#endif
+ 	Common::StringArray _kernelNames;
+ 
+ 	const Common::String _invalid;
+diff --git a/engines/sci/graphics/drivers/default.cpp b/engines/sci/graphics/drivers/default.cpp
+index 9689309f59d..1dda7a7fcdd 100644
+--- a/engines/sci/graphics/drivers/default.cpp
++++ b/engines/sci/graphics/drivers/default.cpp
+@@ -139,7 +139,12 @@ bool GfxDefaultDriver::initScreen(const Graphics::PixelFormat *srcRGBFormat) {
+ 	// Not needed for SCI0, except for rgb rendering. Unfortunately, SCI_VERSION_01
+ 	// does need it and we can't tell the version from the number of colors there.
+ 	// That's why we have the _alwaysCreateBmpBuffer flag...
++#ifdef GW_SCI_SLIM
++	// Game & Watch: at one byte a pixel the screen itself is that copy (copyCurrentBitmap)
++	if (_pixelSize > 1) {
++#else
+ 	if (_alwaysCreateBmpBuffer || _numColors > 16 || _pixelSize > 1) {
++#endif
+ 		_currentBitmap = new byte[_virtualW * _virtualH * _srcPixelSize]();
+ 		assert(_currentBitmap);
+ 	}
+@@ -222,6 +227,15 @@ void GfxDefaultDriver::copyCurrentBitmap(byte *dest, uint32 size) const {
+ 	assert(dest);
+ 	assert(size <= (uint32)(_screenW * _screenH));
+ 
++#ifdef GW_SCI_SLIM
++	if (!_currentBitmap && _pixelSize == 1) {
++		Graphics::Surface *scr = g_system->lockScreen();
++		for (int y = 0; y < scr->h && (uint32)(y * _screenW) < size; y++)
++			memcpy(dest + y * _screenW, scr->getBasePtr(0, y), MIN<uint32>(_screenW, size - y * _screenW));
++		g_system->unlockScreen();
++		return;
++	}
++#endif
+ 	// SCI 0 should not make calls to this method (except when using palette mods), but we have to know if it does...
+ 	if (!_currentBitmap)
+ 		error("GfxDefaultDriver::copyCurrentBitmap(): unexpected call");
+diff --git a/engines/sci/graphics/screen.cpp b/engines/sci/graphics/screen.cpp
+index d26a388c2cd..bb942680edb 100644
+--- a/engines/sci/graphics/screen.cpp
++++ b/engines/sci/graphics/screen.cpp
+@@ -36,6 +36,12 @@
+ #include "sci/graphics/scifx.h"
+ #include "sci/graphics/drivers/gfxdriver.h"
+ 
++#ifdef GW_SCI_SLIM
++void gwAdoptable(const byte *lo, const byte *hi);	// src/gw_system.cpp
++bool gwReleaseScreenCopy();
++extern "C" int heap_screen_hint;	// src/heap.c
++#endif
++
+ namespace Sci {
+ 
+ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _resMan(resMan), _hiresGlyphBuffer(nullptr) {
+@@ -153,8 +159,14 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
+ 	_displayPixels = _displayWidth * _displayHeight;
+ 
+ 	// Allocate visual, priority, control and display screen
++#ifdef GW_SCI_SLIM
++	heap_screen_hint = 1;	// (the visual and priority screens in the screens' heap: 160 KB
++#endif				//  of the console's that nothing else asks for)
+ 	_visualScreen = (byte *)calloc(_pixels, 1);
+ 	_priorityScreen = (byte *)calloc(_pixels, 1);
++#ifdef GW_SCI_SLIM
++	heap_screen_hint = 0;
++#endif
+ 	_controlScreen = (byte *)calloc(_pixels, 1);
+ 	_displayScreen = (byte *)calloc(_displayPixels, 1);
+ 
+@@ -167,6 +179,15 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
+ 
+ 	// Sets display screen to be actually displayed
+ 	_activeScreen = _displayScreen;
++#ifdef GW_SCI_SLIM
++	// Game & Watch: what the game shows is this buffer -- the backend's screen is a window of
++	// it rather than a copy (64 KB)
++	if (!_upscaledHires && _displayWidth == 320 && _displayHeight <= 200)
++	{
++		gwAdoptable(_displayScreen, _displayScreen + _displayPixels);
++		gwReleaseScreenCopy();	// (the backend's own, made by initGraphics: not needed again)
++	}
++#endif
+ 
+ 	_picNotValid = 0;
+ 	_picNotValidSci11 = 0;
+@@ -206,6 +227,9 @@ GfxScreen::~GfxScreen() {
+ 	free(_visualScreen);
+ 	free(_priorityScreen);
+ 	free(_controlScreen);
++#ifdef GW_SCI_SLIM
++	gwAdoptable(nullptr, nullptr);
++#endif
+ 	free(_displayScreen);
+ 	free(_paletteMapScreen);
+ 	delete[] _backupScreen;
+diff --git a/engines/sci/graphics/transitions.cpp b/engines/sci/graphics/transitions.cpp
+index f6b2bc765ad..51fcee3b482 100644
+--- a/engines/sci/graphics/transitions.cpp
++++ b/engines/sci/graphics/transitions.cpp
+@@ -99,7 +99,11 @@ static const GfxTransitionTranslateEntry blackoutTransitionIDs[] = {
+ };
+ 
+ void GfxTransitions::init() {
++#ifdef GW_SCI_SLIM
++	_oldScreen = nullptr;	// (Game & Watch: never read -- 64 KB)
++#else
+ 	_oldScreen = new byte[_screen->getDisplayHeight() * _screen->getDisplayWidth()];
++#endif
+ 
+ 	if (getSciVersion() >= SCI_VERSION_1_LATE)
+ 		_translationTable = nullptr;
+@@ -471,6 +475,12 @@ void GfxTransitions::scrollCopyOldToScreen(Common::Rect screenRect, int16 x, int
+ // Scroll old screen (up/down/left/right) and insert new screen that way - works
+ // on _picRect area only.
+ void GfxTransitions::scroll(int16 number) {
++#ifdef GW_SCI_SLIM
++	// Game & Watch: the new room at once -- the scroll keeps the old picture (64 KB) and draws
++	// the screen away from its place, which the backend's window of the game's buffer cannot be
++	_screen->copyRectToScreen(_picRect);
++	return;
++#endif
+ 	int16 stepNr = 0;
+ 	Common::Rect oldMoveRect = _picRect;
+ 	Common::Rect oldScreenRect = _picRect;
+diff --git a/engines/sci/resource/decompressor.cpp b/engines/sci/resource/decompressor.cpp
+index 46475ddc633..9dd24e8ab52 100644
+--- a/engines/sci/resource/decompressor.cpp
++++ b/engines/sci/resource/decompressor.cpp
+@@ -175,8 +175,16 @@ int DecompressorLZW::unpackLZW(Common::ReadStream *src, byte *dest, uint32 nPack
+ 	uint16 codeLimit = (_compression == kCompLZW) ? 512 : 511;
+ 
+ 	// LZW table
++#ifdef GW_SCI_SLIM
++	// Game & Watch: the tables kept for good (16 KB asked for at every resource read, late in
++	// a heap the scripts have cut into pieces: King's Quest V found no 8 KB in one piece)
++	static uint16 gwOffsets[4096], gwLengths[4096];
++	uint16 *stringOffsets = gwOffsets; // 0-257: unused
++	uint16 *stringLengths = gwLengths; // 0-257: unused
++#else
+ 	uint16 *stringOffsets = new uint16[4096]; // 0-257: unused
+ 	uint16 *stringLengths = new uint16[4096]; // 0-257: unused
++#endif
+ 
+ 	bool terminatorFound = false;
+ 	while (!isFinished()) {
+@@ -236,8 +244,10 @@ int DecompressorLZW::unpackLZW(Common::ReadStream *src, byte *dest, uint32 nPack
+ 		tableSize++;
+ 	}
+ 
++#ifndef GW_SCI_SLIM
+ 	delete[] stringOffsets;
+ 	delete[] stringLengths;
++#endif
+ 
+ 	// Reaching the compression terminator before writing _szUnpacked bytes is
+ 	// expected. For kCompLZW1View and kCompLZW1Pic, the unpacked size is not
+diff --git a/engines/sci/resource/resource.cpp b/engines/sci/resource/resource.cpp
+index c757692038a..2576d222492 100644
+--- a/engines/sci/resource/resource.cpp
++++ b/engines/sci/resource/resource.cpp
+@@ -39,6 +39,10 @@
+ #include "sci/resource/resource_patcher.h"
+ #include "sci/util.h"
+ 
++#ifdef GW_SCI_SLIM
++extern "C" int (*heap_low_memory_hook)(uint32 n);	// src/heap.c
++#endif
++
+ namespace Sci {
+ 
+ enum {
+@@ -1004,7 +1008,31 @@ void ResourceManager::freeResourceSources() {
+ ResourceManager::ResourceManager(const bool detectionMode) :
+ 	_detectionMode(detectionMode) {}
+ 
++#ifdef GW_SCI_SLIM
++// Game & Watch: the resources no one holds (the LRU list) go when the heap runs short, oldest
++// first -- they are read from the game's files again when asked for
++static ResourceManager *gwSciResMan;
++static int gwSciLowMemory(uint32 n) {
++	return gwSciResMan ? gwSciResMan->gwFreeOne() : 0;
++}
++
++int ResourceManager::gwFreeOne() {
++	if (_LRU.empty())
++		return 0;
++	Resource *goner = _LRU.back();
++	removeFromLRU(goner);
++	goner->unalloc();
++	return 1;
++}
++#endif
++
+ void ResourceManager::init() {
++#ifdef GW_SCI_SLIM
++	if (!_detectionMode) {
++		gwSciResMan = this;
++		heap_low_memory_hook = gwSciLowMemory;
++	}
++#endif
+ 	_maxMemoryLRU = 256 * 1024; // 256KiB
+ 	_memoryLocked = 0;
+ 	_memoryLRU = 0;
+@@ -1069,6 +1097,9 @@ void ResourceManager::init() {
+ 
+ 	addScriptChunkSources();
+ 	scanNewSources();
++#ifdef GW_SCI_SLIM
++	_resMap.compact();
++#endif
+ 
+ 	detectSciVersion();
+ 
+@@ -1108,6 +1139,12 @@ void ResourceManager::init() {
+ }
+ 
+ ResourceManager::~ResourceManager() {
++#ifdef GW_SCI_SLIM
++	if (gwSciResMan == this) {
++		gwSciResMan = nullptr;
++		heap_low_memory_hook = nullptr;
++	}
++#endif
+ 	// freeing resources
+ 	ResourceMap::iterator itr = _resMap.begin();
+ 	while (itr != _resMap.end()) {
+diff --git a/engines/sci/resource/resource.h b/engines/sci/resource/resource.h
+index 70b3cf1dc90..98c262651ed 100644
+--- a/engines/sci/resource/resource.h
++++ b/engines/sci/resource/resource.h
+@@ -25,6 +25,7 @@
+ #include "common/str.h"
+ #include "common/list.h"
+ #include "common/hashmap.h"
++#include "common/array.h"
+ 
+ #include "sci/graphics/helpers.h"		// for ViewType
+ #include "sci/resource/decompressor.h"
+@@ -321,7 +322,65 @@ protected:
+ 	int readResourceInfo(ResVersion volVersion, Common::SeekableReadStream *file, uint32 &szPacked, ResourceCompression &compression);
+ };
+ 
++#ifdef GW_SCI_SLIM
++// Game & Watch: the resources' map as one sorted array (a HashMap of 1,200 entries kept 63 KB
++// of nodes and buckets). The few calls SCI makes, the same names; an entry erased while
++// someone walks the map stays as a hole (nullptr) the walk and the lookups step over.
++class GWResMap {
++public:
++	struct Node {
++		ResourceId _key;
++		Resource *_value;
++	};
++	class iterator {
++		Node *_p, *_end;
++		void skip() { while (_p != _end && !_p->_value) ++_p; }
++	public:
++		iterator(Node *p, Node *end) : _p(p), _end(end) { skip(); }
++		Node *operator->() const { return _p; }
++		Node &operator*() const { return *_p; }
++		iterator &operator++() { ++_p; skip(); return *this; }
++		bool operator==(const iterator &o) const { return _p == o._p; }
++		bool operator!=(const iterator &o) const { return _p != o._p; }
++		Node *node() const { return _p; }
++	};
++	iterator begin() { return iterator(_a.begin(), _a.end()); }
++	iterator end() { return iterator(_a.end(), _a.end()); }
++	void clear() { _a.clear(); }
++	uint size() const { uint n = 0; for (uint i = 0; i < _a.size(); i++) if (_a[i]._value) n++; return n; }
++	bool contains(const ResourceId &k) const { int i = find(k); return i >= 0 && _a[i]._value; }
++	Resource *getVal(const ResourceId &k) const { int i = find(k); return i >= 0 ? _a[i]._value : nullptr; }
++	Resource *getValOrDefault(const ResourceId &k, Resource *def) const { int i = find(k); return i >= 0 && _a[i]._value ? _a[i]._value : def; }
++	bool tryGetVal(const ResourceId &k, Resource *&out) const { int i = find(k); if (i < 0 || !_a[i]._value) return false; out = _a[i]._value; return true; }
++	void setVal(const ResourceId &k, Resource *v) {
++		uint lo = lower(k);
++		if (lo < _a.size() && _a[lo]._key == k) { _a[lo]._value = v; return; }
++		Node n = { k, v };
++		_a.insert_at(lo, n);
++	}
++	void erase(const ResourceId &k) { int i = find(k); if (i >= 0) _a[i]._value = nullptr; }
++	// the array at its size, holes out (after the maps are read: it grew by doubling)
++	void compact() {
++		Common::Array<Node> b;
++		b.reserve(size());
++		for (uint i = 0; i < _a.size(); i++) if (_a[i]._value) b.push_back(_a[i]);
++		_a.clear();
++		_a = b;
++	}
++	void erase(const iterator &it) { if (it.node() != _a.end()) it.node()->_value = nullptr; }
++private:
++	Common::Array<Node> _a;
++	uint lower(const ResourceId &k) const {
++		uint lo = 0, hi = _a.size();
++		while (lo < hi) { uint m = (lo + hi) / 2; if (_a[m]._key < k) lo = m + 1; else hi = m; }
++		return lo;
++	}
++	int find(const ResourceId &k) const { uint i = lower(k); return i < _a.size() && _a[i]._key == k ? (int)i : -1; }
++};
++typedef GWResMap ResourceMap;
++#else
+ typedef Common::HashMap<ResourceId, Resource *, ResourceIdHash> ResourceMap;
++#endif
+ 
+ class IntMapResourceSource;
+ class ResourceManager {
+@@ -646,6 +705,11 @@ protected:
+ 
+ 	void addToLRU(Resource *res);
+ 	void removeFromLRU(Resource *res);
++#ifdef GW_SCI_SLIM
++public:
++	int gwFreeOne();	// the oldest resource no one holds let go (the heap's low-memory hook)
++protected:
++#endif
+ 
+ 	ResourceCompression getViewCompression();
+ 	ViewType detectViewType();
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea521f6..380eb1fa977 100644
 --- a/engines/scumm/dialogs.cpp
