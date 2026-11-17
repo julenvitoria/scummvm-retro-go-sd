@@ -7297,7 +7297,7 @@ index 49fac66a418..9032533c0bb 100644
  		return;
  
 diff --git a/engines/sci/engine/kernel.cpp b/engines/sci/engine/kernel.cpp
-index 3b9ce62eb92..df97ab376b7 100644
+index 3b9ce62eb92..f765266e148 100644
 --- a/engines/sci/engine/kernel.cpp
 +++ b/engines/sci/engine/kernel.cpp
 @@ -68,8 +68,13 @@ const Common::String &Kernel::getSelectorName(uint selector) {
@@ -7326,39 +7326,95 @@ index 3b9ce62eb92..df97ab376b7 100644
  			return pos;
  	}
  
+@@ -145,6 +154,20 @@ void Kernel::loadSelectorNames() {
+ 
+ 	int count = (isBE ? r->getUint16BEAt(0) : r->getUint16LEAt(0)) + 1; // Counter is slightly off
+ 
++#ifdef GW_SCI_SLIM
++	if (_resMan->gwInPack(r->data())) {	// (in the flash for good: used where it lies)
++		_selectorNames.attach(r->data(), count, isBE, oldScriptHeader);
++		return;
++	}
++	{	// else a pool made once at its size (grown name by name it was 96 KB at its peak)
++		uint32 chars = 0;
++		for (int i = 0; i < count; i++) {
++			int offset = isBE ? r->getUint16BEAt(2 + i * 2) : r->getUint16LEAt(2 + i * 2);
++			chars += (isBE ? r->getUint16BEAt(offset) : r->getUint16LEAt(offset)) + 1;
++		}
++		_selectorNames.reserve(count * (oldScriptHeader ? 2 : 1), chars * (oldScriptHeader ? 2 : 1));
++	}
++#endif
+ 	for (int i = 0; i < count; i++) {
+ 		int offset = isBE ? r->getUint16BEAt(2 + i * 2) : r->getUint16LEAt(2 + i * 2);
+ 		int len = isBE ? r->getUint16BEAt(offset) : r->getUint16LEAt(offset);
 diff --git a/engines/sci/engine/kernel.h b/engines/sci/engine/kernel.h
-index 4cef9674018..6f0391a7fe9 100644
+index 4cef9674018..fcc52841842 100644
 --- a/engines/sci/engine/kernel.h
 +++ b/engines/sci/engine/kernel.h
-@@ -266,7 +266,38 @@ private:
+@@ -266,7 +266,73 @@ private:
  	SegManager *_segMan;
  
  	// Kernel-related lists
 +#ifdef GW_SCI_SLIM
 +	// Game & Watch: the selectors' names in one block of text (a String each was 40 KB)
 +	class GWNames {
++		// the names in the selector vocabulary where it lies, when it lies in the flash (the
++		// resources' pack: King's Quest VI has 4,104 of them, 64 KB as Strings); the names
++		// added or replaced afterwards in a pool of their own
++		const byte *_src = nullptr;
++		uint _srcCount = 0;
++		bool _srcBE = false, _srcTwice = false;
 +		Common::Array<char> _pool;
-+		Common::Array<uint32> _off;
++		Common::Array<uint32> _off;	// names after the vocabulary's
++		Common::Array<uint32> _over;	// (index, pool offset) pairs: vocabulary names replaced
 +		mutable Common::String _tmp[4];
 +		mutable uint _k = 0;
-+	public:
-+		uint size() const { return _off.size(); }
-+		bool empty() const { return _off.empty(); }
-+		void push_back(const Common::String &s) {
-+			_off.push_back(_pool.size());
++		uint srcSize() const { return _srcTwice ? _srcCount * 2 : _srcCount; }
++		uint16 rd(uint at) const { return _srcBE ? READ_BE_UINT16(_src + at) : READ_LE_UINT16(_src + at); }
++		uint32 add(const Common::String &s) {
++			uint32 at = _pool.size();
 +			for (uint i = 0; i <= s.size(); i++)
 +				_pool.push_back(s.c_str()[i]);
++			return at;
 +		}
++		// the name: in the pool (*len = -1, NUL-terminated) or in the vocabulary (*len chars)
++		const char *get(uint i, int *len) const {
++			for (uint k = 0; k < _over.size(); k += 2)
++				if (_over[k] == i) { *len = -1; return &_pool[_over[k + 1]]; }
++			if (i < srcSize()) {
++				const uint n = _srcTwice ? i / 2 : i;
++				const uint offset = rd(2 + n * 2);
++				*len = rd(offset);
++				return (const char *)_src + offset + 2;
++			}
++			*len = -1;
++			return &_pool[_off[i - srcSize()]];
++		}
++	public:
++		void attach(const byte *vocab, uint count, bool be, bool twice) {
++			_src = vocab; _srcCount = count; _srcBE = be; _srcTwice = twice;
++		}
++		uint size() const { return srcSize() + _off.size(); }
++		bool empty() const { return !size(); }
++		void reserve(uint names, uint chars) { _off.reserve(names); _pool.reserve(chars); }
++		void push_back(const Common::String &s) { _off.push_back(add(s)); }
 +		void set(uint i, const Common::String &s) {
-+			_off[i] = _pool.size();
-+			for (uint j = 0; j <= s.size(); j++)
-+				_pool.push_back(s.c_str()[j]);
++			if (i >= srcSize()) { _off[i - srcSize()] = add(s); return; }
++			_over.push_back(i);
++			_over.push_back(add(s));
 +		}
-+		bool isEmpty(uint i) const { return !_pool[_off[i]]; }
-+		bool equals(uint i, const char *s) const { return !strcmp(&_pool[_off[i]], s); }
++		bool isEmpty(uint i) const { int len; const char *p = get(i, &len); return len < 0 ? !*p : !len || !*p; }
++		bool equals(uint i, const char *s) const {
++			int len; const char *p = get(i, &len);
++			if (len < 0) return !strcmp(p, s);
++			const char *z = (const char *)memchr(p, 0, len);	// (a name may end before its length)
++			const uint n = z ? z - p : len;
++			return strlen(s) == n && !memcmp(p, s, n);
++		}
 +		const Common::String &operator[](uint i) const {
 +			Common::String &t = _tmp[_k++ & 3];
-+			t = &_pool[_off[i]];
++			int len; const char *p = get(i, &len);
++			t = len < 0 ? Common::String(p) : Common::String(p, (const char *)memchr(p, 0, len) ? strlen(p) : (uint)len);
 +			return t;
 +		}
 +	};
@@ -8135,7 +8191,7 @@ index 46475ddc633..9dd24e8ab52 100644
  	// Reaching the compression terminator before writing _szUnpacked bytes is
  	// expected. For kCompLZW1View and kCompLZW1Pic, the unpacked size is not
 diff --git a/engines/sci/resource/resource.cpp b/engines/sci/resource/resource.cpp
-index c757692038a..7ce31dddaff 100644
+index c757692038a..49fcdd0e708 100644
 --- a/engines/sci/resource/resource.cpp
 +++ b/engines/sci/resource/resource.cpp
 @@ -39,6 +39,10 @@
@@ -8197,7 +8253,22 @@ index c757692038a..7ce31dddaff 100644
  	res->_source->loadResource(this, res);
  	if (_patcher) {
  		_patcher->applyPatch(*res);
-@@ -1004,7 +1027,212 @@ void ResourceManager::freeResourceSources() {
+@@ -630,7 +653,14 @@ void ResourceSource::loadResource(ResourceManager *resMan, Resource *res) {
+ }
+ 
+ Resource *ResourceManager::testResource(const ResourceId &id) const {
++#ifdef GW_SCI_SLIM
++	Resource *res = _resMap.getValOrDefault(id, NULL);
++	if (!res && !_gwAudioMaps.empty())
++		res = const_cast<ResourceManager *>(this)->gwAudioMap(id);
++	return res;
++#else
+ 	return _resMap.getValOrDefault(id, NULL);
++#endif
+ }
+ 
+ void ResourceManager::addAppropriateSources() {
+@@ -1004,7 +1034,212 @@ void ResourceManager::freeResourceSources() {
  ResourceManager::ResourceManager(const bool detectionMode) :
  	_detectionMode(detectionMode) {}
  
@@ -8410,7 +8481,7 @@ index c757692038a..7ce31dddaff 100644
  	_maxMemoryLRU = 256 * 1024; // 256KiB
  	_memoryLocked = 0;
  	_memoryLRU = 0;
-@@ -1069,10 +1297,16 @@ void ResourceManager::init() {
+@@ -1069,10 +1304,16 @@ void ResourceManager::init() {
  
  	addScriptChunkSources();
  	scanNewSources();
@@ -8427,7 +8498,7 @@ index c757692038a..7ce31dddaff 100644
  
  	// Resources in SCI32 games are significantly larger than SCI16
  	// games and can cause immediate exhaustion of the LRU resource
-@@ -1108,6 +1342,12 @@ void ResourceManager::init() {
+@@ -1108,6 +1349,12 @@ void ResourceManager::init() {
  }
  
  ResourceManager::~ResourceManager() {
@@ -8441,7 +8512,7 @@ index c757692038a..7ce31dddaff 100644
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
 diff --git a/engines/sci/resource/resource.h b/engines/sci/resource/resource.h
-index 70b3cf1dc90..829f8df7bd5 100644
+index 70b3cf1dc90..55488b9f503 100644
 --- a/engines/sci/resource/resource.h
 +++ b/engines/sci/resource/resource.h
 @@ -25,6 +25,7 @@
@@ -8561,7 +8632,7 @@ index 70b3cf1dc90..829f8df7bd5 100644
  
  class IntMapResourceSource;
  class ResourceManager {
-@@ -646,6 +721,20 @@ protected:
+@@ -646,6 +721,31 @@ protected:
  
  	void addToLRU(Resource *res);
  	void removeFromLRU(Resource *res);
@@ -8571,7 +8642,18 @@ index 70b3cf1dc90..829f8df7bd5 100644
 +	// The resources unpacked once into sci.gwpack, which the flash keeps: used where they lie
 +	// (resource.cpp, gwPackInit)
 +	bool gwInPack(const byte *p) const { return p && p >= _gwPack && p < _gwPack + _gwPackSize; }
++	Resource *gwAudioMap(const ResourceId &id);
 +protected:
++	// Game & Watch: a CD game's speech maps (one per room, 5,000+ entries in King's Quest VI)
++	// are read when a room's speech is first asked for, not all at the start; the two most
++	// recent stay (resource_audio.cpp)
++	struct GWAudioMap {
++		IntMapResourceSource *src;
++		uint32 used;	// 0: not read; else when last read
++	};
++	Common::Array<GWAudioMap> _gwAudioMaps;
++	uint32 _gwAudioClock = 0;
++	bool _gwAudioReading = false;
 +	const byte *_gwPack = nullptr;
 +	uint32 _gwPackSize = 0;
 +	void gwPackInit();
@@ -8582,6 +8664,113 @@ index 70b3cf1dc90..829f8df7bd5 100644
  
  	ResourceCompression getViewCompression();
  	ViewType detectViewType();
+diff --git a/engines/sci/resource/resource_audio.cpp b/engines/sci/resource/resource_audio.cpp
+index 69a31e05b4f..f429aef955e 100644
+--- a/engines/sci/resource/resource_audio.cpp
++++ b/engines/sci/resource/resource_audio.cpp
+@@ -352,7 +352,68 @@ void ResourceManager::removeAudioResource(ResourceId resId) {
+ // w syncSize (iff seq has bit 7 set)
+ // w syncAscSize (iff seq has bit 6 set)
+ 
++#ifdef GW_SCI_SLIM
++static bool gwSpeechType(ResourceType t) {
++	return t == kResourceTypeAudio36 || t == kResourceTypeSync36 || t == kResourceTypeRave;
++}
++
++Resource *ResourceManager::gwAudioMap(const ResourceId &id) {
++	if (!gwSpeechType(id.getType()) || _gwAudioReading)
++		return nullptr;
++	GWAudioMap *want = nullptr;
++	for (uint i = 0; i < _gwAudioMaps.size(); i++)
++		if (_gwAudioMaps[i].src->_mapNumber == id.getNumber())
++			want = &_gwAudioMaps[i];
++	if (!want || want->used)
++		return nullptr;	// (no such map, or read already: no such entry)
++	// the least recently read of the others goes, while two are in
++	int in = 0;
++	for (uint i = 0; i < _gwAudioMaps.size(); i++)
++		in += _gwAudioMaps[i].used != 0;
++	while (in >= 2) {
++		GWAudioMap *old = nullptr;
++		for (uint i = 0; i < _gwAudioMaps.size(); i++)
++			if (_gwAudioMaps[i].used && (!old || _gwAudioMaps[i].used < old->used))
++				old = &_gwAudioMaps[i];
++		const uint16 number = old->src->_mapNumber;
++		old->used = 0;
++		in--;
++		Common::Array<ResourceId> gone;
++		for (ResourceMap::iterator it = _resMap.begin(); it != _resMap.end(); ++it) {
++			Resource *res = it->_value;
++			if (!gwSpeechType(res->getType()) || res->getNumber() != number || res->_status == kResStatusLocked ||
++			    res->_status == kResStatusAllocated)
++				continue;	// (in use: stays)
++			if (res->_status == kResStatusEnqueued)
++				removeFromLRU(res);
++			gone.push_back(res->_id);
++		}
++		for (uint i = 0; i < gone.size(); i++) {
++			Resource *res = _resMap.getVal(gone[i]);
++			_resMap.erase(gone[i]);
++			delete res;
++		}
++		_resMap.compact();
++	}
++	_gwAudioReading = true;
++	readAudioMapSCI11(want->src);
++	_gwAudioReading = false;
++	want->used = ++_gwAudioClock;
++	return _resMap.getValOrDefault(id, NULL);
++}
++#endif
++
+ int ResourceManager::readAudioMapSCI11(IntMapResourceSource *map) {
++#ifdef GW_SCI_SLIM
++	// a room's speech map: read when first needed (gwAudioMap)
++	if (map->_mapNumber != 65535 && !_gwAudioReading) {
++		GWAudioMap m;
++		m.src = map;
++		m.used = 0;
++		_gwAudioMaps.push_back(m);
++		return 0;
++	}
++#endif
+ #ifndef ENABLE_SCI32
+ 	// SCI32 support is not built in. Check if this is a SCI32 game
+ 	// and if it is abort here.
+diff --git a/engines/sci/sci.cpp b/engines/sci/sci.cpp
+index b4d28b797c5..90fb79dfea4 100644
+--- a/engines/sci/sci.cpp
++++ b/engines/sci/sci.cpp
+@@ -144,13 +144,17 @@ SciEngine::SciEngine(OSystem *syst, const ADGameDescription *desc, SciGameId gam
+ 
+ 	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
+ 
+-	SearchMan.addSubDirectoryMatching(gameDataDir, "actors");	// KQ6 hi-res portraits
++#ifndef GW_SCI_SLIM	// (Windows hi-res only)
++	SearchMan.addSubDirectoryMatching(gameDataDir, "actors");
++#endif	// KQ6 hi-res portraits
+ 	SearchMan.addSubDirectoryMatching(gameDataDir, "aud");	// resource.aud and audio files
+ 	SearchMan.addSubDirectoryMatching(gameDataDir, "audio");// resource.aud and audio files
+ 	SearchMan.addSubDirectoryMatching(gameDataDir, "audiosfx");// resource.aud and audio files
+ 	SearchMan.addSubDirectoryMatching(gameDataDir, "wav");	// speech files in WAV format
+ 	SearchMan.addSubDirectoryMatching(gameDataDir, "sfx");	// music/sound files in WAV format
+-	SearchMan.addSubDirectoryMatching(gameDataDir, "avi");	// AVI movie files for Windows versions
++#ifndef GW_SCI_SLIM	// (Windows hi-res only)
++	SearchMan.addSubDirectoryMatching(gameDataDir, "avi");
++#endif	// AVI movie files for Windows versions
+ 	SearchMan.addSubDirectoryMatching(gameDataDir, "seq");	// SEQ movie files for DOS versions
+ 	SearchMan.addSubDirectoryMatching(gameDataDir, "robot");	// robot movie files
+ 	SearchMan.addSubDirectoryMatching(gameDataDir, "robots");	// robot movie files
+@@ -319,6 +323,9 @@ Common::Error SciEngine::run() {
+ 		// We need to do this, because the option's default is "true", but we don't want "true"
+ 		// for any game that does not have this option.
+ 		_useHiresGraphics = ConfMan.getBool("enable_high_resolution_graphics");
++#ifdef GW_SCI_SLIM
++		_useHiresGraphics = false;	// (Game & Watch: a 320x200 screen; King's Quest VI CD's 640x440 does not fit)
++#endif
+ 	} else if (hasMacFonts()) {
+ 		// Default to using hires Mac fonts if GUI option isn't present, as it was added later.
+ 		_useHiresGraphics = true;
 diff --git a/engines/scumm/dialogs.cpp b/engines/scumm/dialogs.cpp
 index 7fb9ea521f6..380eb1fa977 100644
 --- a/engines/scumm/dialogs.cpp
