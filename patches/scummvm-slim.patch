@@ -240,7 +240,7 @@ index dcda5a170ce..cb07974b75f 100644
  	for ( Bit8u i = 62; i < 76; i++ ) {
  		//This should provide instant volume maximizing
 diff --git a/base/commandLine.cpp b/base/commandLine.cpp
-index 87b0fafe9f2..8b47b4151cc 100644
+index 87b0fafe9f2..415f323d4de 100644
 --- a/base/commandLine.cpp
 +++ b/base/commandLine.cpp
 @@ -278,6 +278,18 @@ static const char *s_appName = "scummvm";
@@ -272,7 +272,7 @@ index 87b0fafe9f2..8b47b4151cc 100644
  static Common::String detectGames(const Common::Path &path, const Common::String &engineId, const Common::String &gameId, bool recursive) {
  	bool noPath = path.empty();
  	//Current directory
-@@ -1714,6 +1729,29 @@ static Common::String detectGames(const Common::Path &path, const Common::String
+@@ -1714,6 +1729,30 @@ static Common::String detectGames(const Common::Path &path, const Common::String
  		       v.path.toString(Common::Path::kNativeSeparator).c_str());
  	}
  
@@ -294,8 +294,9 @@ index 87b0fafe9f2..8b47b4151cc 100644
 +					return buildQualifiedGameName(v.engineId, v.gameId);
 +				}
 +		// AGOS (Simon) picks its verbs and menus by the "language" setting, which a target made
-+		// in ScummVM's launcher holds: the game's own language, as found
-+		if (candidates[0].engineId == "agos" && candidates[0].language != Common::UNK_LANG)
++		// in ScummVM's launcher holds: the game's own language, as found. So does SCI's
++		// two-language releases (King's Quest V Spanish: English text otherwise)
++		if ((candidates[0].engineId == "agos" || candidates[0].engineId == "sci") && candidates[0].language != Common::UNK_LANG)
 +			ConfMan.set("language", Common::getLanguageCode(candidates[0].language), Common::ConfigManager::kTransientDomain);
 +	}
 +#endif
@@ -7339,6 +7340,96 @@ index 4cef9674018..6f0391a7fe9 100644
  	Common::StringArray _kernelNames;
  
  	const Common::String _invalid;
+diff --git a/engines/sci/engine/vm.cpp b/engines/sci/engine/vm.cpp
+index f99d6d0731f..eb64ba7b702 100644
+--- a/engines/sci/engine/vm.cpp
++++ b/engines/sci/engine/vm.cpp
+@@ -39,6 +39,14 @@
+ 
+ namespace Sci {
+ 
++#ifdef GW_SCI_SLIM
++extern "C" uint32 heap_free_bytes(void);	// src/heap.c
++static bool gwHeapLow() {
++	static uint16 n;
++	return !(++n & 511) && heap_free_bytes() < 128 * 1024;
++}
++#endif
++
+ const reg_t NULL_REG = {0, 0};
+ const reg_t SIGNAL_REG = {0, SIGNAL_OFFSET};
+ const reg_t TRUE_REG = {0, 1};
+@@ -852,7 +860,13 @@ void run_vm(EngineState *s) {
+ 
+ 		case op_callk: { // 0x21 (33)
+ 			// Run the garbage collector, if needed
++#ifdef GW_SCI_SLIM
++			// (Game & Watch: also when the heap runs low -- King's Quest V's intro leaves 1,300
++			// clones behind before the 32,768 calls are up)
++			if (s->gcCountDown-- <= 0 || gwHeapLow()) {
++#else
+ 			if (s->gcCountDown-- <= 0) {
++#endif
+ 				s->gcCountDown = s->scriptGCInterval;
+ 				run_gc(s);
+ 			}
+diff --git a/engines/sci/graphics/cache.cpp b/engines/sci/graphics/cache.cpp
+index fda7797e852..e83d8f723a5 100644
+--- a/engines/sci/graphics/cache.cpp
++++ b/engines/sci/graphics/cache.cpp
+@@ -79,14 +79,38 @@ GfxFont *GfxCache::getFont(GuiResourceId fontId) {
+ 	return _cachedFonts[fontId];
+ }
+ 
++#ifdef GW_SCI_SLIM
++// Game & Watch: while a view is being made, the heap may drop the other cached views when it runs
++// short (resource.cpp, gwSciLowMemory) -- the same point upstream purges them at when 50 pile up,
++// so nothing may hold a view across getView() already
++GfxCache *gwSciViewCache;
++int gwSciPurgeViews() {
++	if (!gwSciViewCache || gwSciViewCache->_cachedViews.empty())
++		return 0;
++	gwSciViewCache->purgeViewCache();
++	return 1;
++}
++#endif
++
+ GfxView *GfxCache::getView(GuiResourceId viewId) {
+ 	if (_cachedViews.size() >= MAX_CACHED_VIEWS)
+ 		purgeViewCache();
+ 
++#ifdef GW_SCI_SLIM
++	GfxView *v = _cachedViews.getValOrDefault(viewId, nullptr);
++	if (!v) {
++		gwSciViewCache = this;
++		v = new GfxView(_resMan, _screen, _palette, viewId);
++		gwSciViewCache = nullptr;
++		_cachedViews[viewId] = v;
++	}
++	return v;
++#else
+ 	if (!_cachedViews.contains(viewId))
+ 		_cachedViews[viewId] = new GfxView(_resMan, _screen, _palette, viewId);
+ 
+ 	return _cachedViews[viewId];
++#endif
+ }
+ 
+ int16 GfxCache::kernelViewGetCelWidth(GuiResourceId viewId, int16 loopNo, int16 celNo) {
+diff --git a/engines/sci/graphics/cache.h b/engines/sci/graphics/cache.h
+index 64cbc9fb4d8..cb4f0de6d43 100644
+--- a/engines/sci/graphics/cache.h
++++ b/engines/sci/graphics/cache.h
+@@ -36,6 +36,9 @@ typedef Common::HashMap<int, GfxView *> ViewCache;
+  * Cache class, handles caching of views/fonts
+  */
+ class GfxCache {
++#ifdef GW_SCI_SLIM
++	friend int gwSciPurgeViews();
++#endif
+ public:
+ 	GfxCache(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette);
+ 	~GfxCache();
 diff --git a/engines/sci/graphics/drivers/default.cpp b/engines/sci/graphics/drivers/default.cpp
 index 9689309f59d..1dda7a7fcdd 100644
 --- a/engines/sci/graphics/drivers/default.cpp
@@ -7372,8 +7463,132 @@ index 9689309f59d..1dda7a7fcdd 100644
  	// SCI 0 should not make calls to this method (except when using palette mods), but we have to know if it does...
  	if (!_currentBitmap)
  		error("GfxDefaultDriver::copyCurrentBitmap(): unexpected call");
+diff --git a/engines/sci/graphics/helpers.h b/engines/sci/graphics/helpers.h
+index 50233468656..5868ee09178 100644
+--- a/engines/sci/graphics/helpers.h
++++ b/engines/sci/graphics/helpers.h
+@@ -39,7 +39,11 @@ namespace Sci {
+ // Cache limits
+ #define MAX_CACHED_CURSORS 10
+ #define MAX_CACHED_FONTS 20
++#ifdef GW_SCI_SLIM
++#define MAX_CACHED_VIEWS 20
++#else
+ #define MAX_CACHED_VIEWS 50
++#endif
+ 
+ enum ShakeDirection {
+ 	kShakeVertical   = 1,
+diff --git a/engines/sci/graphics/picture.cpp b/engines/sci/graphics/picture.cpp
+index fef1cd011ed..2f4a7b19ef1 100644
+--- a/engines/sci/graphics/picture.cpp
++++ b/engines/sci/graphics/picture.cpp
+@@ -163,6 +163,103 @@ void GfxPicture::drawCelData(const SciSpan<const byte> &inbuffer, int headerPos,
+ 	else
+ 		clearColor = headerPtr[6];
+ 
++#ifdef GW_SCI_SLIM
++	// Game & Watch: VGA cel data is unpacked a few rows at a time into a small buffer instead of
++	// whole (a full-screen picture is 61 KB in one block the heap seldom has) -- the same pixels,
++	// drawn in the same order
++	const ViewType gwType = _resMan->getViewType();
++	if ((gwType == kViewVga || gwType == kViewVga11) && rlePos) {
++		Common::Rect displayArea = _coordAdjuster->pictureGetDisplayArea();
++		uint16 skip = 0;
++		int16 displayWidth = width;
++		if (pictureX) {
++			drawX -= pictureX;
++			if (drawX < 0) {
++				skip = -drawX;
++				displayWidth -= skip;
++				drawX = 0;
++			}
++		}
++		if (displayWidth <= 0 || !height)
++			return;
++		int16 y = displayArea.top + drawY;
++		const int16 lastY = MIN<int16>(height + y, displayArea.bottom);
++		const int16 leftX = displayArea.left + drawX;
++		const int16 rightX = MIN<int16>(displayWidth + leftX, displayArea.right);
++		if (!_addToFlag)
++			clearColor = _screen->getColorWhite();
++		const byte drawMask = priority > 15 ? GFX_SCREEN_MASK_VISUAL : GFX_SCREEN_MASK_VISUAL | GFX_SCREEN_MASK_PRIORITY;
++		const bool checkPriority = !isEGA || priority < 16;
++
++		enum { kRows = 8 };
++		byte *strip = (byte *)malloc(width * kRows);
++		if (!strip)
++			return;
++		// the RLE stream, resumable: an op may run on into the next rows
++		const bool hasLiteral = literalPos != 0;
++		const byte *rle = inbuffer.getUnsafeDataAt(rlePos);
++		const byte *lit = hasLiteral ? inbuffer.getUnsafeDataAt(literalPos, inbuffer.size() - literalPos) : nullptr;
++		byte op = 0, fill = 0;
++		int left = 0;
++
++		for (int row = 0; y < lastY; row++, y++) {
++			if (row % kRows == 0) {
++				const int count = MIN<int>(kRows, height - row) * width;
++				memset(strip, clearColor, count);
++				int n = 0;
++				while (n < count) {
++					if (!left) {
++						const byte b = *rle++;
++						left = b & 0x3F;
++						op = b & 0xC0;
++						if (op == 0x40) {	// copy, runLength up to 127
++							left += 64;
++							op = 0x00;
++						}
++						if (op == 0x80)
++							fill = hasLiteral ? *lit++ : *rle++;
++						continue;
++					}
++					const int k = MIN<int>(left, count - n);
++					if (op == 0x00) {
++						const byte *&src = hasLiteral ? lit : rle;
++						memcpy(strip + n, src, k);
++						src += k;
++					} else if (op == 0x80) {
++						memset(strip + n, fill, k);
++					}
++					n += k;
++					left -= k;
++				}
++			}
++			const byte *ptr = strip + (row % kRows) * width + skip;
++			if (!_mirroredFlag) {
++				for (int16 x = leftX; x < rightX; x++) {
++					const byte c = *ptr++;
++					if (c == clearColor)
++						continue;
++					if (!checkPriority)
++						_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, c, 0, 0);
++					else if (priority >= _screen->getPriority(x, y))
++						_screen->putPixel(x, y, drawMask, c, priority, 0);
++				}
++			} else {
++				for (int16 x = rightX - 1; x >= leftX; x--) {
++					const byte c = *ptr++;
++					if (c == clearColor)
++						continue;
++					if (!checkPriority)
++						_screen->putPixel(x, y, GFX_SCREEN_MASK_VISUAL, c, 0, 0);
++					else if (priority >= _screen->getPriority(x, y))
++						_screen->putPixel(x, y, drawMask, c, priority, 0);
++				}
++			}
++		}
++		free(strip);
++		return;
++	}
++#endif
++
+ 	// We will unpack cel-data into a temporary buffer and then plot it to screen
+ 	//  That needs to be done cause a mirrored picture may be requested
+ 	int pixelCount = width * height;
 diff --git a/engines/sci/graphics/screen.cpp b/engines/sci/graphics/screen.cpp
-index d26a388c2cd..bb942680edb 100644
+index d26a388c2cd..b3c174556cb 100644
 --- a/engines/sci/graphics/screen.cpp
 +++ b/engines/sci/graphics/screen.cpp
 @@ -36,6 +36,12 @@
@@ -7389,22 +7604,33 @@ index d26a388c2cd..bb942680edb 100644
  namespace Sci {
  
  GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _resMan(resMan), _hiresGlyphBuffer(nullptr) {
-@@ -153,8 +159,14 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
+@@ -153,10 +159,25 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
  	_displayPixels = _displayWidth * _displayHeight;
  
  	// Allocate visual, priority, control and display screen
 +#ifdef GW_SCI_SLIM
-+	heap_screen_hint = 1;	// (the visual and priority screens in the screens' heap: 160 KB
-+#endif				//  of the console's that nothing else asks for)
++	// Game & Watch: with no upscaling and no EGA dithering every pixel goes to the visual and the
++	// display screen alike (putPixel and the rest), so one buffer is both (62 KB)
++	_gwSharedVisual = !_upscaledHires && _displayPixels == _pixels && _resMan->getViewType() != kViewEga;
++	heap_screen_hint = 1;	// (the screens in the screens' heap: 160 KB of the console's that
++				//  nothing else asks for)
++	_visualScreen = _gwSharedVisual ? nullptr : (byte *)calloc(_pixels, 1);
++	_priorityScreen = (byte *)calloc(_pixels, 1);
++	_controlScreen = nullptr;
++	_displayScreen = (byte *)calloc(_displayPixels, 1);
++	heap_screen_hint = 0;
++	if (_gwSharedVisual)
++		_visualScreen = _displayScreen;
++#else
  	_visualScreen = (byte *)calloc(_pixels, 1);
  	_priorityScreen = (byte *)calloc(_pixels, 1);
-+#ifdef GW_SCI_SLIM
-+	heap_screen_hint = 0;
-+#endif
  	_controlScreen = (byte *)calloc(_pixels, 1);
  	_displayScreen = (byte *)calloc(_displayPixels, 1);
++#endif
  
-@@ -167,6 +179,15 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
+ 	// Create a Surface for _displayPixels so that we can draw to it from interfaces
+ 	// that only draw to Surfaces. Currently that's just Graphics::Font.
+@@ -167,6 +188,15 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
  
  	// Sets display screen to be actually displayed
  	_activeScreen = _displayScreen;
@@ -7420,7 +7646,14 @@ index d26a388c2cd..bb942680edb 100644
  
  	_picNotValid = 0;
  	_picNotValidSci11 = 0;
-@@ -206,6 +227,9 @@ GfxScreen::~GfxScreen() {
+@@ -203,9 +233,16 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
+ }
+ 
+ GfxScreen::~GfxScreen() {
++#ifdef GW_SCI_SLIM
++	if (_gwSharedVisual)
++		_visualScreen = nullptr;
++#endif
  	free(_visualScreen);
  	free(_priorityScreen);
  	free(_controlScreen);
@@ -7430,6 +7663,247 @@ index d26a388c2cd..bb942680edb 100644
  	free(_displayScreen);
  	free(_paletteMapScreen);
  	delete[] _backupScreen;
+@@ -226,7 +263,8 @@ void GfxScreen::clearForRestoreGame() {
+ 	// reset all screen data
+ 	memset(_visualScreen, 0, _pixels);
+ 	memset(_priorityScreen, 0, _pixels);
+-	memset(_controlScreen, 0, _pixels);
++	if (_controlScreen)
++		memset(_controlScreen, 0, _pixels);
+ 	memset(_displayScreen, 0, _displayPixels);
+ 	memset(&_ditheredPicColors, 0, sizeof(_ditheredPicColors));
+ 	_fontIsUpscaled = false;
+@@ -355,12 +393,12 @@ void GfxScreen::vectorPutLinePixel480x300(int16 x, int16 y, byte drawMask, byte
+ 		_displayScreen[offset + _displayWidth] = color;
+ 	}
+ 	if (drawMask & GFX_SCREEN_MASK_PRIORITY) {
+-		_priorityScreen[offset] = priority;
+-		_priorityScreen[offset + _width] = priority;
++		setPri(offset, priority);
++		setPri(offset + _width, priority);
+ 	}
+ 	if (drawMask & GFX_SCREEN_MASK_CONTROL) {
+-		_controlScreen[offset] = control;
+-		_controlScreen[offset + _width] = control;
++		setCtl(offset, control);
++		setCtl(offset + _width, control);
+ 	}
+ }
+ 
+@@ -387,9 +425,9 @@ byte GfxScreen::vectorIsFillMatch(int16 x, int16 y, byte screenMask, byte checkF
+ 				match |= GFX_SCREEN_MASK_VISUAL;
+ 		}
+ 	}
+-	if ((screenMask & GFX_SCREEN_MASK_PRIORITY) && *(_priorityScreen + offset) == checkForPriority)
++	if ((screenMask & GFX_SCREEN_MASK_PRIORITY) && GW_PRI(_priorityScreen[offset]) == checkForPriority)
+ 		match |= GFX_SCREEN_MASK_PRIORITY;
+-	if ((screenMask & GFX_SCREEN_MASK_CONTROL) && *(_controlScreen + offset) == checkForControl)
++	if ((screenMask & GFX_SCREEN_MASK_CONTROL) && GW_CTL(GW_CTLSCREEN[offset]) == checkForControl)
+ 		match |= GFX_SCREEN_MASK_CONTROL;
+ 	return match;
+ }
+@@ -523,7 +561,8 @@ int GfxScreen::bitsGetDataSize(Common::Rect rect, byte mask) {
+ 	int pixels = rect.width() * rect.height();
+ 	if (mask & GFX_SCREEN_MASK_VISUAL) {
+ 		byteCount += pixels; // _visualScreen
+-		if (!_upscaledHires) {
++		if (GW_SHARED_VISUAL) {
++		} else if (!_upscaledHires) {
+ 			byteCount += pixels; // _displayScreen
+ 			if (_paletteMapScreen)
+ 				byteCount += pixels; // _paletteMapScreen
+@@ -535,12 +574,17 @@ int GfxScreen::bitsGetDataSize(Common::Rect rect, byte mask) {
+ 				byteCount += rectHeight * rectWidth; // _paletteMapScreen (upscaled hires)
+ 		}
+ 	}
++#ifdef GW_SCI_SLIM
++	if (mask & (GFX_SCREEN_MASK_PRIORITY | GFX_SCREEN_MASK_CONTROL))
++		byteCount += pixels; // _priorityScreen, with the control nibbles
++#else
+ 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
+ 		byteCount += pixels; // _priorityScreen
+ 	}
+ 	if (mask & GFX_SCREEN_MASK_CONTROL) {
+ 		byteCount += pixels; // _controlScreen
+ 	}
++#endif
+ 	return byteCount;
+ }
+ 
+@@ -550,16 +594,22 @@ void GfxScreen::bitsSave(Common::Rect rect, byte mask, byte *memoryPtr) {
+ 
+ 	if (mask & GFX_SCREEN_MASK_VISUAL) {
+ 		bitsSaveScreen(rect, _visualScreen, _width, memoryPtr);
+-		bitsSaveDisplayScreen(rect, _displayScreen, memoryPtr);
++		if (!GW_SHARED_VISUAL)
++			bitsSaveDisplayScreen(rect, _displayScreen, memoryPtr);
+ 		if (_paletteMapScreen)
+ 			bitsSaveDisplayScreen(rect, _paletteMapScreen, memoryPtr);
+ 	}
++#ifdef GW_SCI_SLIM
++	if (mask & (GFX_SCREEN_MASK_PRIORITY | GFX_SCREEN_MASK_CONTROL))
++		bitsSaveScreen(rect, _priorityScreen, _width, memoryPtr);
++#else
+ 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
+ 		bitsSaveScreen(rect, _priorityScreen, _width, memoryPtr);
+ 	}
+ 	if (mask & GFX_SCREEN_MASK_CONTROL) {
+ 		bitsSaveScreen(rect, _controlScreen, _width, memoryPtr);
+ 	}
++#endif
+ }
+ 
+ void GfxScreen::bitsSaveScreen(Common::Rect rect, const byte *screen, uint16 screenWidth, byte *&memoryPtr) {
+@@ -611,16 +661,29 @@ void GfxScreen::bitsRestore(const byte *memoryPtr) {
+ 
+ 	if (mask & GFX_SCREEN_MASK_VISUAL) {
+ 		bitsRestoreScreen(rect, memoryPtr, _visualScreen, _width);
+-		bitsRestoreDisplayScreen(rect, memoryPtr, _displayScreen);
++		if (!GW_SHARED_VISUAL)
++			bitsRestoreDisplayScreen(rect, memoryPtr, _displayScreen);
+ 		if (_paletteMapScreen)
+ 			bitsRestoreDisplayScreen(rect, memoryPtr, _paletteMapScreen);
+ 	}
++#ifdef GW_SCI_SLIM
++	if (mask & (GFX_SCREEN_MASK_PRIORITY | GFX_SCREEN_MASK_CONTROL)) {
++		// only the nibbles that were saved for come back
++		const byte keep = ((mask & GFX_SCREEN_MASK_PRIORITY) ? 0 : 0x0F) | ((mask & GFX_SCREEN_MASK_CONTROL) ? 0 : 0xF0);
++		byte *screen = _priorityScreen + rect.top * _width + rect.left;
++		const int width = rect.width();
++		for (int y = rect.top; y < rect.bottom; y++, screen += _width, memoryPtr += width)
++			for (int x = 0; x < width; x++)
++				screen[x] = (screen[x] & keep) | (memoryPtr[x] & (byte)~keep);
++	}
++#else
+ 	if (mask & GFX_SCREEN_MASK_PRIORITY) {
+ 		bitsRestoreScreen(rect, memoryPtr, _priorityScreen, _width);
+ 	}
+ 	if (mask & GFX_SCREEN_MASK_CONTROL) {
+ 		bitsRestoreScreen(rect, memoryPtr, _controlScreen, _width);
+ 	}
++#endif
+ }
+ 
+ void GfxScreen::bitsRestoreScreen(Common::Rect rect, const byte *&memoryPtr, byte *screen, uint16 screenWidth) {
+@@ -785,7 +848,7 @@ void GfxScreen::debugShowMap(int mapNo) {
+ 		_activeScreen = _priorityScreen;
+ 		break;
+ 	case 2:
+-		_activeScreen = _controlScreen;
++		_activeScreen = GW_CTLSCREEN;
+ 		break;
+ 	case 3:
+ 		_activeScreen = _displayScreen;
+diff --git a/engines/sci/graphics/screen.h b/engines/sci/graphics/screen.h
+index 7aebe790da0..edef84c2631 100644
+--- a/engines/sci/graphics/screen.h
++++ b/engines/sci/graphics/screen.h
+@@ -195,6 +195,28 @@ private:
+ 	byte *_priorityScreen;
+ 	byte *_controlScreen;
+ 
++#ifdef GW_SCI_SLIM
++	bool _gwSharedVisual;	// _visualScreen is _displayScreen (screen.cpp)
++#define GW_SHARED_VISUAL _gwSharedVisual
++#else
++#define GW_SHARED_VISUAL false
++#endif
++#ifdef GW_SCI_SLIM
++	// Game & Watch: priority and control are 4 bits each, so they share one screen -- priority in
++	// the low nibble, control in the high one -- and _controlScreen is not made (62 KB)
++	void setPri(int o, byte p) { _priorityScreen[o] = (_priorityScreen[o] & 0xF0) | (p > 15 ? 15 : p); }
++	void setCtl(int o, byte c) { _priorityScreen[o] = (_priorityScreen[o] & 0x0F) | (byte)((c > 15 ? 15 : c) << 4); }
++#define GW_PRI(v) ((v) & 0x0F)
++#define GW_CTL(v) ((v) >> 4)
++#define GW_CTLSCREEN _priorityScreen
++#else
++	void setPri(int o, byte p) { _priorityScreen[o] = p; }
++	void setCtl(int o, byte c) { _controlScreen[o] = c; }
++#define GW_PRI(v) (v)
++#define GW_CTL(v) (v)
++#define GW_CTLSCREEN _controlScreen
++#endif
++
+ 	/**
+ 	 * This screen is the one, where pixels are copied out of into the frame buffer.
+ 	 * It may be 640x400 for japanese SCI1 games. SCI0 games may be undithered in here.
+@@ -281,10 +303,10 @@ public:
+ 			}
+ 		}
+ 		if (drawMask & GFX_SCREEN_MASK_PRIORITY) {
+-			_priorityScreen[offset] = priority;
++			setPri(offset, priority);
+ 		}
+ 		if (drawMask & GFX_SCREEN_MASK_CONTROL) {
+-			_controlScreen[offset] = control;
++			setCtl(offset, control);
+ 		}
+ 	}
+ 
+@@ -298,10 +320,22 @@ public:
+ 			putPixel480x300Worker(x, y, offset, _displayScreen, color);
+ 		}
+ 		if (drawMask & GFX_SCREEN_MASK_PRIORITY) {
+-			putPixel480x300Worker(x, y, offset, _priorityScreen, priority);
++			setPri(offset, priority);
++			if (x & 1)
++				setPri(offset + 1, priority);
++			if (y & 1)
++				setPri(offset + _width, priority);
++			if ((x & 1) && (y & 1))
++				setPri(offset + _width + 1, priority);
+ 		}
+ 		if (drawMask & GFX_SCREEN_MASK_CONTROL) {
+-			putPixel480x300Worker(x, y, offset, _controlScreen, control);
++			setCtl(offset, control);
++			if (x & 1)
++				setCtl(offset + 1, control);
++			if (y & 1)
++				setCtl(offset + _width, control);
++			if ((x & 1) && (y & 1))
++				setCtl(offset + _width + 1, control);
+ 		}
+ 	}
+ 	void putPixel480x300Worker(int16 x, int16 y, int offset, byte *screen, byte byteToSet) {
+@@ -338,10 +372,10 @@ public:
+ 
+ 		}
+ 		if (drawMask & GFX_SCREEN_MASK_PRIORITY) {
+-			_priorityScreen[offset] = priority;
++			setPri(offset, priority);
+ 		}
+ 		if (drawMask & GFX_SCREEN_MASK_CONTROL) {
+-			_controlScreen[offset] = control;
++			setCtl(offset, control);
+ 		}
+ 	}
+ 
+@@ -432,10 +466,10 @@ public:
+ 		return getPixel(_visualScreen, x, y);
+ 	}
+ 	byte getPriority(int16 x, int16 y) {
+-		return getPixel(_priorityScreen, x, y);
++		return GW_PRI(getPixel(_priorityScreen, x, y));
+ 	}
+ 	byte getControl(int16 x, int16 y) {
+-		return getPixel(_controlScreen, x, y);
++		return GW_CTL(getPixel(GW_CTLSCREEN, x, y));
+ 	}
+ 
+ 	// Vector related public code - in here, so that it can be inlined
+@@ -447,10 +481,10 @@ public:
+ 		return vectorGetPixel(_visualScreen, x, y);
+ 	}
+ 	byte vectorGetPriority(int16 x, int16 y) {
+-		return vectorGetPixel(_priorityScreen, x, y);
++		return GW_PRI(vectorGetPixel(_priorityScreen, x, y));
+ 	}
+ 	byte vectorGetControl(int16 x, int16 y) {
+-		return vectorGetPixel(_controlScreen, x, y);
++		return GW_CTL(vectorGetPixel(GW_CTLSCREEN, x, y));
+ 	}
+ 
+ 	void vectorAdjustCoordinate(int16 *x, int16 *y) {
 diff --git a/engines/sci/graphics/transitions.cpp b/engines/sci/graphics/transitions.cpp
 index f6b2bc765ad..51fcee3b482 100644
 --- a/engines/sci/graphics/transitions.cpp
@@ -7492,7 +7966,7 @@ index 46475ddc633..9dd24e8ab52 100644
  	// Reaching the compression terminator before writing _szUnpacked bytes is
  	// expected. For kCompLZW1View and kCompLZW1Pic, the unpacked size is not
 diff --git a/engines/sci/resource/resource.cpp b/engines/sci/resource/resource.cpp
-index c757692038a..2576d222492 100644
+index c757692038a..eea704158ac 100644
 --- a/engines/sci/resource/resource.cpp
 +++ b/engines/sci/resource/resource.cpp
 @@ -39,6 +39,10 @@
@@ -7506,7 +7980,40 @@ index c757692038a..2576d222492 100644
  namespace Sci {
  
  enum {
-@@ -1004,7 +1008,31 @@ void ResourceManager::freeResourceSources() {
+@@ -213,6 +217,10 @@ Resource::Resource(ResourceManager *resMan, ResourceId id) : SciSpan<const byte>
+ }
+ 
+ Resource::~Resource() {
++#ifdef GW_SCI_SLIM
++	if (_resMan->gwInPack(_data))
++		_data = nullptr;
++#endif
+ 	delete[] _data;
+ 	delete[] _header;
+ 	if (_source && _source->getSourceType() == kSourcePatch)
+@@ -220,6 +228,10 @@ Resource::~Resource() {
+ }
+ 
+ void Resource::unalloc() {
++#ifdef GW_SCI_SLIM
++	if (_resMan->gwInPack(_data))
++		_data = nullptr;
++#endif
+ 	delete[] _data;
+ 	_data = nullptr;
+ 	delete[] _header;
+@@ -421,6 +433,10 @@ void ResourceManager::disposeVolumeFileStream(Common::SeekableReadStream *fileSt
+ }
+ 
+ void ResourceManager::loadResource(Resource *res) {
++#ifdef GW_SCI_SLIM
++	if (_gwPack && gwPackLoad(res))
++		return;	// (patched already when it was unpacked)
++#endif
+ 	res->_source->loadResource(this, res);
+ 	if (_patcher) {
+ 		_patcher->applyPatch(*res);
+@@ -1004,7 +1020,212 @@ void ResourceManager::freeResourceSources() {
  ResourceManager::ResourceManager(const bool detectionMode) :
  	_detectionMode(detectionMode) {}
  
@@ -7514,8 +8021,189 @@ index c757692038a..2576d222492 100644
 +// Game & Watch: the resources no one holds (the LRU list) go when the heap runs short, oldest
 +// first -- they are read from the game's files again when asked for
 +static ResourceManager *gwSciResMan;
++int gwSciPurgeViews();
 +static int gwSciLowMemory(uint32 n) {
-+	return gwSciResMan ? gwSciResMan->gwFreeOne() : 0;
++	if (gwSciResMan && gwSciResMan->gwFreeOne())
++		return 1;
++	return gwSciPurgeViews();	// their resources go on the LRU list, freed on the next call
++}
++
++extern "C" {
++const byte *plat_blob(const char *key, const char *path, uint32 *size);
++const char *plat_game_path(void);
++void *plat_fopen(const char *path, const char *mode);
++uint32 plat_fread(void *buf, uint32 n, void *f);
++uint32 plat_fwrite(const void *buf, uint32 n, void *f);
++bool plat_fseek(void *f, int32 off, int whence);
++void plat_fclose(void *f);
++void plat_progress(int pct);
++}
++
++// sci.gwpack: every resource but the digital audio, unpacked (and patched) once, in the game's
++// folder; the flash keeps a copy, which the resources are then used from where they lie -- no
++// heap for them, no unpacking at each load. The header's sig is what the map was made of: a
++// game whose files change makes a new one.
++namespace {
++struct GWPackHead {
++	uint32 magic, version, count, sig, total, dataOff, reserved[2];
++};
++struct GWPackEnt {
++	uint32 tn;	// type << 16 | number
++	uint32 tuple, off, size;
++};
++enum { kGWPackMagic = MKTAG('G', 'W', 'S', 'C'), kGWPackVersion = 1 };
++
++bool gwPackOK(const GWPackHead *h, uint32 size, uint32 sig) {
++	return h && size >= sizeof(*h) && h->magic == kGWPackMagic && h->version == kGWPackVersion &&
++	       h->sig == sig && h->total == size && h->dataOff == sizeof(*h) + h->count * sizeof(GWPackEnt) &&
++	       h->dataOff <= size;
++}
++
++bool gwInPackFile(ResourceType t) {
++	return t != kResourceTypeAudio && t != kResourceTypeAudio36;
++}
++
++int gwEntCmp(const void *a, const void *b) {
++	const GWPackEnt *x = (const GWPackEnt *)a, *y = (const GWPackEnt *)b;
++	if (x->tn != y->tn)
++		return x->tn < y->tn ? -1 : 1;
++	return x->tuple < y->tuple ? -1 : x->tuple > y->tuple ? 1 : 0;
++}
++} // End of anonymous namespace
++
++uint32 ResourceManager::gwSignature() {
++	uint32 h = 2166136261u;
++	auto mix = [&h](uint32 v) {
++		for (int i = 0; i < 4; i++, v >>= 8)
++			h = (h ^ (v & 0xff)) * 16777619u;
++	};
++	mix(kGWPackVersion);
++	mix(g_sci ? (uint32)g_sci->getLanguage() : 0);
++	mix(g_sci ? (uint32)g_sci->getGameId() : 0);
++	for (ResourceMap::iterator it = _resMap.begin(); it != _resMap.end(); ++it) {
++		const Resource *res = it->_value;
++		mix(res->getType() << 16 | res->getNumber());
++		mix(res->_id.getTuple());
++		mix(res->_fileOffset);
++		if (res->_source) {
++			const Common::String name = res->_source->getLocationName().toString();
++			for (uint i = 0; i < name.size(); i++)
++				h = (h ^ (byte)name[i]) * 16777619u;
++		}
++	}
++	return h;
++}
++
++void ResourceManager::gwPackInit() {
++	if (_detectionMode || !g_sci)
++		return;
++	const uint32 sig = gwSignature();
++	char key[48];
++	snprintf(key, sizeof(key), "svm-sci|%08x|%u", sig, _resMap.size());
++	const Common::String path = Common::String(plat_game_path()) + "/sci.gwpack";
++	uint32 size = 0;
++	const byte *p = plat_blob(key, nullptr, &size);
++	if (!gwPackOK((const GWPackHead *)p, size, sig)) {
++		// the file on the card: made now unless it is the one for these files
++		GWPackHead h;
++		void *f = plat_fopen(path.c_str(), "rb");
++		const bool ok = f && plat_fread(&h, sizeof(h), f) == sizeof(h);
++		if (f)
++			plat_fclose(f);
++		if (!ok || h.magic != kGWPackMagic || h.version != kGWPackVersion || h.sig != sig) {
++			if (!gwPackBuild(path, sig)) {
++				warning("sci.gwpack could not be made: resources are unpacked into the heap");
++				return;
++			}
++		}
++		p = plat_blob(key, path.c_str(), &size);
++		if (!gwPackOK((const GWPackHead *)p, size, sig)) {
++			warning("sci.gwpack is not in the flash: resources are unpacked into the heap");
++			return;
++		}
++	}
++	_gwPack = p;
++	_gwPackSize = size;
++	debug("sci.gwpack: %u resources, %u KB, in the flash", ((const GWPackHead *)p)->count, size / 1024);
++}
++
++bool ResourceManager::gwPackBuild(const Common::String &path, uint32 sig) {
++	uint32 count = 0;
++	for (ResourceMap::iterator it = _resMap.begin(); it != _resMap.end(); ++it)
++		if (gwInPackFile(it->_value->getType()))
++			count++;
++	if (!count)
++		return false;
++	GWPackEnt *ents = (GWPackEnt *)malloc(count * sizeof(GWPackEnt));
++	void *f = ents ? plat_fopen(path.c_str(), "wb") : nullptr;
++	GWPackHead h;
++	memset(&h, 0, sizeof(h));
++	bool ok = f && plat_fwrite(&h, sizeof(h), f) == sizeof(h);
++	h.dataOff = sizeof(h) + count * sizeof(GWPackEnt);
++	for (uint32 i = 0; ok && i < count; i++) {
++		static const GWPackEnt zero = { 0, 0, 0, 0 };
++		ok = plat_fwrite(&zero, sizeof(zero), f) == sizeof(zero);
++	}
++	uint32 off = h.dataOff, n = 0, absent = 0;
++	int last = -1;
++	for (ResourceMap::iterator it = _resMap.begin(); ok && it != _resMap.end(); ++it) {
++		Resource *res = it->_value;
++		if (!gwInPackFile(res->getType()))
++			continue;
++		const bool loaded = res->_status != kResStatusNoMalloc;
++		if (!loaded)
++			loadResource(res);
++		GWPackEnt &e = ents[n++];
++		e.tn = res->getType() << 16 | res->getNumber();
++		e.tuple = res->_id.getTuple();
++		e.off = off;
++		e.size = res->data() ? res->size() : 0xffffffff;	// (not readable: not in the pack)
++		if (res->data()) {
++			static const byte pad[4] = { 0, 0, 0, 0 };
++			const uint32 padded = (res->size() + 3) & ~3u;
++			ok = plat_fwrite(res->data(), res->size(), f) == res->size() &&
++			     plat_fwrite(pad, padded - res->size(), f) == padded - res->size();
++			off += padded;
++		} else {
++			absent++;
++		}
++		if (!loaded)
++			res->unalloc();
++		const int pct = n * 100 / (count + 1);
++		if (pct != last)
++			plat_progress(last = pct);
++	}
++	if (ok) {
++		qsort(ents, count, sizeof(GWPackEnt), gwEntCmp);
++		h.magic = kGWPackMagic;
++		h.version = kGWPackVersion;
++		h.count = count;
++		h.sig = sig;
++		h.total = off;
++		ok = plat_fseek(f, 0, SEEK_SET) && plat_fwrite(&h, sizeof(h), f) == sizeof(h) &&
++		     plat_fwrite(ents, count * sizeof(GWPackEnt), f) == count * sizeof(GWPackEnt);
++	}
++	if (f)
++		plat_fclose(f);
++	free(ents);
++	plat_progress(100);
++	debug("sci.gwpack: %s, %u resources (%u not readable), %u KB", ok ? "made" : "FAILED", count, absent, off / 1024);
++	return ok;
++}
++
++bool ResourceManager::gwPackLoad(Resource *res) {
++	const GWPackHead *h = (const GWPackHead *)_gwPack;
++	const GWPackEnt *e = (const GWPackEnt *)(h + 1);
++	GWPackEnt key;
++	key.tn = res->getType() << 16 | res->getNumber();
++	key.tuple = res->_id.getTuple();
++	const GWPackEnt *hit = (const GWPackEnt *)bsearch(&key, e, h->count, sizeof(GWPackEnt), gwEntCmp);
++	if (!hit || hit->size == 0xffffffff || hit->off + hit->size > h->total)
++		return false;
++	res->_data = _gwPack + hit->off;
++	res->_size = hit->size;
++	res->_status = kResStatusAllocated;
++	return true;
 +}
 +
 +int ResourceManager::gwFreeOne() {
@@ -7538,7 +8226,7 @@ index c757692038a..2576d222492 100644
  	_maxMemoryLRU = 256 * 1024; // 256KiB
  	_memoryLocked = 0;
  	_memoryLRU = 0;
-@@ -1069,6 +1097,9 @@ void ResourceManager::init() {
+@@ -1069,10 +1290,16 @@ void ResourceManager::init() {
  
  	addScriptChunkSources();
  	scanNewSources();
@@ -7548,7 +8236,14 @@ index c757692038a..2576d222492 100644
  
  	detectSciVersion();
  
-@@ -1108,6 +1139,12 @@ void ResourceManager::init() {
+ 	debugC(1, kDebugLevelResMan, "resMan: Detected %s", getSciVersionDesc(getSciVersion()));
++#ifdef GW_SCI_SLIM
++	gwPackInit();
++#endif
+ 
+ 	// Resources in SCI32 games are significantly larger than SCI16
+ 	// games and can cause immediate exhaustion of the LRU resource
+@@ -1108,6 +1335,12 @@ void ResourceManager::init() {
  }
  
  ResourceManager::~ResourceManager() {
@@ -7562,7 +8257,7 @@ index c757692038a..2576d222492 100644
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
 diff --git a/engines/sci/resource/resource.h b/engines/sci/resource/resource.h
-index 70b3cf1dc90..98c262651ed 100644
+index 70b3cf1dc90..cf7ccfd4d67 100644
 --- a/engines/sci/resource/resource.h
 +++ b/engines/sci/resource/resource.h
 @@ -25,6 +25,7 @@
@@ -7639,14 +8334,23 @@ index 70b3cf1dc90..98c262651ed 100644
  
  class IntMapResourceSource;
  class ResourceManager {
-@@ -646,6 +705,11 @@ protected:
+@@ -646,6 +705,20 @@ protected:
  
  	void addToLRU(Resource *res);
  	void removeFromLRU(Resource *res);
 +#ifdef GW_SCI_SLIM
 +public:
 +	int gwFreeOne();	// the oldest resource no one holds let go (the heap's low-memory hook)
++	// The resources unpacked once into sci.gwpack, which the flash keeps: used where they lie
++	// (resource.cpp, gwPackInit)
++	bool gwInPack(const byte *p) const { return p && p >= _gwPack && p < _gwPack + _gwPackSize; }
 +protected:
++	const byte *_gwPack = nullptr;
++	uint32 _gwPackSize = 0;
++	void gwPackInit();
++	bool gwPackLoad(Resource *res);
++	bool gwPackBuild(const Common::String &path, uint32 sig);
++	uint32 gwSignature();
 +#endif
  
  	ResourceCompression getViewCompression();
