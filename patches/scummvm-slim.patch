@@ -747,7 +747,7 @@ index 7dda20f2c01..068343cfdcb 100644
  	if (_window4BackScn)
  		_window4BackScn->free();
 diff --git a/engines/agos/agos.h b/engines/agos/agos.h
-index f0eb250c1f7..89b8e423e24 100644
+index f0eb250c1f7..bfd6614d692 100644
 --- a/engines/agos/agos.h
 +++ b/engines/agos/agos.h
 @@ -1034,6 +1034,11 @@ protected:
@@ -762,6 +762,132 @@ index f0eb250c1f7..89b8e423e24 100644
  	void checkNoOverWrite();
  	void checkRunningAnims();
  	void checkAnims(uint a);
+@@ -1413,6 +1418,16 @@ protected:
+ 
+ 	virtual bool loadGame(const Common::String &filename, bool restartMode = false);
+ 	virtual bool saveGame(uint slot, const char *caption);
++#ifdef GW_AGOS_SLIM
++	// Game & Watch: Retro-Go's save states (src/gw_system.cpp), as ScummVM's quick save/load
++	// (saveload.cpp, quickLoadOrSave) without its dialogs
++public:
++	bool canSaveGameStateCurrently(Common::U32String *msg = nullptr) override;
++	bool canLoadGameStateCurrently(Common::U32String *msg = nullptr) override { return canSaveGameStateCurrently(msg); }
++	Common::Error saveGameState(int slot, const Common::String &desc, bool isAutosave = false) override;
++	Common::Error loadGameState(int slot) override;
++protected:
++#endif
+ 
+ 	void openTextWindow();
+ 	void tidyIconArray(uint i);
+diff --git a/engines/agos/saveload.cpp b/engines/agos/saveload.cpp
+index 9161fc54fab..ba81307cdc9 100644
+--- a/engines/agos/saveload.cpp
++++ b/engines/agos/saveload.cpp
+@@ -209,6 +209,61 @@ void AGOSEngine::quickLoadOrSave() {
+ 	_saveLoadType = 0;
+ }
+ 
++#ifdef GW_AGOS_SLIM
++bool AGOSEngine::canSaveGameStateCurrently(Common::U32String *msg) {
++	// where the original did not allow it either (quickLoadOrSave above)
++	return !((getGameType() == GType_SIMON2 && _boxStarHeight == 200) ||
++		(getGameType() == GType_SIMON1 && (getFeatures() & GF_DEMO)) ||
++		_mouseHideCount || _showPreposition || getGameType() == GType_PN ||
++		getGameType() == GType_FF || getGameType() == GType_PP);
++}
++
++Common::Error AGOSEngine::saveGameState(int slot, const Common::String &desc, bool isAutosave) {
++	char caption[108];
++	memset(caption, 0, sizeof(caption));
++	Common::strlcpy(caption, desc.c_str(), sizeof(caption));
++	return saveGame(slot, caption) ? Common::kNoError : Common::kWritingFailed;
++}
++
++Common::Error AGOSEngine::loadGameState(int slot) {
++	if (!loadGame(genSaveName(slot)))
++		return Common::kReadingFailed;
++	Subroutine *sub;
++	if (getGameType() == GType_SIMON1 || getGameType() == GType_SIMON2) {
++		drawIconArray(2, me(), 0, 0);
++		setBitFlag(97, true);
++		sub = getSubroutineByID(100);
++		startSubroutine(sub);
++	} else if (getGameType() == GType_WW) {
++		sub = getSubroutineByID(66);
++		startSubroutine(sub);
++	} else if (getGameType() == GType_ELVIRA2) {
++		sub = getSubroutineByID(87);
++		startSubroutine(sub);
++		setBitFlag(7, false);
++		sub = getSubroutineByID(19);
++		startSubroutine(sub);
++		printStats();
++		sub = getSubroutineByID(28);
++		startSubroutine(sub);
++		setBitFlag(17, false);
++		sub = getSubroutineByID(207);
++		startSubroutine(sub);
++		sub = getSubroutineByID(71);
++		startSubroutine(sub);
++	} else if (getGameType() == GType_ELVIRA1) {
++		drawIconArray(2, me(), 0, 0);
++		sub = getSubroutineByID(265);
++		startSubroutine(sub);
++		sub = getSubroutineByID(129);
++		startSubroutine(sub);
++		sub = getSubroutineByID(131);
++		startSubroutine(sub);
++	}
++	return Common::kNoError;
++}
++#endif
++
+ bool AGOSEngine_Waxworks::confirmOverWrite(WindowBlock *window) {
+ 	Subroutine *sub = getSubroutineByID(80);
+ 	if (sub != nullptr)
+@@ -727,7 +782,9 @@ restart:;
+ 	if_1:;
+ 		result = i;
+ 
++#ifndef GW_AGOS_SLIM
+ 		disableBox(208 + i);
++#endif
+ 		leaveHitAreaById(208 + i);
+ 
+ 		window = _windowArray[5];
+@@ -771,6 +828,19 @@ restart:;
+ 			}
+ 			_saveGameNameLen++;
+ 		}
++#ifdef GW_AGOS_SLIM
++		// Game & Watch: typing is slow (the GAME button's keyboard) -- an empty line gets the date
++		// and time, and touching the line again saves (as Enter)
++		if (!_saveGameNameLen && _language != Common::HE_ISR) {
++			TimeDate t;
++			_system->getTimeAndDate(t);
++			Common::String when = Common::String::format(" %02d.%02d %02d:%02d", t.tm_mday, t.tm_mon + 1, t.tm_hour, t.tm_min);
++			for (uint k = 0; k < when.size() && _saveGameNameLen < 17; k++) {
++				name[_saveGameNameLen++] = when[k];
++				windowPutChar(window, when[k]);
++			}
++		}
++#endif
+ 
+ 		while (!shouldQuit()) {
+ 			windowPutChar(window, 127);
+@@ -782,6 +852,12 @@ restart:;
+ 			if (b) {
+ 				if (i == 205)
+ 					goto get_out;
++#ifdef GW_AGOS_SLIM
++				if (i == result && _saveGameNameLen) {
++					userGameBackSpace(_windowArray[5], 8);
++					break;
++				}
++#endif
+ 				enableBox(208 + result);
+ 				if (_saveLoadEdit) {
+ 					userGameBackSpace(_windowArray[5], 8);
 diff --git a/engines/agos/subroutine.cpp b/engines/agos/subroutine.cpp
 index eee53c34c83..40c2b817fc5 100644
 --- a/engines/agos/subroutine.cpp
