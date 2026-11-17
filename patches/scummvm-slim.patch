@@ -3148,7 +3148,7 @@ index 92605cdaab3..52978b1a683 100644
  	uint8 _pageMapping[SCREEN_PAGE_NUM];
  
 diff --git a/engines/kyra/graphics/screen_lok.cpp b/engines/kyra/graphics/screen_lok.cpp
-index 1c6f3408176..00a47cde869 100644
+index 1c6f3408176..798d09be472 100644
 --- a/engines/kyra/graphics/screen_lok.cpp
 +++ b/engines/kyra/graphics/screen_lok.cpp
 @@ -23,6 +23,7 @@
@@ -3225,9 +3225,23 @@ index 1c6f3408176..00a47cde869 100644
  	if (!_saveLoadPage[page / 2]) {
  		warning("trying to restore page %d, but no backup found", page);
  		return;
-@@ -171,6 +223,10 @@ void Screen_LoK::loadPageFromDisk(const char *file, int page) {
+@@ -170,7 +222,24 @@ void Screen_LoK::loadPageFromDisk(const char *file, int page) {
+ 	}
  }
  
++#ifdef GW_KYRA_SLIM
++// One row of a page put aside (on the card, or kept in memory), else of the page as it is now
++bool Screen_LoK::gwPageRow(int page, int y, uint8 *row, Common::SeekableReadStream *&card) {
++	if (!card && (gwPagesOnCard & (1 << (page / 2))))
++		card = g_system->getSavefileManager()->openForLoading(gwPageFile(page));
++	if (card)
++		return card->seek(y * SCREEN_W) && card->read(row, SCREEN_W) == SCREEN_W;
++	const uint8 *src = _saveLoadPage[page / 2] ? _saveLoadPage[page / 2] : getCPagePtr(page);
++	memcpy(row, src + y * SCREEN_W, SCREEN_W);
++	return true;
++}
++#endif
++
  void Screen_LoK::queryPageFromDisk(const char *file, int page, uint8 *buffer) {
 +#ifdef GW_KYRA_SLIM
 +	if (gwReadPage(page, buffer))
@@ -3236,7 +3250,7 @@ index 1c6f3408176..00a47cde869 100644
  	if (!_saveLoadPage[page / 2]) {
  		warning("trying to query page %d, but no backup found", page);
  		return;
-@@ -180,6 +236,9 @@ void Screen_LoK::queryPageFromDisk(const char *file, int page, uint8 *buffer) {
+@@ -180,6 +249,9 @@ void Screen_LoK::queryPageFromDisk(const char *file, int page, uint8 *buffer) {
  }
  
  void Screen_LoK::deletePageFromDisk(int page) {
@@ -3246,6 +3260,20 @@ index 1c6f3408176..00a47cde869 100644
  	delete[] _saveLoadPage[page / 2];
  	_saveLoadPage[page / 2] = nullptr;
  
+diff --git a/engines/kyra/graphics/screen_lok.h b/engines/kyra/graphics/screen_lok.h
+index 45fc61ae0c5..66b9e278721 100644
+--- a/engines/kyra/graphics/screen_lok.h
++++ b/engines/kyra/graphics/screen_lok.h
+@@ -46,6 +46,9 @@ public:
+ 	void savePageToDisk(const char *file, int page);
+ 	void loadPageFromDisk(const char *file, int page);
+ 	void queryPageFromDisk(const char *file, int page, uint8 *buffer);
++#ifdef GW_KYRA_SLIM
++	bool gwPageRow(int page, int y, uint8 *row, Common::SeekableReadStream *&card);
++#endif
+ 	void deletePageFromDisk(int page);
+ 
+ 	void copyBackgroundBlock(int x, int page, int flag);
 diff --git a/engines/kyra/graphics/wsamovie.cpp b/engines/kyra/graphics/wsamovie.cpp
 index f049893af75..722421e1048 100644
 --- a/engines/kyra/graphics/wsamovie.cpp
@@ -3315,10 +3343,37 @@ index d7a3853b17d..ba727087c1c 100644
  
  class WSAMovieAmiga : public WSAMovie_v1 {
 diff --git a/engines/kyra/gui/gui_lok.cpp b/engines/kyra/gui/gui_lok.cpp
-index 216d8544eb5..e21e5d1e0f3 100644
+index 216d8544eb5..c063e03f31d 100644
 --- a/engines/kyra/gui/gui_lok.cpp
 +++ b/engines/kyra/gui/gui_lok.cpp
-@@ -821,6 +821,13 @@ int GUI_LoK::saveGame(Button *button) {
+@@ -197,6 +197,26 @@ GUI_LoK::~GUI_LoK() {
+ }
+ 
+ void GUI_LoK::createScreenThumbnail(Graphics::Surface &dst) {
++#ifdef GW_KYRA_SLIM
++	// Game & Watch: the thumbnail made row by row from the page put aside (on the card), not from
++	// a 64 KB copy of it -- the console did not have one in one piece when saving
++	if (_vm->gameFlags().platform != Common::kPlatformAmiga) {
++		uint8 pal[768], row[Screen::SCREEN_W];
++		_screen->getRealPalette(2, pal);
++		Common::SeekableReadStream *card = nullptr;
++		dst.create(kThumbnailWidth, kThumbnailHeight1, Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0));
++		for (int y = 0; y < kThumbnailHeight1; y++) {
++			if (!_screen->gwPageRow(0, y * Screen::SCREEN_H / kThumbnailHeight1, row, card))
++				memset(row, 0, sizeof(row));
++			for (int x = 0; x < kThumbnailWidth; x++) {
++				const uint8 *c = pal + 3 * row[x * Screen::SCREEN_W / kThumbnailWidth];
++				*((uint16 *)dst.getBasePtr(x, y)) = dst.format.RGBToColor(c[0], c[1], c[2]);
++			}
++		}
++		delete card;
++		return;
++	}
++#endif
+ 	uint8 *screen = new uint8[Screen::SCREEN_W * Screen::SCREEN_H];
+ 	if (screen) {
+ 		_screen->queryPageFromDisk("SEENPAGE.TMP", 0, screen);
+@@ -821,6 +841,13 @@ int GUI_LoK::saveGame(Button *button) {
  
  	if (_savegameOffset == 0 && _vm->_gameToLoad == 0) {
  		_savegameName[0] = 0;
@@ -12313,7 +12368,7 @@ index 5cc7d430465..8b8ea11dbfb 100644
  	Common::Point _mouseCoord;
  	uint16 _mouseState;
 diff --git a/graphics/scaler/thumbnail_intern.cpp b/graphics/scaler/thumbnail_intern.cpp
-index 11f20630172..30c70cd9831 100644
+index 11f20630172..24383334490 100644
 --- a/graphics/scaler/thumbnail_intern.cpp
 +++ b/graphics/scaler/thumbnail_intern.cpp
 @@ -229,9 +229,41 @@ static bool createThumbnail(Graphics::Surface &out, Graphics::Surface &in) {
@@ -12358,6 +12413,29 @@ index 11f20630172..30c70cd9831 100644
  	Graphics::Surface screen;
  
  	if (!grabScreen565(&screen))
+@@ -242,6 +274,22 @@ bool createThumbnailFromScreen(Graphics::Surface *surf) {
+ 
+ bool createThumbnail(Graphics::Surface *surf, const uint8 *pixels, int w, int h, const uint8 *palette) {
+ 	assert(surf);
++#ifdef GW_SWORD1_SLIM
++	// Game & Watch: straight to the thumbnail's size, as from the screen above -- not a whole
++	// copy in RGB565 first (320x200: 125 KB, which Kyrandia's save did not find in one piece)
++	if (w > 0 && h > 0) {
++		int height = ((w == 320 && h == 200) || (w == 640 && h == 400)) ? kThumbnailHeight1 : kThumbnailHeight2;
++		surf->create(kThumbnailWidth, height, Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0));
++		for (int y = 0; y < height; y++) {
++			const uint8 *row = pixels + (y * h / height) * w;
++			for (int x = 0; x < kThumbnailWidth; x++) {
++				const uint8 *c = palette + 3 * row[x * w / kThumbnailWidth];
++				*((uint16 *)surf->getBasePtr(x, y)) = surf->format.RGBToColor(c[0], c[1], c[2]);
++			}
++		}
++		return true;
++	}
++#endif
+ 
+ 	Graphics::Surface screen;
+ 	screen.create(w, h, Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0));
 diff --git a/gui/dialog.cpp b/gui/dialog.cpp
 index b6cbe9dba56..081a1c784ee 100644
 --- a/gui/dialog.cpp
