@@ -7340,8 +7340,26 @@ index 4cef9674018..6f0391a7fe9 100644
  	Common::StringArray _kernelNames;
  
  	const Common::String _invalid;
+diff --git a/engines/sci/engine/savegame.cpp b/engines/sci/engine/savegame.cpp
+index 763ad49083c..d9fccdb9497 100644
+--- a/engines/sci/engine/savegame.cpp
++++ b/engines/sci/engine/savegame.cpp
+@@ -67,7 +67,13 @@ void syncWithSerializer(Common::Serializer &s, Common::Serializable &obj) {
+ }
+ 
+ void syncWithSerializer(Common::Serializer &s, ResourceId &obj) {
++#ifdef GW_SCI_SLIM
++	byte type = obj._type;	// (a bit-field there)
++	s.syncAsByte(type);
++	obj._type = (ResourceType)type;
++#else
+ 	s.syncAsByte(obj._type);
++#endif
+ 	s.syncAsUint16LE(obj._number);
+ 	s.syncAsUint32LE(obj._tuple);
+ }
 diff --git a/engines/sci/engine/vm.cpp b/engines/sci/engine/vm.cpp
-index f99d6d0731f..eb64ba7b702 100644
+index f99d6d0731f..33282659a8e 100644
 --- a/engines/sci/engine/vm.cpp
 +++ b/engines/sci/engine/vm.cpp
 @@ -39,6 +39,14 @@
@@ -7352,7 +7370,7 @@ index f99d6d0731f..eb64ba7b702 100644
 +extern "C" uint32 heap_free_bytes(void);	// src/heap.c
 +static bool gwHeapLow() {
 +	static uint16 n;
-+	return !(++n & 511) && heap_free_bytes() < 128 * 1024;
++	return !(++n & 127) && heap_free_bytes() < 160 * 1024;
 +}
 +#endif
 +
@@ -7464,7 +7482,7 @@ index 9689309f59d..1dda7a7fcdd 100644
  	if (!_currentBitmap)
  		error("GfxDefaultDriver::copyCurrentBitmap(): unexpected call");
 diff --git a/engines/sci/graphics/helpers.h b/engines/sci/graphics/helpers.h
-index 50233468656..5868ee09178 100644
+index 50233468656..d780963f44c 100644
 --- a/engines/sci/graphics/helpers.h
 +++ b/engines/sci/graphics/helpers.h
 @@ -39,7 +39,11 @@ namespace Sci {
@@ -7472,7 +7490,7 @@ index 50233468656..5868ee09178 100644
  #define MAX_CACHED_CURSORS 10
  #define MAX_CACHED_FONTS 20
 +#ifdef GW_SCI_SLIM
-+#define MAX_CACHED_VIEWS 20
++#define MAX_CACHED_VIEWS 10
 +#else
  #define MAX_CACHED_VIEWS 50
 +#endif
@@ -7588,23 +7606,21 @@ index fef1cd011ed..2f4a7b19ef1 100644
  	//  That needs to be done cause a mirrored picture may be requested
  	int pixelCount = width * height;
 diff --git a/engines/sci/graphics/screen.cpp b/engines/sci/graphics/screen.cpp
-index d26a388c2cd..b3c174556cb 100644
+index d26a388c2cd..d0fffcab817 100644
 --- a/engines/sci/graphics/screen.cpp
 +++ b/engines/sci/graphics/screen.cpp
-@@ -36,6 +36,12 @@
+@@ -36,6 +36,10 @@
  #include "sci/graphics/scifx.h"
  #include "sci/graphics/drivers/gfxdriver.h"
  
 +#ifdef GW_SCI_SLIM
-+void gwAdoptable(const byte *lo, const byte *hi);	// src/gw_system.cpp
-+bool gwReleaseScreenCopy();
 +extern "C" int heap_screen_hint;	// src/heap.c
 +#endif
 +
  namespace Sci {
  
  GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _resMan(resMan), _hiresGlyphBuffer(nullptr) {
-@@ -153,10 +159,25 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
+@@ -153,10 +157,25 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
  	_displayPixels = _displayWidth * _displayHeight;
  
  	// Allocate visual, priority, control and display screen
@@ -7630,23 +7646,18 @@ index d26a388c2cd..b3c174556cb 100644
  
  	// Create a Surface for _displayPixels so that we can draw to it from interfaces
  	// that only draw to Surfaces. Currently that's just Graphics::Font.
-@@ -167,6 +188,15 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
+@@ -167,6 +186,10 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
  
  	// Sets display screen to be actually displayed
  	_activeScreen = _displayScreen;
-+#ifdef GW_SCI_SLIM
-+	// Game & Watch: what the game shows is this buffer -- the backend's screen is a window of
-+	// it rather than a copy (64 KB)
-+	if (!_upscaledHires && _displayWidth == 320 && _displayHeight <= 200)
-+	{
-+		gwAdoptable(_displayScreen, _displayScreen + _displayPixels);
-+		gwReleaseScreenCopy();	// (the backend's own, made by initGraphics: not needed again)
-+	}
-+#endif
++	// (Game & Watch: NOT the backend's screen adopted as a window of _displayScreen, as SCUMM v7's
++	// is: SCI draws there what it shows only later -- or never: the animated views are erased and
++	// drawn again between two showings -- and the screen must keep what was shown last.
++	// King's Quest V's title and intro lost every animated view that way.)
  
  	_picNotValid = 0;
  	_picNotValidSci11 = 0;
-@@ -203,9 +233,16 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
+@@ -203,6 +226,10 @@ GfxScreen::GfxScreen(ResourceManager *resMan, Common::RenderMode renderMode) : _
  }
  
  GfxScreen::~GfxScreen() {
@@ -7657,13 +7668,7 @@ index d26a388c2cd..b3c174556cb 100644
  	free(_visualScreen);
  	free(_priorityScreen);
  	free(_controlScreen);
-+#ifdef GW_SCI_SLIM
-+	gwAdoptable(nullptr, nullptr);
-+#endif
- 	free(_displayScreen);
- 	free(_paletteMapScreen);
- 	delete[] _backupScreen;
-@@ -226,7 +263,8 @@ void GfxScreen::clearForRestoreGame() {
+@@ -226,7 +253,8 @@ void GfxScreen::clearForRestoreGame() {
  	// reset all screen data
  	memset(_visualScreen, 0, _pixels);
  	memset(_priorityScreen, 0, _pixels);
@@ -7673,7 +7678,7 @@ index d26a388c2cd..b3c174556cb 100644
  	memset(_displayScreen, 0, _displayPixels);
  	memset(&_ditheredPicColors, 0, sizeof(_ditheredPicColors));
  	_fontIsUpscaled = false;
-@@ -355,12 +393,12 @@ void GfxScreen::vectorPutLinePixel480x300(int16 x, int16 y, byte drawMask, byte
+@@ -355,12 +383,12 @@ void GfxScreen::vectorPutLinePixel480x300(int16 x, int16 y, byte drawMask, byte
  		_displayScreen[offset + _displayWidth] = color;
  	}
  	if (drawMask & GFX_SCREEN_MASK_PRIORITY) {
@@ -7690,7 +7695,7 @@ index d26a388c2cd..b3c174556cb 100644
  	}
  }
  
-@@ -387,9 +425,9 @@ byte GfxScreen::vectorIsFillMatch(int16 x, int16 y, byte screenMask, byte checkF
+@@ -387,9 +415,9 @@ byte GfxScreen::vectorIsFillMatch(int16 x, int16 y, byte screenMask, byte checkF
  				match |= GFX_SCREEN_MASK_VISUAL;
  		}
  	}
@@ -7702,7 +7707,7 @@ index d26a388c2cd..b3c174556cb 100644
  		match |= GFX_SCREEN_MASK_CONTROL;
  	return match;
  }
-@@ -523,7 +561,8 @@ int GfxScreen::bitsGetDataSize(Common::Rect rect, byte mask) {
+@@ -523,7 +551,8 @@ int GfxScreen::bitsGetDataSize(Common::Rect rect, byte mask) {
  	int pixels = rect.width() * rect.height();
  	if (mask & GFX_SCREEN_MASK_VISUAL) {
  		byteCount += pixels; // _visualScreen
@@ -7712,7 +7717,7 @@ index d26a388c2cd..b3c174556cb 100644
  			byteCount += pixels; // _displayScreen
  			if (_paletteMapScreen)
  				byteCount += pixels; // _paletteMapScreen
-@@ -535,12 +574,17 @@ int GfxScreen::bitsGetDataSize(Common::Rect rect, byte mask) {
+@@ -535,12 +564,17 @@ int GfxScreen::bitsGetDataSize(Common::Rect rect, byte mask) {
  				byteCount += rectHeight * rectWidth; // _paletteMapScreen (upscaled hires)
  		}
  	}
@@ -7730,7 +7735,7 @@ index d26a388c2cd..b3c174556cb 100644
  	return byteCount;
  }
  
-@@ -550,16 +594,22 @@ void GfxScreen::bitsSave(Common::Rect rect, byte mask, byte *memoryPtr) {
+@@ -550,16 +584,22 @@ void GfxScreen::bitsSave(Common::Rect rect, byte mask, byte *memoryPtr) {
  
  	if (mask & GFX_SCREEN_MASK_VISUAL) {
  		bitsSaveScreen(rect, _visualScreen, _width, memoryPtr);
@@ -7754,7 +7759,7 @@ index d26a388c2cd..b3c174556cb 100644
  }
  
  void GfxScreen::bitsSaveScreen(Common::Rect rect, const byte *screen, uint16 screenWidth, byte *&memoryPtr) {
-@@ -611,16 +661,29 @@ void GfxScreen::bitsRestore(const byte *memoryPtr) {
+@@ -611,16 +651,29 @@ void GfxScreen::bitsRestore(const byte *memoryPtr) {
  
  	if (mask & GFX_SCREEN_MASK_VISUAL) {
  		bitsRestoreScreen(rect, memoryPtr, _visualScreen, _width);
@@ -7785,7 +7790,7 @@ index d26a388c2cd..b3c174556cb 100644
  }
  
  void GfxScreen::bitsRestoreScreen(Common::Rect rect, const byte *&memoryPtr, byte *screen, uint16 screenWidth) {
-@@ -785,7 +848,7 @@ void GfxScreen::debugShowMap(int mapNo) {
+@@ -785,7 +838,7 @@ void GfxScreen::debugShowMap(int mapNo) {
  		_activeScreen = _priorityScreen;
  		break;
  	case 2:
@@ -7933,6 +7938,93 @@ index f6b2bc765ad..51fcee3b482 100644
  	int16 stepNr = 0;
  	Common::Rect oldMoveRect = _picRect;
  	Common::Rect oldScreenRect = _picRect;
+diff --git a/engines/sci/graphics/view.cpp b/engines/sci/graphics/view.cpp
+index f6a66fa4fa1..533dc561970 100644
+--- a/engines/sci/graphics/view.cpp
++++ b/engines/sci/graphics/view.cpp
+@@ -39,7 +39,55 @@ GfxView::GfxView(ResourceManager *resMan, GfxScreen *screen, GfxPalette *palette
+ 	initData();
+ }
+ 
++#ifdef GW_SCI_SLIM
++namespace {
++struct GWCel {
++	GfxView *view;
++	int16 loop, cel;
++	uint32 bytes;
++};
++enum { kGWCels = 48, kGWCelBudget = 16 * 1024 };
++GWCel gwCels[kGWCels];
++uint gwCelCount;
++uint32 gwCelBytes;
++} // End of anonymous namespace
++
++void GfxView::gwCelForget(GfxView *view) {
++	uint k = 0;
++	for (uint i = 0; i < gwCelCount; i++) {
++		if (gwCels[i].view == view)
++			gwCelBytes -= gwCels[i].bytes;
++		else
++			gwCels[k++] = gwCels[i];
++	}
++	gwCelCount = k;
++}
++
++void GfxView::gwCelKept(GfxView *view, int16 loopNo, int16 celNo, uint32 bytes) {
++	// the oldest go while over budget or out of room -- never the two newest (a caller may hold
++	// two at once: the zoom cursor)
++	while (gwCelCount >= 2 && (gwCelCount == kGWCels || gwCelBytes + bytes > kGWCelBudget)) {
++		const GWCel old = gwCels[0];
++		memmove(gwCels, gwCels + 1, (gwCelCount - 1) * sizeof(GWCel));
++		gwCelCount--;
++		gwCelBytes -= old.bytes;
++		old.view->_loop[old.loop].cel[old.cel].rawBitmap.clear();
++	}
++	if (gwCelCount == kGWCels)
++		return;	// (not kept track of: freed with its view)
++	gwCels[gwCelCount].view = view;
++	gwCels[gwCelCount].loop = loopNo;
++	gwCels[gwCelCount].cel = celNo;
++	gwCels[gwCelCount].bytes = bytes;
++	gwCelCount++;
++	gwCelBytes += bytes;
++}
++#endif
++
+ GfxView::~GfxView() {
++#ifdef GW_SCI_SLIM
++	gwCelForget(this);
++#endif
+ 	_loop.clear();
+ 	_resMan->unlockResource(_resource);
+ }
+@@ -663,6 +711,9 @@ const SciSpan<const byte> &GfxView::getBitmap(int16 loopNo, int16 celNo) {
+ 	const Common::String sourceName = Common::String::format("%s loop %d cel %d", _resource->name().c_str(), loopNo, celNo);
+ 
+ 	SciSpan<byte> outBitmap = cel.rawBitmap->allocate(pixelCount, sourceName);
++#ifdef GW_SCI_SLIM
++	gwCelKept(this, loopNo, celNo, pixelCount);
++#endif
+ 
+ 	// unpack the actual cel bitmap data
+ 	unpackCel(loopNo, celNo, outBitmap);
+diff --git a/engines/sci/graphics/view.h b/engines/sci/graphics/view.h
+index 64f20a1810a..ae180237b0c 100644
+--- a/engines/sci/graphics/view.h
++++ b/engines/sci/graphics/view.h
+@@ -69,6 +69,12 @@ public:
+ 	void getCelSpecialHoyle4Rect(int16 loopNo, int16 celNo, int16 x, int16 y, int16 z, Common::Rect &outRect) const;
+ 	void getCelScaledRect(int16 loopNo, int16 celNo, int16 x, int16 y, int16 z, int16 scaleX, int16 scaleY, Common::Rect &outRect) const;
+ 	const SciSpan<const byte> &getBitmap(int16 loopNo, int16 celNo);
++#ifdef GW_SCI_SLIM
++	// Game & Watch: the cels unpacked for drawing are kept up to a budget for all the views
++	// together, the oldest let go first (view.cpp)
++	static void gwCelKept(GfxView *view, int16 loopNo, int16 celNo, uint32 bytes);
++	static void gwCelForget(GfxView *view);
++#endif
+ 	void draw(const Common::Rect &rect, const Common::Rect &clipRect, const Common::Rect &clipRectTranslated, int16 loopNo, int16 celNo, byte priority, uint16 EGAmappingNr, bool upscaledHires, uint16 scaleSignal = 0);
+ 	void drawScaled(const Common::Rect &rect, const Common::Rect &clipRect, const Common::Rect &clipRectTranslated, int16 loopNo, int16 celNo, byte priority, int16 scaleX, int16 scaleY, uint16 scaleSignal = 0);
+ 	uint16 getLoopCount() const { return _loop.size(); }
 diff --git a/engines/sci/resource/decompressor.cpp b/engines/sci/resource/decompressor.cpp
 index 46475ddc633..9dd24e8ab52 100644
 --- a/engines/sci/resource/decompressor.cpp
@@ -7966,7 +8058,7 @@ index 46475ddc633..9dd24e8ab52 100644
  	// Reaching the compression terminator before writing _szUnpacked bytes is
  	// expected. For kCompLZW1View and kCompLZW1Pic, the unpacked size is not
 diff --git a/engines/sci/resource/resource.cpp b/engines/sci/resource/resource.cpp
-index c757692038a..eea704158ac 100644
+index c757692038a..7ce31dddaff 100644
 --- a/engines/sci/resource/resource.cpp
 +++ b/engines/sci/resource/resource.cpp
 @@ -39,6 +39,10 @@
@@ -7980,7 +8072,22 @@ index c757692038a..eea704158ac 100644
  namespace Sci {
  
  enum {
-@@ -213,6 +217,10 @@ Resource::Resource(ResourceManager *resMan, ResourceId id) : SciSpan<const byte>
+@@ -203,7 +207,14 @@ ResourceType ResourceManager::convertResType(byte type) {
+ }
+ 
+ //-- Resource main functions --
++#ifdef GW_SCI_SLIM
++ResourceManager *Resource::_resMan;
++
++Resource::Resource(ResourceManager *resMan, ResourceId id) : SciSpan<const byte>(nullptr, 0, id.toString()), _id(id) {
++	_resMan = resMan;
++#else
+ Resource::Resource(ResourceManager *resMan, ResourceId id) : SciSpan<const byte>(nullptr, 0, id.toString()), _resMan(resMan), _id(id) {
++#endif
+ 	_fileOffset = 0;
+ 	_status = kResStatusNoMalloc;
+ 	_lockers = 0;
+@@ -213,6 +224,10 @@ Resource::Resource(ResourceManager *resMan, ResourceId id) : SciSpan<const byte>
  }
  
  Resource::~Resource() {
@@ -7991,7 +8098,7 @@ index c757692038a..eea704158ac 100644
  	delete[] _data;
  	delete[] _header;
  	if (_source && _source->getSourceType() == kSourcePatch)
-@@ -220,6 +228,10 @@ Resource::~Resource() {
+@@ -220,6 +235,10 @@ Resource::~Resource() {
  }
  
  void Resource::unalloc() {
@@ -8002,7 +8109,7 @@ index c757692038a..eea704158ac 100644
  	delete[] _data;
  	_data = nullptr;
  	delete[] _header;
-@@ -421,6 +433,10 @@ void ResourceManager::disposeVolumeFileStream(Common::SeekableReadStream *fileSt
+@@ -421,6 +440,10 @@ void ResourceManager::disposeVolumeFileStream(Common::SeekableReadStream *fileSt
  }
  
  void ResourceManager::loadResource(Resource *res) {
@@ -8013,7 +8120,7 @@ index c757692038a..eea704158ac 100644
  	res->_source->loadResource(this, res);
  	if (_patcher) {
  		_patcher->applyPatch(*res);
-@@ -1004,7 +1020,212 @@ void ResourceManager::freeResourceSources() {
+@@ -1004,7 +1027,212 @@ void ResourceManager::freeResourceSources() {
  ResourceManager::ResourceManager(const bool detectionMode) :
  	_detectionMode(detectionMode) {}
  
@@ -8226,7 +8333,7 @@ index c757692038a..eea704158ac 100644
  	_maxMemoryLRU = 256 * 1024; // 256KiB
  	_memoryLocked = 0;
  	_memoryLRU = 0;
-@@ -1069,10 +1290,16 @@ void ResourceManager::init() {
+@@ -1069,10 +1297,16 @@ void ResourceManager::init() {
  
  	addScriptChunkSources();
  	scanNewSources();
@@ -8243,7 +8350,7 @@ index c757692038a..eea704158ac 100644
  
  	// Resources in SCI32 games are significantly larger than SCI16
  	// games and can cause immediate exhaustion of the LRU resource
-@@ -1108,6 +1335,12 @@ void ResourceManager::init() {
+@@ -1108,6 +1342,12 @@ void ResourceManager::init() {
  }
  
  ResourceManager::~ResourceManager() {
@@ -8257,7 +8364,7 @@ index c757692038a..eea704158ac 100644
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
 diff --git a/engines/sci/resource/resource.h b/engines/sci/resource/resource.h
-index 70b3cf1dc90..cf7ccfd4d67 100644
+index 70b3cf1dc90..829f8df7bd5 100644
 --- a/engines/sci/resource/resource.h
 +++ b/engines/sci/resource/resource.h
 @@ -25,6 +25,7 @@
@@ -8268,7 +8375,50 @@ index 70b3cf1dc90..cf7ccfd4d67 100644
  
  #include "sci/graphics/helpers.h"		// for ViewType
  #include "sci/resource/decompressor.h"
-@@ -321,7 +322,65 @@ protected:
+@@ -165,7 +166,11 @@ class ResourceId {
+ 		return type;
+ 	}
+ 
++#ifdef GW_SCI_SLIM
++	ResourceType _type : 8;
++#else
+ 	ResourceType _type;
++#endif
+ 	uint16 _number;
+ 	uint32 _tuple; // Only used for audio36 and sync36
+ 
+@@ -275,7 +280,9 @@ protected:
+ 	 * `diskdump` debugger command.
+ 	 */
+ 	byte *_header;
++#ifndef GW_SCI_SLIM
+ 	uint32 _headerSize;
++#endif
+ 
+ public:
+ 	Resource(ResourceManager *resMan, ResourceId id);
+@@ -307,10 +314,20 @@ public:
+ protected:
+ 	ResourceId _id;	// TODO: _id could almost be made const, only readResourceInfo() modifies it...
+ 	int32 _fileOffset; /**< Offset in file */
++#ifdef GW_SCI_SLIM
++	// Game & Watch: 1,200-2,000 of these live for the whole game -- packed, and the resource
++	// manager (one at a time) shared
++	ResourceStatus _status : 8;
++	uint16 _lockers; /**< Number of places where this resource was locked */
++	uint16 _headerSize;
++	ResourceSource *_source;
++	static ResourceManager *_resMan;
++#else
+ 	ResourceStatus _status;
+ 	uint16 _lockers; /**< Number of places where this resource was locked */
+ 	ResourceSource *_source;
+ 	ResourceManager *_resMan;
++#endif
+ 
+ 	bool loadPatch(Common::SeekableReadStream *file);
+ 	bool loadFromPatchFile();
+@@ -321,7 +338,65 @@ protected:
  	int readResourceInfo(ResVersion volVersion, Common::SeekableReadStream *file, uint32 &szPacked, ResourceCompression &compression);
  };
  
@@ -8334,7 +8484,7 @@ index 70b3cf1dc90..cf7ccfd4d67 100644
  
  class IntMapResourceSource;
  class ResourceManager {
-@@ -646,6 +705,20 @@ protected:
+@@ -646,6 +721,20 @@ protected:
  
  	void addToLRU(Resource *res);
  	void removeFromLRU(Resource *res);
