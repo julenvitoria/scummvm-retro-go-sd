@@ -78,6 +78,7 @@ static void wdog_refresh(void)
 }
 
 void gw_wdog_kick(void) { wdog_refresh(); }
+void plat_log_flush(void) { fflush(stderr); }
 
 uint32_t plat_millis(void)
 {
