@@ -7536,7 +7536,7 @@ index 763ad49083c..d9fccdb9497 100644
  	s.syncAsUint32LE(obj._tuple);
  }
 diff --git a/engines/sci/engine/vm.cpp b/engines/sci/engine/vm.cpp
-index f99d6d0731f..33282659a8e 100644
+index f99d6d0731f..104045499d1 100644
 --- a/engines/sci/engine/vm.cpp
 +++ b/engines/sci/engine/vm.cpp
 @@ -39,6 +39,14 @@
@@ -7547,7 +7547,7 @@ index f99d6d0731f..33282659a8e 100644
 +extern "C" uint32 heap_free_bytes(void);	// src/heap.c
 +static bool gwHeapLow() {
 +	static uint16 n;
-+	return !(++n & 127) && heap_free_bytes() < 160 * 1024;
++	return !(++n & 255) && heap_free_bytes() < 128 * 1024;
 +}
 +#endif
 +

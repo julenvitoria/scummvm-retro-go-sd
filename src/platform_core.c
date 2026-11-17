@@ -635,7 +635,24 @@ void *plat_fopen(const char *path, const char *mode)
 }
 uint32_t plat_fread(void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fread(buf, 1, n, (FILE *)f); }
 uint32_t plat_fwrite(const void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fwrite(buf, 1, n, (FILE *)f); }
-bool plat_fseek(void *f, int32_t off, int whence) { wdog_refresh(); return fseek((FILE *)f, off, whence) == 0; }
+/* A seek far into a big file walks its cluster chain link by link (FatFs, no fast seek): to
+   300 MB into Freddy Pharkas's 600 MB RESOURCE.AUD that outlasted the watchdog. So it goes in
+   steps, forward from where the file is (FatFs then walks on from there), fed between them. */
+#define SEEK_STEP (4u << 20)
+bool plat_fseek(void *f, int32_t off, int whence)
+{
+	wdog_refresh();
+	if (whence == SEEK_SET && off > (int32_t)SEEK_STEP) {
+		long cur = ftell((FILE *)f);
+		if (cur < 0 || cur > off) cur = 0;          /* (backwards: from the start in any case) */
+		while (off - cur > (long)SEEK_STEP) {
+			cur += SEEK_STEP;
+			if (fseek((FILE *)f, cur, SEEK_SET)) return false;
+			wdog_refresh();
+		}
+	}
+	return fseek((FILE *)f, off, whence) == 0;
+}
 int32_t plat_ftell(void *f) { return (int32_t)ftell((FILE *)f); }
 void plat_fclose(void *f) { wdog_refresh(); fclose((FILE *)f); wdog_refresh(); }
 
