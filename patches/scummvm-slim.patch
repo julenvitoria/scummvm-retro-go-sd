@@ -8235,7 +8235,7 @@ index 46475ddc633..9dd24e8ab52 100644
  	// Reaching the compression terminator before writing _szUnpacked bytes is
  	// expected. For kCompLZW1View and kCompLZW1Pic, the unpacked size is not
 diff --git a/engines/sci/resource/resource.cpp b/engines/sci/resource/resource.cpp
-index c757692038a..7c34e753e97 100644
+index c757692038a..60a38727fdc 100644
 --- a/engines/sci/resource/resource.cpp
 +++ b/engines/sci/resource/resource.cpp
 @@ -39,6 +39,10 @@
@@ -8314,7 +8314,7 @@ index c757692038a..7c34e753e97 100644
  }
  
  void ResourceManager::addAppropriateSources() {
-@@ -1004,7 +1036,274 @@ void ResourceManager::freeResourceSources() {
+@@ -1004,7 +1036,290 @@ void ResourceManager::freeResourceSources() {
  ResourceManager::ResourceManager(const bool detectionMode) :
  	_detectionMode(detectionMode) {}
  
@@ -8338,6 +8338,8 @@ index c757692038a..7c34e753e97 100644
 +bool plat_fseek(void *f, int32 off, int whence);
 +void plat_fclose(void *f);
 +void plat_progress(int pct);
++void plat_log_flush(void);
++void gw_wdog_kick(void);
 +}
 +
 +// sci.gwpack: every resource but the digital audio, unpacked (and patched) once, in the game's
@@ -8435,6 +8437,8 @@ index c757692038a..7c34e753e97 100644
 +			count++;
 +	if (!count)
 +		return false;
++	debug("sci.gwpack: making it (%u resources)", count);
++	plat_log_flush();
 +	GWPackEnt *ents = (GWPackEnt *)malloc(count * sizeof(GWPackEnt));
 +	void *f = ents ? plat_fopen(path.c_str(), "wb") : nullptr;
 +	GWPackHead h;
@@ -8452,6 +8456,7 @@ index c757692038a..7c34e753e97 100644
 +		if (!gwInPackFile(res->getType()))
 +			continue;
 +		const bool loaded = res->_status != kResStatusNoMalloc;
++		gw_wdog_kick();
 +		if (!loaded)
 +			loadResource(res);
 +		GWPackEnt &e = ents[n++];
@@ -8459,11 +8464,17 @@ index c757692038a..7c34e753e97 100644
 +		e.tuple = res->_id.getTuple();
 +		e.off = off;
 +		e.size = res->data() ? res->size() : 0xffffffff;	// (not readable: not in the pack)
++		gw_wdog_kick();
 +		if (res->data()) {
 +			static const byte pad[4] = { 0, 0, 0, 0 };
 +			const uint32 padded = (res->size() + 3) & ~3u;
-+			ok = plat_fwrite(res->data(), res->size(), f) == res->size() &&
-+			     plat_fwrite(pad, padded - res->size(), f) == padded - res->size();
++			// (in pieces: the watchdog is fed between them -- the card can take its time)
++			for (uint32 at = 0; ok && at < res->size(); at += 4096) {
++				const uint32 k = MIN<uint32>(4096, res->size() - at);
++				ok = plat_fwrite(res->data() + at, k, f) == k;
++				gw_wdog_kick();
++			}
++			ok = ok && plat_fwrite(pad, padded - res->size(), f) == padded - res->size();
 +			off += padded;
 +		} else {
 +			absent++;
@@ -8471,8 +8482,13 @@ index c757692038a..7c34e753e97 100644
 +		if (!loaded)
 +			res->unalloc();
 +		const int pct = n * 100 / (count + 1);
-+		if (pct != last)
++		if (pct != last) {
 +			plat_progress(last = pct);
++			if (pct % 10 == 0) {	// (where it got to, in the log on the card, if it stops)
++				debug("sci.gwpack: %d%%, %u of %u, %s, %u KB", pct, n, count, res->_id.toString().c_str(), off / 1024);
++				plat_log_flush();
++			}
++		}
 +	}
 +	if (ok) {
 +		qsort(ents, count, sizeof(GWPackEnt), gwEntCmp);
@@ -8589,7 +8605,7 @@ index c757692038a..7c34e753e97 100644
  	_maxMemoryLRU = 256 * 1024; // 256KiB
  	_memoryLocked = 0;
  	_memoryLRU = 0;
-@@ -1069,10 +1368,24 @@ void ResourceManager::init() {
+@@ -1069,10 +1384,24 @@ void ResourceManager::init() {
  
  	addScriptChunkSources();
  	scanNewSources();
@@ -8614,7 +8630,7 @@ index c757692038a..7c34e753e97 100644
  
  	// Resources in SCI32 games are significantly larger than SCI16
  	// games and can cause immediate exhaustion of the LRU resource
-@@ -1108,6 +1421,12 @@ void ResourceManager::init() {
+@@ -1108,6 +1437,12 @@ void ResourceManager::init() {
  }
  
  ResourceManager::~ResourceManager() {
@@ -8627,7 +8643,7 @@ index c757692038a..7c34e753e97 100644
  	// freeing resources
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
-@@ -1169,11 +1488,27 @@ Common::List<ResourceId> ResourceManager::listResources(ResourceType type, int m
+@@ -1169,11 +1504,27 @@ Common::List<ResourceId> ResourceManager::listResources(ResourceType type, int m
  			resources.push_back(itr->_value->_id);
  		++itr;
  	}
@@ -8655,7 +8671,7 @@ index c757692038a..7c34e753e97 100644
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
  		if (itr->_value->getType() == type) {
-@@ -2188,6 +2523,10 @@ bool ResourceManager::validateResource(const ResourceId &resourceId, const Commo
+@@ -2188,6 +2539,10 @@ bool ResourceManager::validateResource(const ResourceId &resourceId, const Commo
  }
  
  Resource *ResourceManager::addResource(ResourceId resId, ResourceSource *src, uint32 offset, uint32 size, const Common::Path &sourceMapLocation) {
@@ -8666,7 +8682,7 @@ index c757692038a..7c34e753e97 100644
  	// Adding new resource only if it does not exist
  	// Hoyle 4 contains each audio resource twice. The first file is in an unknown
  	// format and only static sounds are heard when it's played. The second file
-@@ -3120,6 +3459,11 @@ bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {
+@@ -3120,6 +3475,11 @@ bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {
  }
  
  const Common::Path &Resource::getResourceLocation() const {
