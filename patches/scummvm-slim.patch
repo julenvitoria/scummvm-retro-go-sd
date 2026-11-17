@@ -7560,8 +7560,29 @@ index 763ad49083c..d9fccdb9497 100644
  	s.syncAsUint16LE(obj._number);
  	s.syncAsUint32LE(obj._tuple);
  }
+diff --git a/engines/sci/engine/seg_manager.cpp b/engines/sci/engine/seg_manager.cpp
+index 3d2b37e4b10..2c79b2292b3 100644
+--- a/engines/sci/engine/seg_manager.cpp
++++ b/engines/sci/engine/seg_manager.cpp
+@@ -458,6 +458,16 @@ reg_t SegManager::allocateHunkEntry(const char *hunk_type, int size) {
+ 		table = (HunkTable *)_heap[_hunksSegId];
+ 	}
+ 
++#ifdef GW_SCI_SLIM
++	// Game & Watch: a freed hunk keeps its entry until the GC finds no reference to it -- the
++	// table grew to 1,300 entries on Freddy Pharkas's title (and wanted 32 KB in one piece to
++	// grow further). Before it grows, the entries freed already go back to the free list.
++	if (table->first_free == HunkTable::HEAPENTRY_INVALID) {
++		for (uint i = 0; i < table->_table.size(); i++)
++			if (table->isValidEntry(i) && !table->at(i).mem)
++				table->freeEntry(i);
++	}
++#endif
+ 	int offset = table->allocEntry();
+ 
+ 	reg_t addr = make_reg(_hunksSegId, offset);
 diff --git a/engines/sci/engine/vm.cpp b/engines/sci/engine/vm.cpp
-index f99d6d0731f..f81dfa3acb4 100644
+index f99d6d0731f..9ebbff2bf4a 100644
 --- a/engines/sci/engine/vm.cpp
 +++ b/engines/sci/engine/vm.cpp
 @@ -21,6 +21,7 @@
@@ -7572,23 +7593,29 @@ index f99d6d0731f..f81dfa3acb4 100644
  #include "common/debug-channels.h"
  
  #include "sci/sci.h"
-@@ -39,6 +40,15 @@
+@@ -39,6 +40,21 @@
  
  namespace Sci {
  
 +#ifdef GW_SCI_SLIM
 +extern "C" uint32 heap_free_bytes(void);	// src/heap.c
 +extern "C" void gw_wdog_kick(void);	// src/platform_*.c
++// (only when the heap has shrunk by 16 KB since the last one: Freddy Pharkas sat at 105 KB
++// free and collected every 256 calls, 34 ms each, for nothing)
++static uint32 gwGcFreeAfter = 0xffffffff;
 +static bool gwHeapLow() {
 +	static uint16 n;
-+	return !(++n & 255) && heap_free_bytes() < 128 * 1024;
++	if (++n & 255)
++		return false;
++	const uint32 free = heap_free_bytes();
++	return free < 128 * 1024 && (gwGcFreeAfter == 0xffffffff || free + 16 * 1024 < gwGcFreeAfter);
 +}
 +#endif
 +
  const reg_t NULL_REG = {0, 0};
  const reg_t SIGNAL_REG = {0, SIGNAL_OFFSET};
  const reg_t TRUE_REG = {0, 1};
-@@ -574,6 +584,15 @@ void run_vm(EngineState *s) {
+@@ -574,6 +590,15 @@ void run_vm(EngineState *s) {
  #endif
  
  	while (1) {
@@ -7604,7 +7631,7 @@ index f99d6d0731f..f81dfa3acb4 100644
  		int var_type; // See description below
  		int var_number;
  
-@@ -852,9 +871,26 @@ void run_vm(EngineState *s) {
+@@ -852,9 +877,27 @@ void run_vm(EngineState *s) {
  
  		case op_callk: { // 0x21 (33)
  			// Run the garbage collector, if needed
@@ -7623,7 +7650,8 @@ index f99d6d0731f..f81dfa3acb4 100644
 +					debug("sci: gc, %u KB free", free0 / 1024);
 +					run_gc(s);
 +					gw_wdog_kick();
-+					debug("sci: gc took %u ms, %u KB free", g_system->getMillis() - t0, heap_free_bytes() / 1024);
++					gwGcFreeAfter = heap_free_bytes();
++					debug("sci: gc took %u ms, %u KB free", g_system->getMillis() - t0, gwGcFreeAfter / 1024);
 +				}
 +#else
  				run_gc(s);
@@ -7737,6 +7765,24 @@ index 50233468656..d780963f44c 100644
  
  enum ShakeDirection {
  	kShakeVertical   = 1,
+diff --git a/engines/sci/graphics/paint16.cpp b/engines/sci/graphics/paint16.cpp
+index 8b3df3c9909..7f6bedd51af 100644
+--- a/engines/sci/graphics/paint16.cpp
++++ b/engines/sci/graphics/paint16.cpp
+@@ -347,6 +347,13 @@ reg_t GfxPaint16::bitsSave(const Common::Rect &rect, byte screenMask, bool hires
+ 	byte *memoryPtr = _segMan->getHunkPointer(memoryId);
+ 	if (memoryPtr)
+ 		_screen->bitsSave(workerRect, screenMask, memoryPtr);
++#ifdef GW_SCI_SLIM
++	else {	// (no room for it: no handle either -- RestoreBits never frees one with nothing in it,
++		// and Freddy Pharkas's title piled 1,300 of them up)
++		_segMan->freeHunkEntry(memoryId);
++		return NULL_REG;
++	}
++#endif
+ 	return memoryId;
+ }
+ 
 diff --git a/engines/sci/graphics/picture.cpp b/engines/sci/graphics/picture.cpp
 index fef1cd011ed..cc976bddc50 100644
 --- a/engines/sci/graphics/picture.cpp
@@ -8981,10 +9027,23 @@ index 70b3cf1dc90..81fe368b70d 100644
  	ResourceCompression getViewCompression();
  	ViewType detectViewType();
 diff --git a/engines/sci/resource/resource_audio.cpp b/engines/sci/resource/resource_audio.cpp
-index 69a31e05b4f..028c0918253 100644
+index 69a31e05b4f..0f556227919 100644
 --- a/engines/sci/resource/resource_audio.cpp
 +++ b/engines/sci/resource/resource_audio.cpp
-@@ -352,7 +352,83 @@ void ResourceManager::removeAudioResource(ResourceId resId) {
+@@ -84,6 +84,12 @@ AudioVolumeResourceSource::AudioVolumeResourceSource(ResourceManager *resMan, co
+ bool Resource::loadFromWaveFile(Common::SeekableReadStream *file) {
+ 	byte *ptr = new byte[_size];
+ 	_data = ptr;
++#ifdef GW_SCI_SLIM
++	if (!ptr) {	// (no room: not loaded, rather than read into nothing)
++		_size = 0;
++		return false;
++	}
++#endif
+ 
+ 	uint32 bytesRead = file->read(ptr, _size);
+ 	if (bytesRead != _size)
+@@ -352,7 +358,83 @@ void ResourceManager::removeAudioResource(ResourceId resId) {
  // w syncSize (iff seq has bit 7 set)
  // w syncAscSize (iff seq has bit 6 set)
  
@@ -9068,7 +9127,7 @@ index 69a31e05b4f..028c0918253 100644
  #ifndef ENABLE_SCI32
  	// SCI32 support is not built in. Check if this is a SCI32 game
  	// and if it is abort here.
-@@ -554,8 +630,14 @@ int ResourceManager::readAudioMapSCI11(IntMapResourceSource *map) {
+@@ -554,8 +636,14 @@ int ResourceManager::readAudioMapSCI11(IntMapResourceSource *map) {
  					// relocation table in a compressed volume only contains
  					// offsets that existed in the original audio map)
  					Resource *res = addResource(ResourceId(kResourceTypeRave, map->_mapNumber, n & 0xffffff3f), src, offset, syncSize + kq6HiresSyncSize, map->getLocationName());
@@ -9118,7 +9177,7 @@ index b4d28b797c5..90fb79dfea4 100644
  		// Default to using hires Mac fonts if GUI option isn't present, as it was added later.
  		_useHiresGraphics = true;
 diff --git a/engines/sci/sound/audio.cpp b/engines/sci/sound/audio.cpp
-index 041cf364220..4c36a4fe140 100644
+index 041cf364220..a47c2c26928 100644
 --- a/engines/sci/sound/audio.cpp
 +++ b/engines/sci/sound/audio.cpp
 @@ -23,6 +23,9 @@
@@ -9131,7 +9190,7 @@ index 041cf364220..4c36a4fe140 100644
  
  #include "backends/audiocd/audiocd.h"
  
-@@ -372,6 +375,22 @@ Audio::RewindableAudioStream *AudioPlayer::getAudioStream(uint32 number, uint32
+@@ -372,6 +375,32 @@ Audio::RewindableAudioStream *AudioPlayer::getAudioStream(uint32 number, uint32
  
  	*sampleLen = 0;
  
@@ -9141,12 +9200,22 @@ index 041cf364220..4c36a4fe140 100644
 +	{
 +		const ResourceId id = volume == 65535 ? ResourceId(kResourceTypeAudio, number) : ResourceId(kResourceTypeAudio36, volume, number);
 +		if (Common::SeekableReadStream *file = _resMan->gwAudioFile(id)) {
-+			Audio::SeekableAudioStream *sol = makeSOLStream(file, DisposeAfterUse::YES);
-+			if (sol) {
-+				*sampleLen = (sol->getLength().msecs() * 60) / 1000;
-+				return sol;
++			const int64 at = file->pos();
++			Audio::SeekableAudioStream *stream = nullptr;
++			if (file->readUint32BE() == MKTAG('R', 'I', 'F', 'F')) {
++				// (WAVE: Freddy Pharkas's title song, 8.6 MB of it)
++				file->seek(at);
++				stream = Audio::makeWAVStream(file, DisposeAfterUse::YES);
++				file = nullptr;	// (the stream's now, or deleted with it)
++			} else {
++				file->seek(at);
++				stream = makeSOLStream(file, DisposeAfterUse::YES);
 +			}
-+			delete file;	// (not SOL: loaded as before)
++			if (stream) {
++				*sampleLen = (stream->getLength().msecs() * 60) / 1000;
++				return stream;
++			}
++			delete file;	// (neither: loaded as before)
 +		}
 +	}
 +#endif
