@@ -808,7 +808,7 @@ index 31019c5fc75..4a50ce27ca1 100644
  
  static const byte mouseCursorPalette[] = {
 diff --git a/engines/agos/event.cpp b/engines/agos/event.cpp
-index 785c692e2c5..f16ec9087ad 100644
+index 785c692e2c5..9cdfff7c776 100644
 --- a/engines/agos/event.cpp
 +++ b/engines/agos/event.cpp
 @@ -25,6 +25,7 @@
@@ -826,7 +826,7 @@ index 785c692e2c5..f16ec9087ad 100644
 +#ifndef __arm__ // HEAPCHK
 +extern "C" int heap_check(void); extern "C" const char *gw_test_env(const char *name);
 +namespace AGOS { void gwCanaries(const char *what, int a); }
-+#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") != nullptr; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
++#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") && atoi(gw_test_env("GW_HEAP_CHECK")) > 1; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
 +#endif
 +
  namespace AGOS {
@@ -1016,7 +1016,7 @@ index 9161fc54fab..049b7cfcbde 100644
  				if (_saveLoadEdit) {
  					userGameBackSpace(_windowArray[5], 8);
 diff --git a/engines/agos/script.cpp b/engines/agos/script.cpp
-index 9d8fb351528..01f094b22cd 100644
+index 9d8fb351528..09e6bbf9899 100644
 --- a/engines/agos/script.cpp
 +++ b/engines/agos/script.cpp
 @@ -29,6 +29,12 @@
@@ -1026,7 +1026,7 @@ index 9d8fb351528..01f094b22cd 100644
 +#ifndef __arm__ // HEAPCHK
 +extern "C" int heap_check(void); extern "C" const char *gw_test_env(const char *name);
 +namespace AGOS { void gwCanaries(const char *what, int a); }
-+#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") != nullptr; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
++#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") && atoi(gw_test_env("GW_HEAP_CHECK")) > 1; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
 +#endif
 +
  namespace AGOS {
@@ -1114,7 +1114,7 @@ index eee53c34c83..40c2b817fc5 100644
  		error("Out Of Memory - Tables");
  }
 diff --git a/engines/agos/vga.cpp b/engines/agos/vga.cpp
-index cf01a1c5e33..1ddb0d4a25f 100644
+index cf01a1c5e33..737870a3469 100644
 --- a/engines/agos/vga.cpp
 +++ b/engines/agos/vga.cpp
 @@ -35,6 +35,12 @@
@@ -1124,7 +1124,7 @@ index cf01a1c5e33..1ddb0d4a25f 100644
 +#ifndef __arm__ // HEAPCHK
 +extern "C" int heap_check(void); extern "C" const char *gw_test_env(const char *name);
 +namespace AGOS { void gwCanaries(const char *what, int a); }
-+#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") != nullptr; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
++#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") && atoi(gw_test_env("GW_HEAP_CHECK")) > 1; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
 +#endif
 +
  namespace AGOS {
@@ -1141,7 +1141,7 @@ index cf01a1c5e33..1ddb0d4a25f 100644
  }
  
 diff --git a/engines/agos/zones.cpp b/engines/agos/zones.cpp
-index 37fc11af101..9a0a6db6b95 100644
+index 37fc11af101..3973e0c679a 100644
 --- a/engines/agos/zones.cpp
 +++ b/engines/agos/zones.cpp
 @@ -25,16 +25,64 @@
@@ -1164,7 +1164,7 @@ index 37fc11af101..9a0a6db6b95 100644
 +#ifndef __arm__ // HEAPCHK
 +extern "C" int heap_check(void);
 +namespace AGOS { void gwCanaries(const char *what, int a); }
-+#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") != nullptr; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
++#define GWCHK(what, a) do { AGOS::gwCanaries(what, a); static int on = -1; if (on < 0) on = gw_test_env("GW_HEAP_CHECK") && atoi(gw_test_env("GW_HEAP_CHECK")) > 1; if (on && heap_check()) error("heap broken after %s %d", what, (int)(a)); } while (0)
 +#endif
 +
  namespace AGOS {
@@ -1219,15 +1219,15 @@ index 37fc11af101..9a0a6db6b95 100644
  
  	if (getPlatform() == Common::kPlatformAmiga && getGameType() == GType_WW &&
  		zoneTable[zoneNum] == 3) {
-@@ -105,9 +156,111 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
+@@ -105,9 +156,123 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
  			vpe->sfxFileEnd = _blockEnd;
  		}
  	}
 +#ifdef GW_AGOS_SLIM
 +	gwLoadingZone = 0xFFFF;
 +#endif
- }
- 
++}
++
 +#ifdef GW_AGOS_SLIM
 +
 +static int gwZoneOf(AGOSEngine *vm, VgaPointersEntry *ptrs, byte *p)
@@ -1261,7 +1261,7 @@ index 37fc11af101..9a0a6db6b95 100644
 +#ifndef __arm__ // HEAPCHK
 +void gwCanaries(const char *what, int a) {
 +	static int on = -1;
-+	if (on < 0) on = gw_test_env("GW_HEAP_CHECK") != nullptr;
++	if (on < 0) on = gw_test_env("GW_HEAP_CHECK") && atoi(gw_test_env("GW_HEAP_CHECK")) > 1;
 +	if (!on) return;
 +	for (uint i = 0; i < gwBlockCount; i++) {
 +		if (gwBlocks[i].flash) continue;
@@ -1271,6 +1271,15 @@ index 37fc11af101..9a0a6db6b95 100644
 +				error("zone block %p (zone %d, %u bytes) written past its end (+%d) by %s %d", gwBlocks[i].p, z, gwBlocks[i].len, k, what, a);
 +			}
 +	}
++}
++#endif
++
++#ifndef __arm__ // HEAPCHK
++static void gwListCheck(const char *where) {
++	for (uint a = 0; a < gwBlockCount; a++)
++		for (uint b = a + 1; b < gwBlockCount; b++)
++			if (!gwBlocks[a].flash && !gwBlocks[b].flash && gwBlocks[a].p < gwBlocks[b].p + gwBlocks[b].len && gwBlocks[b].p < gwBlocks[a].p + gwBlocks[a].len)
++				error("zones: blocks %u (%p seq %u) and %u (%p seq %u) overlap, after %s", a, gwBlocks[a].p, gwBlocks[a].seq, b, gwBlocks[b].p, gwBlocks[b].seq, where);
 +}
 +#endif
 +
@@ -1287,8 +1296,11 @@ index 37fc11af101..9a0a6db6b95 100644
 +	if (!gwBlocks[i].flash)
 +		free(gwBlocks[i].p);
 +	gwBlocks[i] = gwBlocks[--gwBlockCount];
-+}
-+
++#ifndef __arm__ // HEAPCHK
++	gwListCheck("gwForget");
++#endif
+ }
+ 
 +void gwAgosFreeZones()					// (the engine's destructor)
 +{
 +	while (gwBlockCount)
@@ -1331,13 +1343,13 @@ index 37fc11af101..9a0a6db6b95 100644
  	_zoneBuffers = (byte *)malloc(_vgaMemSize);
  
  	_vgaMemPtr = _zoneBuffers;
-@@ -115,9 +268,129 @@ void AGOSEngine::setZoneBuffers() {
+@@ -115,9 +280,138 @@ void AGOSEngine::setZoneBuffers() {
  	_vgaFrozenBase = _zoneBuffers;
  	_vgaRealBase = _zoneBuffers;
  	_vgaMemEnd = _zoneBuffers + _vgaMemSize;
 +#endif
-+}
-+
+ }
+ 
 +#ifdef GW_AGOS_SLIM
 +// One block let go to make room: true if there was one
 +bool AGOSEngine::gwFreeZoneMemory() {
@@ -1406,7 +1418,7 @@ index 37fc11af101..9a0a6db6b95 100644
 +		return true;                    // (its blocks now belong to no zone: the next call frees them)
 +	}
 +	return false;
- }
++}
 +#endif
 +
 +#ifdef GW_AGOS_SLIM
@@ -1427,7 +1439,7 @@ index 37fc11af101..9a0a6db6b95 100644
 +	_blockEnd = b.p + size;
 +}
 +#endif
- 
++
  byte *AGOSEngine::allocBlock(uint32 size) {
 +#ifndef __arm__ // HEAPCHK
 +	GWCHK("entering allocBlock", size);
@@ -1443,6 +1455,12 @@ index 37fc11af101..9a0a6db6b95 100644
 +		byte *p = gwBlockCount < ARRAYSIZE(gwBlocks) ? (byte *)malloc(size) : nullptr;
 +#endif
 +		if (p) {
++#ifndef __arm__ // HEAPCHK
++			for (uint j = 0; j < gwBlockCount; j++)
++				if (!gwBlocks[j].flash && p < gwBlocks[j].p + gwBlocks[j].len && gwBlocks[j].p < p + size)
++					error("allocBlock: the heap gave %p (%u bytes), inside block %u %p (%u bytes, seq %u) still listed",
++					      p, size, j, gwBlocks[j].p, gwBlocks[j].len, gwBlocks[j].seq);
++#endif
 +			gwBlocks[gwBlockCount].p = p;
 +			gwBlocks[gwBlockCount].size = size;
 +			gwBlocks[gwBlockCount].len = size;
@@ -1450,6 +1468,9 @@ index 37fc11af101..9a0a6db6b95 100644
 +			gwZoneBytes += size;
 +			gwBlocks[gwBlockCount].seq = ++gwSeq;
 +			gwBlockCount++;
++#ifndef __arm__ // HEAPCHK
++			gwListCheck("allocBlock");
++#endif
 +			_block = p;
 +			_blockEnd = p + size;
 +			return p;
