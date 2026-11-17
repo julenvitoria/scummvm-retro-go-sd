@@ -747,22 +747,23 @@ index 7dda20f2c01..068343cfdcb 100644
  	if (_window4BackScn)
  		_window4BackScn->free();
 diff --git a/engines/agos/agos.h b/engines/agos/agos.h
-index f0eb250c1f7..bfd6614d692 100644
+index f0eb250c1f7..ef2e82e1951 100644
 --- a/engines/agos/agos.h
 +++ b/engines/agos/agos.h
-@@ -1034,6 +1034,11 @@ protected:
+@@ -1034,6 +1034,12 @@ protected:
  	void writeChar(WindowBlock *window, int x, int y, int offs, int val);
  
  	byte *allocBlock(uint32 size);
 +#ifdef GW_AGOS_SLIM
 +public:
++	void gwFlashBlock(const byte *p, uint32 size);
 +	bool gwFreeZoneMemory();
 +protected:
 +#endif
  	void checkNoOverWrite();
  	void checkRunningAnims();
  	void checkAnims(uint a);
-@@ -1413,6 +1418,16 @@ protected:
+@@ -1413,6 +1419,16 @@ protected:
  
  	virtual bool loadGame(const Common::String &filename, bool restartMode = false);
  	virtual bool saveGame(uint slot, const char *caption);
@@ -779,6 +780,41 @@ index f0eb250c1f7..bfd6614d692 100644
  
  	void openTextWindow();
  	void tidyIconArray(uint i);
+diff --git a/engines/agos/res.cpp b/engines/agos/res.cpp
+index 1ef1d3c9391..51eaa745211 100644
+--- a/engines/agos/res.cpp
++++ b/engines/agos/res.cpp
+@@ -33,6 +33,10 @@
+ 
+ #include "common/compression/deflate.h"
+ 
++#ifdef GW_AGOS_SLIM
++const byte *gwDirectResource(Common::SeekableReadStream *stream, uint32 n, byte enc);	// src/gw_system.cpp
++#endif
++
+ namespace AGOS {
+ 
+ #ifdef ENABLE_AGOS2
+@@ -1051,6 +1055,19 @@ void AGOSEngine::loadVGAVideoFile(uint16 id, uint8 type, bool useError) {
+ 			return;
+ 		}
+ 
++#ifdef GW_AGOS_SLIM
++		// Game & Watch: a zone's pictures (type 2) are only read -- from the game file in
++		// external flash, where they lie, rather than a copy (the largest is 178 KB, more than
++		// the console has in one piece). The scripts (type 1) count their loops in their own
++		// bytes, and zone 2's pictures take the texts drawn into them (extraBuffer): copies.
++		if (type == 2 && !extraBuffer && _gameFile->seek(offs, SEEK_SET)) {
++			const byte *m = gwDirectResource(_gameFile->gwStream(), dstSize, 0);
++			if (m) {
++				gwFlashBlock(m, dstSize);
++				return;
++			}
++		}
++#endif
+ 		dst = allocBlock(dstSize + extraBuffer);
+ 		readGameFile(dst, offs, dstSize);
+ 	}
 diff --git a/engines/agos/saveload.cpp b/engines/agos/saveload.cpp
 index 9161fc54fab..ba81307cdc9 100644
 --- a/engines/agos/saveload.cpp
@@ -918,10 +954,10 @@ index eee53c34c83..40c2b817fc5 100644
  		error("Out Of Memory - Tables");
  }
 diff --git a/engines/agos/zones.cpp b/engines/agos/zones.cpp
-index 37fc11af101..d9dee5a2805 100644
+index 37fc11af101..e2ba38605d8 100644
 --- a/engines/agos/zones.cpp
 +++ b/engines/agos/zones.cpp
-@@ -27,14 +27,50 @@
+@@ -27,14 +27,51 @@
  #include "agos/agos.h"
  #include "agos/vga.h"
  
@@ -942,6 +978,7 @@ index 37fc11af101..d9dee5a2805 100644
 +struct GWZoneBlock {
 +	byte *p;
 +	uint32 seq, size;
++	bool flash;					// (a file's bytes where they lie in flash: nothing to free)
 +};
 +static GWZoneBlock gwBlocks[96];
 +static uint gwBlockCount;
@@ -972,7 +1009,7 @@ index 37fc11af101..d9dee5a2805 100644
  	_vgaMemPtr = _vgaRealBase;
  	_vgaMemBase = _vgaRealBase;
  	_vgaFrozenBase = _vgaRealBase;
-@@ -76,6 +112,9 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
+@@ -76,6 +113,9 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
  	}
  
  	// Loading order is important due to resource management
@@ -982,7 +1019,7 @@ index 37fc11af101..d9dee5a2805 100644
  
  	if (getPlatform() == Common::kPlatformAmiga && getGameType() == GType_WW &&
  		zoneTable[zoneNum] == 3) {
-@@ -105,9 +144,63 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
+@@ -105,9 +145,64 @@ void AGOSEngine::loadZone(uint16 zoneNum, bool useError) {
  			vpe->sfxFileEnd = _blockEnd;
  		}
  	}
@@ -1004,7 +1041,8 @@ index 37fc11af101..d9dee5a2805 100644
 +static void gwForget(uint i)
 +{
 +	gwZoneBytes -= gwBlocks[i].size;
-+	free(gwBlocks[i].p);
++	if (!gwBlocks[i].flash)
++		free(gwBlocks[i].p);
 +	gwBlocks[i] = gwBlocks[--gwBlockCount];
 +}
 +
@@ -1020,15 +1058,15 @@ index 37fc11af101..d9dee5a2805 100644
 +static int gwAgosLowMemory(uint32)
 +{
 +	return gwAgos && gwAgos->gwFreeZoneMemory() ? 1 : 0;
- }
- 
++}
++
 +void gwAgosLowMemoryHook(AGOSEngine *vm)	// (the engine's init and destructor)
 +{
 +	gwAgos = vm;
 +	heap_low_memory_hook = vm ? gwAgosLowMemory : nullptr;
-+}
+ }
 +#endif
-+
+ 
  void AGOSEngine::setZoneBuffers() {
 +#ifdef GW_AGOS_SLIM
 +	_zoneBuffers = nullptr;
@@ -1046,13 +1084,13 @@ index 37fc11af101..d9dee5a2805 100644
  	_zoneBuffers = (byte *)malloc(_vgaMemSize);
  
  	_vgaMemPtr = _zoneBuffers;
-@@ -115,9 +208,79 @@ void AGOSEngine::setZoneBuffers() {
+@@ -115,9 +210,98 @@ void AGOSEngine::setZoneBuffers() {
  	_vgaFrozenBase = _zoneBuffers;
  	_vgaRealBase = _zoneBuffers;
  	_vgaMemEnd = _zoneBuffers + _vgaMemSize;
 +#endif
-+}
-+
+ }
+ 
 +#ifdef GW_AGOS_SLIM
 +// One block let go to make room: true if there was one
 +bool AGOSEngine::gwFreeZoneMemory() {
@@ -1100,9 +1138,27 @@ index 37fc11af101..d9dee5a2805 100644
 +		return true;                    // (its blocks now belong to no zone: the next call frees them)
 +	}
 +	return false;
- }
++}
 +#endif
- 
++
++#ifdef GW_AGOS_SLIM
++// A zone's file used where it lies in external flash (res.cpp, loadVGAVideoFile): kept in the
++// list like a block of memory, so a zone that no longer points at it is let go the same way
++void AGOSEngine::gwFlashBlock(const byte *p, uint32 size) {
++	while (gwBlockCount >= ARRAYSIZE(gwBlocks) && gwFreeZoneMemory())
++		;
++	if (gwBlockCount >= ARRAYSIZE(gwBlocks))
++		error("allocBlock: no room for %u blocks", gwBlockCount);
++	GWZoneBlock &b = gwBlocks[gwBlockCount++];
++	b.p = const_cast<byte *>(p);
++	b.size = 0;
++	b.flash = true;
++	b.seq = ++gwSeq;
++	_block = b.p;
++	_blockEnd = b.p + size;
++}
++#endif
++
  byte *AGOSEngine::allocBlock(uint32 size) {
 +#ifdef GW_AGOS_SLIM
 +	while (gwZoneBytes + size > gwZoneCap && gwFreeZoneMemory())
@@ -1112,6 +1168,7 @@ index 37fc11af101..d9dee5a2805 100644
 +		if (p) {
 +			gwBlocks[gwBlockCount].p = p;
 +			gwBlocks[gwBlockCount].size = size;
++			gwBlocks[gwBlockCount].flash = false;
 +			gwZoneBytes += size;
 +			gwBlocks[gwBlockCount].seq = ++gwSeq;
 +			gwBlockCount++;

@@ -179,7 +179,9 @@ void heap_lazy_init(void)
 	const char *sc = getenv("GW_HEAP_SCREEN");      /* the console's SCREEN_HEAP (platform_core.c) */
 	if (!sc || atoi(sc)) {
 		size_t screen = (sc ? atoi(sc) : 160) * 1024;
-		heap_add_to(mmap(0, screen, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0), screen, 2);
+		void *psc = mmap(0, screen, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		heap_add_to(psc, screen, 2);
+		if (getenv("GW_HEAP_TRACE")) fprintf(stderr, "heap: pools big %p, small %p, screen %p\n", pb, ps, psc);
 	}
 }
 
