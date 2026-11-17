@@ -7561,7 +7561,7 @@ index 763ad49083c..d9fccdb9497 100644
  	s.syncAsUint32LE(obj._tuple);
  }
 diff --git a/engines/sci/engine/vm.cpp b/engines/sci/engine/vm.cpp
-index f99d6d0731f..5c4f410c2a3 100644
+index f99d6d0731f..f81dfa3acb4 100644
 --- a/engines/sci/engine/vm.cpp
 +++ b/engines/sci/engine/vm.cpp
 @@ -21,6 +21,7 @@
@@ -7604,7 +7604,7 @@ index f99d6d0731f..5c4f410c2a3 100644
  		int var_type; // See description below
  		int var_number;
  
-@@ -852,9 +871,16 @@ void run_vm(EngineState *s) {
+@@ -852,9 +871,26 @@ void run_vm(EngineState *s) {
  
  		case op_callk: { // 0x21 (33)
  			// Run the garbage collector, if needed
@@ -7617,8 +7617,17 @@ index f99d6d0731f..5c4f410c2a3 100644
  			if (s->gcCountDown-- <= 0) {
 +#endif
  				s->gcCountDown = s->scriptGCInterval;
--				run_gc(s);
-+				{ static uint32 n, tot; uint32 t0 = g_system->getMillis(); run_gc(s); tot += g_system->getMillis() - t0; if (!(++n & 15)) warning("GWDBG gc %u runs, %u ms", n, tot); }
++#ifdef GW_SCI_SLIM
++				{	// (in the log: the last lines of a reset show whether it was in here)
++					const uint32 t0 = g_system->getMillis(), free0 = heap_free_bytes();
++					debug("sci: gc, %u KB free", free0 / 1024);
++					run_gc(s);
++					gw_wdog_kick();
++					debug("sci: gc took %u ms, %u KB free", g_system->getMillis() - t0, heap_free_bytes() / 1024);
++				}
++#else
+ 				run_gc(s);
++#endif
  			}
  
  			// Call kernel function
