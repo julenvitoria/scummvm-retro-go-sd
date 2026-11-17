@@ -1011,3 +1011,14 @@ engines/kyra/text/text_lok.cpp
 engines/kyra/text/text_hof.cpp
 engines/kyra/text/text_mr.cpp
 engines/kyra/detection.cpp
+engines/touche/console.cpp
+engines/touche/graphics.cpp
+engines/touche/menu.cpp
+engines/touche/metaengine.cpp
+engines/touche/midi.cpp
+engines/touche/opcodes.cpp
+engines/touche/resource.cpp
+engines/touche/saveload.cpp
+engines/touche/staticres.cpp
+engines/touche/touche.cpp
+engines/touche/detection.cpp
