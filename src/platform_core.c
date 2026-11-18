@@ -662,7 +662,7 @@ void plat_fclose(void *f) { wdog_refresh(); fclose((FILE *)f); wdog_refresh(); }
 #define MAX_CACHED_FILE (24u << 20)
 static struct { char name[28]; const uint8_t *data; uint32_t size; uint8_t key, fixed; } g_map[MAX_MAPPED];
 static int g_mapped, g_files;
-static bool g_sci;                       /* an SCI game: none of its files cached (cache_game) */
+static bool g_sci;                       /* an SCI game: its patch files not cached (cache_game) */
 
 /* Called by the firmware with each 16 KB of a file on its way into flash (OSPI is unmapped
    then: this must stay resident, and it is -- platform_core.o is in the RAM image). SCUMM
@@ -945,7 +945,10 @@ static void cache_rel(const char *name, uint32_t size)
 	   there) and the CD music is 280 MB of FLAC tracks -- none of it for the flash */
 	if (g_drascula && (!strncasecmp(name, "packet.", 7) || !strncasecmp(name, "track", 5))) return;
 	g_files++;
-	if (g_sci) return;                       /* (cache_game) */
+	/* SCI: its volumes and map only (as before: the game runs with them in the flash) -- not
+	   the patch files, a hundred or more with a translation, each another file for the
+	   firmware to keep track of (cache_game); the pack holds what they say */
+	if (g_sci && strncasecmp(name, "resource.", 9)) return;
 	/* bigger than this stays on the SD card (a talkie's speech file is ~200 MB, the flash 64) */
 	if (size > MAX_CACHED_FILE) {
 		logf_("ScummVM: %s (%lu KB) is read from the SD card\n", name, (unsigned long)(size / 1024));
@@ -1182,17 +1185,18 @@ static void cache_game(void)
 		g_drascula = plat_stat(p).exists;
 	}
 	{
-		/* SCI: none of the folder's files. The engine makes its resources into one file
-		   (sci.gwpack) and puts that in the flash itself (plat_blob); King's Quest V's 155
-		   files and the pack were past the firmware's count, which then erased files still in
-		   use -- the pack's among them: a garbage room and a view read past its end. */
+		/* SCI: not every file of the folder (cache_rel). The engine makes its resources into
+		   one file (sci.gwpack) and puts that in the flash itself (plat_blob); King's Quest
+		   V's 155 files and the pack were past the firmware's count, which then erased files
+		   still in use -- the pack's among them: a garbage room and a view read past its end.
+		   (None at all -- version 7 -- and the games crashed at their start.) */
 		char p[340];
 		snprintf(p, sizeof p, "%s/resource.map", g_game);
 		bool sci = plat_stat(p).exists;
 		snprintf(p, sizeof p, "%s/resmap.000", g_game);
 		sci = sci || plat_stat(p).exists;
 		if (sci) {
-			logf_("ScummVM: SCI game: its files are read from the card, its resources from sci.gwpack\n");
+			logf_("ScummVM: SCI game: only its resource.* files go into the flash\n");
 			g_sci = true;	/* (counted, not cached: cache_rel) */
 			plat_list_dir(g_game, cache_one, NULL);
 			return;
