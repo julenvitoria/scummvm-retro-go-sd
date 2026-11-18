@@ -100,6 +100,14 @@ Open a section:
 
    Games copied to the flash by an older version of this core are copied once more (their
    data files are now stored decrypted, see "How it is made").
+5. **CD audio tracks** (`track1.mp3`, `track2.flac`…: the music, and in some games the
+   speech): FLAC, MP3 and Ogg Vorbis all work. **FLAC with a seek table is the best choice.**
+   To start a track part-way through, an MP3 has to be read from its beginning up to that
+   point, which on a long track stops the game for seconds (Loom CD: before every line of
+   speech). A FLAC with a seek table jumps straight there. It is a few times larger, which
+   the SD card does not mind. From an MP3, with ffmpeg and the `flac` tool (ffmpeg alone
+   writes no seek table): `ffmpeg -i track1.mp3 track1.wav` then
+   `flac --best -S 1s track1.wav`. It sounds the same as the MP3.
 
 </details>
 
@@ -164,13 +172,9 @@ game's folder on the first launch. Everything goes to the flash.
 Copy the CD's files with its audio track as `track1.flac` (or `track1.mp3`) in the same
 folder: the speech and the music are that one track.
 
-Prefer FLAC with a seek table. Every line of speech is a jump into that hour-long track, and
-an MP3 has to be walked from its start to get there: the game stops for several seconds
-before each line. A FLAC with a seek table (one point a second is plenty) jumps straight there.
-It is a few times larger (about 370 MB), which the SD card does not mind.
-From an MP3, with ffmpeg and the `flac` tool (ffmpeg alone writes no seek table):
-`ffmpeg -i track1.mp3 track1.wav` then `flac --best -S 1s track1.wav`. The sound stays as the
-MP3 had it.
+Use `track1.flac` with a seek table, not the MP3: every line of speech is a jump into that
+hour-long track, and with an MP3 the game stops for several seconds before each one (see
+"Installation", CD audio tracks).
 
 **Gobliiins and Ween: The Prophecy**
 
@@ -490,6 +494,14 @@ Abre una sección:
 
    Los juegos que una versión anterior de este core ya copió a la flash se copian una vez
    más (sus ficheros de datos ahora se guardan descifrados, ver "Cómo está hecho").
+5. **Pistas de audio de CD** (`track1.mp3`, `track2.flac`…: la música, y en algunos juegos
+   las voces): funcionan FLAC, MP3 y Ogg Vorbis. **Lo mejor es FLAC con tabla de búsqueda.**
+   Para empezar una pista por la mitad, un MP3 hay que leerlo desde el principio hasta ese
+   punto, y en una pista larga el juego se para varios segundos (Loom CD: antes de cada
+   frase). Un FLAC con tabla de búsqueda salta directo. Ocupa varias veces más, lo que a la
+   SD le da igual. Desde un MP3, con ffmpeg y la herramienta `flac` (ffmpeg solo no escribe
+   la tabla de búsqueda): `ffmpeg -i track1.mp3 track1.wav` y luego
+   `flac --best -S 1s track1.wav`. Suena igual que el MP3.
 
 </details>
 
@@ -545,13 +557,9 @@ carpeta del juego en el primer arranque. Todo va a la flash.
 Copia los archivos del CD con su pista de audio como `track1.flac` (o `track1.mp3`) en la
 misma carpeta: las voces y la música son esa única pista.
 
-Mejor en FLAC con tabla de búsqueda. Cada frase es un salto dentro de esa pista de casi una
-hora, y en un MP3 hay que recorrerla desde el principio para llegar: el juego se para varios
-segundos antes de cada frase. Un FLAC con tabla de búsqueda (un punto por segundo basta) salta
-directo. Ocupa varias veces más (unos 370 MB), lo que a la SD le da igual.
-Desde un MP3, con ffmpeg y la herramienta `flac` (ffmpeg solo no escribe la tabla de
-búsqueda): `ffmpeg -i track1.mp3 track1.wav` y luego `flac --best -S 1s track1.wav`. Suena
-igual que el MP3.
+Usa `track1.flac` con tabla de búsqueda, no el MP3: cada frase es un salto dentro de esa
+pista de casi una hora, y con un MP3 el juego se para varios segundos antes de cada una (ver
+"Instalación", pistas de audio de CD).
 
 **Gobliiins y Ween: The Prophecy**
 
