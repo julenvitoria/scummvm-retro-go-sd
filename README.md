@@ -161,8 +161,13 @@ game's folder on the first launch. Everything goes to the flash.
 
 **Loom** (CD talkie)
 
-Copy the CD's files with its audio track as `track1.mp3` (or `track1.flac`) in the same
+Copy the CD's files with its audio track as `track1.flac` (or `track1.mp3`) in the same
 folder: the speech and the music are that one track.
+
+Prefer FLAC with a seek table. Every line of speech is a jump into that hour-long track, and
+an MP3 has to be walked from its start to get there: the game stops for several seconds
+before each line. A FLAC with a seek table (one point a second is plenty) jumps straight there.
+It is a few times larger (about 370 MB), which the SD card does not mind.
 
 **Gobliiins and Ween: The Prophecy**
 
@@ -534,8 +539,13 @@ carpeta del juego en el primer arranque. Todo va a la flash.
 
 **Loom** (CD con voces)
 
-Copia los archivos del CD con su pista de audio como `track1.mp3` (o `track1.flac`) en la
+Copia los archivos del CD con su pista de audio como `track1.flac` (o `track1.mp3`) en la
 misma carpeta: las voces y la música son esa única pista.
+
+Mejor en FLAC con tabla de búsqueda. Cada frase es un salto dentro de esa pista de casi una
+hora, y en un MP3 hay que recorrerla desde el principio para llegar: el juego se para varios
+segundos antes de cada frase. Un FLAC con tabla de búsqueda (un punto por segundo basta) salta
+directo. Ocupa varias veces más (unos 370 MB), lo que a la SD le da igual.
 
 **Gobliiins y Ween: The Prophecy**
 
