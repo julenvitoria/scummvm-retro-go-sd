@@ -851,6 +851,8 @@ const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int 
 	void *f = plat_fopen(path, "rb");
 	uint8_t *buf = f ? (uint8_t *)malloc(16384) : NULL;
 	static flash_stream_t fs;                 /* (the firmware's: the caller owns it) */
+	logf_("ScummVM: copying %s to the flash (%lu KB)\n", path, (unsigned long)(st.size / 1024));
+	log_save();
 	if (!buf || !store_data_begin(&fs, key, st.size)) {
 		free(buf);
 		if (f) plat_fclose(f);
@@ -870,9 +872,20 @@ const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int 
 		left -= n;
 		done += n;
 		uint8_t pct = (uint8_t)((uint64_t)done * 100 / st.size);
-		if (pct != last) { show_bar(gw_i18n(i18n_copying), pct); last = pct; }
+		if (pct != last) {
+			show_bar(gw_i18n(i18n_copying), pct);
+			if (pct / 10 != last / 10 || last == 0xff) {      /* (to the screen of a reset too) */
+				logf_("ScummVM: copied %u%%\n", pct);
+				if (pct % 25 < 10) log_save();
+			}
+			last = pct;
+		}
 	}
+	logf_("ScummVM: copy written, closing it\n");
+	log_save();
 	p = store_data_finish(&fs);
+	logf_("ScummVM: copy closed: %s\n", p ? "ok" : "FAILED");
+	log_save();
 out:
 	free(buf);
 	plat_fclose(f);

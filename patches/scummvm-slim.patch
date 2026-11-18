@@ -8396,7 +8396,7 @@ index 46475ddc633..9dd24e8ab52 100644
  	// Reaching the compression terminator before writing _szUnpacked bytes is
  	// expected. For kCompLZW1View and kCompLZW1Pic, the unpacked size is not
 diff --git a/engines/sci/resource/resource.cpp b/engines/sci/resource/resource.cpp
-index c757692038a..b643f685488 100644
+index c757692038a..d945a92f5cc 100644
 --- a/engines/sci/resource/resource.cpp
 +++ b/engines/sci/resource/resource.cpp
 @@ -39,6 +39,10 @@
@@ -8475,7 +8475,7 @@ index c757692038a..b643f685488 100644
  }
  
  void ResourceManager::addAppropriateSources() {
-@@ -1004,7 +1036,325 @@ void ResourceManager::freeResourceSources() {
+@@ -1004,7 +1036,332 @@ void ResourceManager::freeResourceSources() {
  ResourceManager::ResourceManager(const bool detectionMode) :
  	_detectionMode(detectionMode) {}
  
@@ -8588,6 +8588,8 @@ index c757692038a..b643f685488 100644
 +	const Common::String path = Common::String(plat_game_path()) + "/sci.gwpack";
 +	uint32 size = 0;
 +	const byte *p = plat_blob(key, nullptr, &size, 0);
++	debug("sci.gwpack: %s in the flash (%u KB)", gwPackOK((const GWPackHead *)p, size, sig) ? "found" : "not", size / 1024);
++	plat_log_flush();
 +	if (!gwPackOK((const GWPackHead *)p, size, sig)) {
 +		// the file on the card: made now unless it is the one for these files
 +		GWPackHead h;
@@ -8603,12 +8605,17 @@ index c757692038a..b643f685488 100644
 +			}
 +		}
 +		p = plat_blob(key, path.c_str(), &size, 0);
++		debug("sci.gwpack: copied (%u KB)", size / 1024);
++		plat_log_flush();
 +		if (!gwPackOK((const GWPackHead *)p, size, sig)) {
 +			plat_log_flush();
 +			error("sci.gwpack no cabe en la flash. Borra /saves/flashcachedata.bin y vuelve a abrir el juego");
 +		}
 +	}
-+	if (!gwPackSame(p, size, path)) {
++	const bool same = gwPackSame(p, size, path);
++	debug("sci.gwpack: checked against the card");
++	plat_log_flush();
++	if (!same) {
 +		// the copy in the flash is not the file any more: something was written over it
 +		// (Freddy Pharkas crashed at its start with a copy that a new core had overwritten,
 +		// still found under its key). Copied again.
@@ -8801,7 +8808,30 @@ index c757692038a..b643f685488 100644
  	_maxMemoryLRU = 256 * 1024; // 256KiB
  	_memoryLocked = 0;
  	_memoryLRU = 0;
-@@ -1069,10 +1419,24 @@ void ResourceManager::init() {
+@@ -1023,6 +1380,12 @@ void ResourceManager::init() {
+ 
+ 	// FIXME: put this in an Init() function, so that we can error out if detection fails completely
+ 
++#ifdef GW_SCI_SLIM
++#define GW_STEP(m) do { if (!_detectionMode) { debug("sci.init: %s", m); plat_log_flush(); } } while (0)
++#else
++#define GW_STEP(m) do {} while (0)
++#endif
++	GW_STEP("map");
+ 	_mapVersion = detectMapVersion();
+ 	_volVersion = detectVolVersion();
+ 
+@@ -1057,7 +1420,9 @@ void ResourceManager::init() {
+ #endif
+ 		_isSci2Mac = false;
+ 
++	GW_STEP("sources");
+ 	scanNewSources();
++	GW_STEP("audio");
+ 
+ 	if (!addAudioSources()) {
+ 		// FIXME: This error message is not always correct.
+@@ -1069,10 +1434,27 @@ void ResourceManager::init() {
  
  	addScriptChunkSources();
  	scanNewSources();
@@ -8809,11 +8839,14 @@ index c757692038a..b643f685488 100644
 +	_resMap.compact();
 +#endif
  
++	GW_STEP("version");
  	detectSciVersion();
  
  	debugC(1, kDebugLevelResMan, "resMan: Detected %s", getSciVersionDesc(getSciVersion()));
 +#ifdef GW_SCI_SLIM
++	GW_STEP("pack");
 +	gwPackInit();
++	GW_STEP("pack ok");
 +	if (!_detectionMode)
 +		SearchMan.gwUncache();	// (the folder's listing, made to find the patch files)
 +	if (!_detectionMode && _gwPack)
@@ -8826,7 +8859,7 @@ index c757692038a..b643f685488 100644
  
  	// Resources in SCI32 games are significantly larger than SCI16
  	// games and can cause immediate exhaustion of the LRU resource
-@@ -1108,6 +1472,12 @@ void ResourceManager::init() {
+@@ -1108,6 +1490,12 @@ void ResourceManager::init() {
  }
  
  ResourceManager::~ResourceManager() {
@@ -8839,7 +8872,7 @@ index c757692038a..b643f685488 100644
  	// freeing resources
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
-@@ -1169,11 +1539,27 @@ Common::List<ResourceId> ResourceManager::listResources(ResourceType type, int m
+@@ -1169,11 +1557,27 @@ Common::List<ResourceId> ResourceManager::listResources(ResourceType type, int m
  			resources.push_back(itr->_value->_id);
  		++itr;
  	}
@@ -8867,7 +8900,7 @@ index c757692038a..b643f685488 100644
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
  		if (itr->_value->getType() == type) {
-@@ -2188,6 +2574,10 @@ bool ResourceManager::validateResource(const ResourceId &resourceId, const Commo
+@@ -2188,6 +2592,10 @@ bool ResourceManager::validateResource(const ResourceId &resourceId, const Commo
  }
  
  Resource *ResourceManager::addResource(ResourceId resId, ResourceSource *src, uint32 offset, uint32 size, const Common::Path &sourceMapLocation) {
@@ -8878,7 +8911,7 @@ index c757692038a..b643f685488 100644
  	// Adding new resource only if it does not exist
  	// Hoyle 4 contains each audio resource twice. The first file is in an unknown
  	// format and only static sounds are heard when it's played. The second file
-@@ -3120,6 +3510,11 @@ bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {
+@@ -3120,6 +3528,11 @@ bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {
  }
  
  const Common::Path &Resource::getResourceLocation() const {
