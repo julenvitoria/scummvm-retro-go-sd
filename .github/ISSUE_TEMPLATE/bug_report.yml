@@ -67,6 +67,6 @@ body:
       label: "Más información (opcional) / More (optional)"
       description: |
         - Foto de la pantalla si hay mensaje o pantallazo azul / A photo of the screen if there is a message or a blue screen
-        - El save state (`/saves/scummvm/<juego>.scummvm-N.sav`) o la partida del juego, si el fallo es al cargarla / The save state or the game's save, if it fails when loading it
+        - El save state de Retro-Go de justo antes del fallo (`/data/scummvm/<juego>.scummvm-N.sav`), o la partida del juego si el fallo es al cargarla / The Retro-Go save state from just before the failure (`/data/scummvm/<game>.scummvm-N.sav`), or the game's save if it fails when loading it
         - Lista de ficheros de la carpeta del juego (solo los nombres) / The game folder's file list (names only)
         - Modelo de consola y tamaño de la flash / Console model and flash size
