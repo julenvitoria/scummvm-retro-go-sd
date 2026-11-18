@@ -662,6 +662,7 @@ void plat_fclose(void *f) { wdog_refresh(); fclose((FILE *)f); wdog_refresh(); }
 #define MAX_CACHED_FILE (24u << 20)
 static struct { char name[28]; const uint8_t *data; uint32_t size; uint8_t key, fixed; } g_map[MAX_MAPPED];
 static int g_mapped, g_files;
+static bool g_sci;                       /* an SCI game: none of its files cached (cache_game) */
 
 /* Called by the firmware with each 16 KB of a file on its way into flash (OSPI is unmapped
    then: this must stay resident, and it is -- platform_core.o is in the RAM image). SCUMM
@@ -944,6 +945,7 @@ static void cache_rel(const char *name, uint32_t size)
 	   there) and the CD music is 280 MB of FLAC tracks -- none of it for the flash */
 	if (g_drascula && (!strncasecmp(name, "packet.", 7) || !strncasecmp(name, "track", 5))) return;
 	g_files++;
+	if (g_sci) return;                       /* (cache_game) */
 	/* bigger than this stays on the SD card (a talkie's speech file is ~200 MB, the flash 64) */
 	if (size > MAX_CACHED_FILE) {
 		logf_("ScummVM: %s (%lu KB) is read from the SD card\n", name, (unsigned long)(size / 1024));
@@ -1191,6 +1193,8 @@ static void cache_game(void)
 		sci = sci || plat_stat(p).exists;
 		if (sci) {
 			logf_("ScummVM: SCI game: its files are read from the card, its resources from sci.gwpack\n");
+			g_sci = true;	/* (counted, not cached: cache_rel) */
+			plat_list_dir(g_game, cache_one, NULL);
 			return;
 		}
 	}
