@@ -8396,7 +8396,7 @@ index 46475ddc633..9dd24e8ab52 100644
  	// Reaching the compression terminator before writing _szUnpacked bytes is
  	// expected. For kCompLZW1View and kCompLZW1Pic, the unpacked size is not
 diff --git a/engines/sci/resource/resource.cpp b/engines/sci/resource/resource.cpp
-index c757692038a..cc17e99a222 100644
+index c757692038a..b643f685488 100644
 --- a/engines/sci/resource/resource.cpp
 +++ b/engines/sci/resource/resource.cpp
 @@ -39,6 +39,10 @@
@@ -8475,7 +8475,7 @@ index c757692038a..cc17e99a222 100644
  }
  
  void ResourceManager::addAppropriateSources() {
-@@ -1004,7 +1036,292 @@ void ResourceManager::freeResourceSources() {
+@@ -1004,7 +1036,325 @@ void ResourceManager::freeResourceSources() {
  ResourceManager::ResourceManager(const bool detectionMode) :
  	_detectionMode(detectionMode) {}
  
@@ -8491,7 +8491,7 @@ index c757692038a..cc17e99a222 100644
 +}
 +
 +extern "C" {
-+const byte *plat_blob(const char *key, const char *path, uint32 *size);
++const byte *plat_blob(const char *key, const char *path, uint32 *size, int force);
 +const char *plat_game_path(void);
 +void *plat_fopen(const char *path, const char *mode);
 +uint32 plat_fread(void *buf, uint32 n, void *f);
@@ -8558,6 +8558,27 @@ index c757692038a..cc17e99a222 100644
 +	return h;
 +}
 +
++// The copy in the flash against the file on the card, at 64 places spread over it (a few KB
++// read, a fraction of a second): what the firmware wrote over part of it shows.
++bool ResourceManager::gwPackSame(const byte *p, uint32 size, const Common::String &path) {
++	void *f = plat_fopen(path.c_str(), "rb");
++	if (!f)
++		return true;	// (nothing to tell it by: taken as it is)
++	bool same = true;
++	byte buf[256];
++	for (uint i = 0; same && i < 64; i++) {
++		const uint32 at = (uint32)((uint64)size * i / 64) & ~3u;
++		const uint32 n = MIN<uint32>(sizeof(buf), size - at);
++		same = plat_fseek(f, at, SEEK_SET) && plat_fread(buf, n, f) == n && !memcmp(buf, p + at, n);
++	}
++	// and its last bytes
++	if (same && size >= sizeof(buf))
++		same = plat_fseek(f, size - sizeof(buf), SEEK_SET) && plat_fread(buf, sizeof(buf), f) == sizeof(buf) &&
++		       !memcmp(buf, p + size - sizeof(buf), sizeof(buf));
++	plat_fclose(f);
++	return same;
++}
++
 +void ResourceManager::gwPackInit() {
 +	if (_detectionMode || !g_sci)
 +		return;
@@ -8566,7 +8587,7 @@ index c757692038a..cc17e99a222 100644
 +	snprintf(key, sizeof(key), "svm-sci|%08x|%u", sig, _resMap.size());	// (not a new key for a new copy: the flash had no room for five more)
 +	const Common::String path = Common::String(plat_game_path()) + "/sci.gwpack";
 +	uint32 size = 0;
-+	const byte *p = plat_blob(key, nullptr, &size);
++	const byte *p = plat_blob(key, nullptr, &size, 0);
 +	if (!gwPackOK((const GWPackHead *)p, size, sig)) {
 +		// the file on the card: made now unless it is the one for these files
 +		GWPackHead h;
@@ -8581,8 +8602,20 @@ index c757692038a..cc17e99a222 100644
 +				error("No se pudo crear sci.gwpack en la carpeta del juego (la SD esta llena?)");
 +			}
 +		}
-+		p = plat_blob(key, path.c_str(), &size);
++		p = plat_blob(key, path.c_str(), &size, 0);
 +		if (!gwPackOK((const GWPackHead *)p, size, sig)) {
++			plat_log_flush();
++			error("sci.gwpack no cabe en la flash. Borra /saves/flashcachedata.bin y vuelve a abrir el juego");
++		}
++	}
++	if (!gwPackSame(p, size, path)) {
++		// the copy in the flash is not the file any more: something was written over it
++		// (Freddy Pharkas crashed at its start with a copy that a new core had overwritten,
++		// still found under its key). Copied again.
++		debug("sci.gwpack: the copy in the flash differs from the file: copied again");
++		plat_log_flush();
++		p = plat_blob(key, path.c_str(), &size, 1);
++		if (!gwPackOK((const GWPackHead *)p, size, sig) || !gwPackSame(p, size, path)) {
 +			plat_log_flush();
 +			error("sci.gwpack no cabe en la flash. Borra /saves/flashcachedata.bin y vuelve a abrir el juego");
 +		}
@@ -8768,7 +8801,7 @@ index c757692038a..cc17e99a222 100644
  	_maxMemoryLRU = 256 * 1024; // 256KiB
  	_memoryLocked = 0;
  	_memoryLRU = 0;
-@@ -1069,10 +1386,24 @@ void ResourceManager::init() {
+@@ -1069,10 +1419,24 @@ void ResourceManager::init() {
  
  	addScriptChunkSources();
  	scanNewSources();
@@ -8793,7 +8826,7 @@ index c757692038a..cc17e99a222 100644
  
  	// Resources in SCI32 games are significantly larger than SCI16
  	// games and can cause immediate exhaustion of the LRU resource
-@@ -1108,6 +1439,12 @@ void ResourceManager::init() {
+@@ -1108,6 +1472,12 @@ void ResourceManager::init() {
  }
  
  ResourceManager::~ResourceManager() {
@@ -8806,7 +8839,7 @@ index c757692038a..cc17e99a222 100644
  	// freeing resources
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
-@@ -1169,11 +1506,27 @@ Common::List<ResourceId> ResourceManager::listResources(ResourceType type, int m
+@@ -1169,11 +1539,27 @@ Common::List<ResourceId> ResourceManager::listResources(ResourceType type, int m
  			resources.push_back(itr->_value->_id);
  		++itr;
  	}
@@ -8834,7 +8867,7 @@ index c757692038a..cc17e99a222 100644
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
  		if (itr->_value->getType() == type) {
-@@ -2188,6 +2541,10 @@ bool ResourceManager::validateResource(const ResourceId &resourceId, const Commo
+@@ -2188,6 +2574,10 @@ bool ResourceManager::validateResource(const ResourceId &resourceId, const Commo
  }
  
  Resource *ResourceManager::addResource(ResourceId resId, ResourceSource *src, uint32 offset, uint32 size, const Common::Path &sourceMapLocation) {
@@ -8845,7 +8878,7 @@ index c757692038a..cc17e99a222 100644
  	// Adding new resource only if it does not exist
  	// Hoyle 4 contains each audio resource twice. The first file is in an unknown
  	// format and only static sounds are heard when it's played. The second file
-@@ -3120,6 +3477,11 @@ bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {
+@@ -3120,6 +3510,11 @@ bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {
  }
  
  const Common::Path &Resource::getResourceLocation() const {
@@ -8858,7 +8891,7 @@ index c757692038a..cc17e99a222 100644
  }
  
 diff --git a/engines/sci/resource/resource.h b/engines/sci/resource/resource.h
-index 70b3cf1dc90..81fe368b70d 100644
+index 70b3cf1dc90..4308eb1ad87 100644
 --- a/engines/sci/resource/resource.h
 +++ b/engines/sci/resource/resource.h
 @@ -25,6 +25,7 @@
@@ -8988,7 +9021,7 @@ index 70b3cf1dc90..81fe368b70d 100644
  
  class IntMapResourceSource;
  class ResourceManager {
-@@ -646,6 +731,39 @@ protected:
+@@ -646,6 +731,40 @@ protected:
  
  	void addToLRU(Resource *res);
  	void removeFromLRU(Resource *res);
@@ -9016,6 +9049,7 @@ index 70b3cf1dc90..81fe368b70d 100644
 +	const byte *_gwPack = nullptr;
 +	uint32 _gwPackSize = 0;
 +	void gwPackInit();
++	bool gwPackSame(const byte *p, uint32 size, const Common::String &path);
 +	bool gwPackLoad(Resource *res);
 +	const void *gwPackFind(const ResourceId &id) const;
 +	void gwPackUnindex();

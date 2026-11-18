@@ -66,8 +66,9 @@ const void *plat_map_pack(const char *path);
    across starts (the firmware's store; SCI: its resources unpacked, sci.gwpack): where it is, or
    NULL. Not in the flash under that key (or of another size than the file): copied there from
    path (a file on the card, made by the engine) with a progress bar; NULL when there is no
-   room. path NULL: only looked up. */
-const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size);
+   room. path NULL: only looked up. force: copied again even when the key is found (the copy
+   found was not what the file says). */
+const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int force);
 
 /* Is this the start of a SCUMM data file XORed with 0x69 (v5/v6 "LECF" bundle, v4 "LE" disk)? */
 static inline int svm_xor69_data(const uint8_t *p, uint32_t n)

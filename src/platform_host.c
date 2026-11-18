@@ -491,8 +491,9 @@ static const uint8_t *map_piece(FILE *f, uint32_t start, uint32_t len)
 
 /* the flash's blob store: the file, read-only (a key once found stays, as in the flash).
    GW_NO_BLOB=1: no room in the flash. */
-const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size)
+const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int force)
 {
+	(void)force;	/* (the file itself: never stale here) */
 	static struct { char key[128]; const uint8_t *p; uint32_t n; } blobs[4];
 	for (int i = 0; i < 4; i++)
 		if (blobs[i].p && !strcmp(blobs[i].key, key)) { *size = blobs[i].n; return blobs[i].p; }
