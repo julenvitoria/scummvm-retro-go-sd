@@ -12,22 +12,31 @@ Version 1.4.1 and earlier cannot load cores from `/cores/`.
 
 No games are included, nor will they be: bring your own.
 
-### Current version: v0.4.0
+### Current version: v0.5.0
 
 | File | Engine | Version / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/scumm.svm` | scumm | `D4B4D1CA` |
-| `/cores/scummvm/sky.svm` | sky | `78D57895` |
-| `/cores/scummvm/cge.svm` | cge | `D8C799C1` |
-| `/cores/scummvm/lure.svm` | lure | `0847A661` |
-| `/cores/scummvm/sword1.svm` | sword1 | `D4BC4B3C` |
-| `/cores/scummvm/gob.svm` | gob | `2FCC0188` |
-| `/cores/scummvm/cine.svm` | cine | `2E2E39AE` |
-| `/cores/scummvm/cruise.svm` | cruise | `4ABDC626` |
-| `/cores/scummvm/queen.svm` | queen | `DEFA2C82` |
-| `/cores/scummvm/drascula.svm` | drascula | `A8099555` |
-| `/cores/scummvm/dreamweb.svm` | dreamweb | `1E5BBD06` |
+| `/cores/scummvm/agos.svm` | agos | `765A7E6B` |
+| `/cores/scummvm/cge.svm` | cge | `EC65A96D` |
+| `/cores/scummvm/cine.svm` | cine | `B69BF973` |
+| `/cores/scummvm/cruise.svm` | cruise | `E6A2C677` |
+| `/cores/scummvm/drascula.svm` | drascula | `7E54E585` |
+| `/cores/scummvm/dreamweb.svm` | dreamweb | `AC90FC61` |
+| `/cores/scummvm/gob.svm` | gob | `99BD9A09` |
+| `/cores/scummvm/kyra.svm` | kyra | `F029429D` |
+| `/cores/scummvm/lure.svm` | lure | `4870C007` |
+| `/cores/scummvm/queen.svm` | queen | `920F4B85` |
+| `/cores/scummvm/saga.svm` | saga | `FDF6F500` |
+| `/cores/scummvm/sci.svm` | sci | `BBB8B984` |
+| `/cores/scummvm/scumm.svm` | scumm | `F1010B6B` |
+| `/cores/scummvm/sky.svm` | sky | `59F4EF3D` |
+| `/cores/scummvm/sword1.svm` | sword1 | `F3A7A2B2` |
+| `/cores/scummvm/teenagent.svm` | teenagent | `BC0BE366` |
+| `/cores/scummvm/drascula.dat` | ScummVM data | `-` |
+| `/cores/scummvm/kyra.dat` | ScummVM data | `-` |
+| `/cores/scummvm/lure.dat` | ScummVM data | `-` |
+| `/cores/scummvm/teenagent.dat` | ScummVM data | `-` |
 
 The PAUSE menu inside a game shows these on its *ScummVM* line, for example
 `scumm D4B4D1CA L3`: engine, id of the engine file, loader version. The id changes only when
@@ -64,6 +73,14 @@ its own in its notes.
 | DreamWeb | DreamWeb | ✅ | its computer terminals need typing: GAME opens the keyboard |
 | Teenagent | Teenagent | ✅ | saves with Retro-Go's save states |
 | Inherit the Earth: Quest for the Orb | SAGA | ✅ | also the Spanish fan translation |
+| Simon the Sorcerer | AGOS | ✅ | |
+| Simon the Sorcerer II | AGOS | ✅ | |
+| The Legend of Kyrandia | Kyra | ✅ | |
+| King's Quest V | SCI | ✅ | first launch prepares the game (a few minutes); see the notes |
+| King's Quest VI (CD) | SCI | ✅ | the same; also the Spanish fan translation |
+| Space Quest IV (CD) | SCI | ✅ | the same; also the Spanish fan translation |
+| Leisure Suit Larry 5 | SCI | ✅ | the same |
+| Freddy Pharkas: Frontier Pharmacist (CD) | SCI | ✅ | the same |
 | The Dig | SCUMM | ❌ | too big for the flash |
 | The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
 | Macintosh versions | — | ❌ | |
@@ -231,6 +248,23 @@ or changed with the GAME keyboard. Animations, voices and sprites are read from 
 they are used (the game wants more memory than the console has). With the Spanish fan
 translation, the core shows its accents right and puts ScummVM's own texts (intro captions,
 verbs, options, puzzle) in Spanish too; other versions are not affected.
+
+**Sierra games (SCI)**: King's Quest V and VI, Space Quest IV, Leisure Suit Larry 5, Freddy
+Pharkas…
+
+- Copy the game's files as they are (`RESOURCE.MAP`, `RESOURCE.000`…, and on CD versions
+  `RESOURCE.AUD` / `RESOURCE.SFX`). For a fan translation, copy its files into the same
+  folder, replacing the game's.
+- **Only that version's files.** Patch files left over from another version or translation
+  (`.v56`, `.p56`, `.scr`, `.msg`…) are loaded over the game's and break it: a garbled screen
+  and "Access violation" when entering some room.
+- The first launch shows "Preparing the game (only once)": it writes `sci.gwpack` into the
+  game's folder, then copies it to the flash. **Do not delete `sci.gwpack`**: the copy in the
+  flash is checked against it every time (and made again if something overwrote it). If it is
+  deleted it is just made again, which takes a while.
+- The game's files are read from the card; voices and music on CD versions are streamed.
+- King's Quest VI is played in its low-resolution mode.
+- Saves work both from the game's own menu and with Retro-Go's save states.
 
 </details>
 
@@ -406,22 +440,31 @@ La 1.4.1 y anteriores no pueden cargar cores desde `/cores/`.
 
 No incluye juegos ni los incluirá: usa los tuyos.
 
-### Versión actual: v0.4.0
+### Versión actual: v0.5.0
 
 | Fichero | Motor | Versión / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/scumm.svm` | scumm | `D4B4D1CA` |
-| `/cores/scummvm/sky.svm` | sky | `78D57895` |
-| `/cores/scummvm/cge.svm` | cge | `D8C799C1` |
-| `/cores/scummvm/lure.svm` | lure | `0847A661` |
-| `/cores/scummvm/sword1.svm` | sword1 | `D4BC4B3C` |
-| `/cores/scummvm/gob.svm` | gob | `2FCC0188` |
-| `/cores/scummvm/cine.svm` | cine | `2E2E39AE` |
-| `/cores/scummvm/cruise.svm` | cruise | `4ABDC626` |
-| `/cores/scummvm/queen.svm` | queen | `DEFA2C82` |
-| `/cores/scummvm/drascula.svm` | drascula | `A8099555` |
-| `/cores/scummvm/dreamweb.svm` | dreamweb | `1E5BBD06` |
+| `/cores/scummvm/agos.svm` | agos | `765A7E6B` |
+| `/cores/scummvm/cge.svm` | cge | `EC65A96D` |
+| `/cores/scummvm/cine.svm` | cine | `B69BF973` |
+| `/cores/scummvm/cruise.svm` | cruise | `E6A2C677` |
+| `/cores/scummvm/drascula.svm` | drascula | `7E54E585` |
+| `/cores/scummvm/dreamweb.svm` | dreamweb | `AC90FC61` |
+| `/cores/scummvm/gob.svm` | gob | `99BD9A09` |
+| `/cores/scummvm/kyra.svm` | kyra | `F029429D` |
+| `/cores/scummvm/lure.svm` | lure | `4870C007` |
+| `/cores/scummvm/queen.svm` | queen | `920F4B85` |
+| `/cores/scummvm/saga.svm` | saga | `FDF6F500` |
+| `/cores/scummvm/sci.svm` | sci | `BBB8B984` |
+| `/cores/scummvm/scumm.svm` | scumm | `F1010B6B` |
+| `/cores/scummvm/sky.svm` | sky | `59F4EF3D` |
+| `/cores/scummvm/sword1.svm` | sword1 | `F3A7A2B2` |
+| `/cores/scummvm/teenagent.svm` | teenagent | `BC0BE366` |
+| `/cores/scummvm/drascula.dat` | datos de ScummVM | `-` |
+| `/cores/scummvm/kyra.dat` | datos de ScummVM | `-` |
+| `/cores/scummvm/lure.dat` | datos de ScummVM | `-` |
+| `/cores/scummvm/teenagent.dat` | datos de ScummVM | `-` |
 
 El menú de PAUSE dentro de un juego los muestra en la línea *ScummVM*, por ejemplo
 `scumm D4B4D1CA L3`: motor, identificador del fichero de motor y versión del cargador. El
@@ -458,6 +501,14 @@ los ficheros con identificador nuevo. Cada versión publica los suyos en sus not
 | DreamWeb | DreamWeb | ✅ | sus terminales piden escribir: GAME abre el teclado |
 | Teenagent | Teenagent | ✅ | se guarda con los save states de Retro-Go |
 | Inherit the Earth: Quest for the Orb | SAGA | ✅ | también la traducción de fans al español |
+| Simon the Sorcerer | AGOS | ✅ | |
+| Simon the Sorcerer II | AGOS | ✅ | |
+| The Legend of Kyrandia | Kyra | ✅ | |
+| King's Quest V | SCI | ✅ | el primer arranque prepara el juego (unos minutos); ver las notas |
+| King's Quest VI (CD) | SCI | ✅ | igual; también la traducción de fans al español |
+| Space Quest IV (CD) | SCI | ✅ | igual; también la traducción de fans al español |
+| Leisure Suit Larry 5 | SCI | ✅ | igual |
+| Freddy Pharkas: Frontier Pharmacist (CD) | SCI | ✅ | igual |
 | The Dig | SCUMM | ❌ | no cabe en la flash |
 | The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
 | Versiones de Macintosh | — | ❌ | |
@@ -617,6 +668,24 @@ o cambiar con el teclado de GAME. Las animaciones, voces y sprites se leen de la
 usan (el juego pide más memoria de la que tiene la consola). Con la traducción de fans al español,
 el core muestra bien sus tildes y pone también en español los textos propios de ScummVM (subtítulos
 de la intro, verbos, opciones, puzle); las demás versiones no cambian.
+
+**Juegos de Sierra (SCI)**: King's Quest V y VI, Space Quest IV, Leisure Suit Larry 5, Freddy
+Pharkas…
+
+- Copia los ficheros del juego tal cual (`RESOURCE.MAP`, `RESOURCE.000`…, y en las versiones CD
+  `RESOURCE.AUD` / `RESOURCE.SFX`). Para una traducción de fans, copia sus ficheros en la misma
+  carpeta, sustituyendo los del juego.
+- **Solo los ficheros de esa versión.** Ficheros de parche que sobren de otra versión o
+  traducción (`.v56`, `.p56`, `.scr`, `.msg`…) se cargan por encima de los del juego y lo
+  rompen: pantalla de colores y "Access violation" al entrar en alguna sala.
+- El primer arranque muestra "Preparando juego (solo 1 vez)": escribe `sci.gwpack` en la
+  carpeta del juego y luego lo copia a la flash. **No borres `sci.gwpack`**: la copia de la
+  flash se comprueba contra él cada vez (y se rehace si algo la ha pisado). Si lo borras se
+  vuelve a crear, pero tarda un rato.
+- Los ficheros del juego se leen de la tarjeta; las voces y la música de las versiones CD se
+  leen según suenan.
+- King's Quest VI se juega en su modo de baja resolución.
+- Se puede guardar desde el menú del propio juego y con los save states de Retro-Go.
 
 </details>
 
