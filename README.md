@@ -168,6 +168,9 @@ Prefer FLAC with a seek table. Every line of speech is a jump into that hour-lon
 an MP3 has to be walked from its start to get there: the game stops for several seconds
 before each line. A FLAC with a seek table (one point a second is plenty) jumps straight there.
 It is a few times larger (about 370 MB), which the SD card does not mind.
+From an MP3, with ffmpeg and the `flac` tool (ffmpeg alone writes no seek table):
+`ffmpeg -i track1.mp3 track1.wav` then `flac --best -S 1s track1.wav`. The sound stays as the
+MP3 had it.
 
 **Gobliiins and Ween: The Prophecy**
 
@@ -546,6 +549,9 @@ Mejor en FLAC con tabla de búsqueda. Cada frase es un salto dentro de esa pista
 hora, y en un MP3 hay que recorrerla desde el principio para llegar: el juego se para varios
 segundos antes de cada frase. Un FLAC con tabla de búsqueda (un punto por segundo basta) salta
 directo. Ocupa varias veces más (unos 370 MB), lo que a la SD le da igual.
+Desde un MP3, con ffmpeg y la herramienta `flac` (ffmpeg solo no escribe la tabla de
+búsqueda): `ffmpeg -i track1.mp3 track1.wav` y luego `flac --best -S 1s track1.wav`. Suena
+igual que el MP3.
 
 **Gobliiins y Ween: The Prophecy**
 
