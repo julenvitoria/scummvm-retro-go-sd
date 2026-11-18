@@ -1,55 +1,55 @@
-name: "Fallo / Bug report"
-description: "Un juego falla, se cuelga o no arranca / A game fails, hangs or does not start"
+name: "Bug report / Fallo"
+description: "A game fails, hangs or does not start / Un juego falla, se cuelga o no arranca"
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        **ES:** Gracias por avisar. Lo más útil es el fichero `/saves/scummvm/scummvm.log` de la tarjeta **justo después del fallo**, antes de arrancar otro juego (se reescribe en cada arranque).
         **EN:** Thanks for reporting. The most useful thing is the SD card's `/saves/scummvm/scummvm.log` **right after the failure**, before starting another game (it is rewritten on every start).
+        **ES:** Gracias por avisar. Lo más útil es el fichero `/saves/scummvm/scummvm.log` de la tarjeta **justo después del fallo**, antes de arrancar otro juego (se reescribe en cada arranque).
 
-        Por favor, no subas ficheros de los juegos. / Please do not upload game files.
+        Please do not upload game files. / Por favor, no subas ficheros de los juegos.
 
   - type: input
     id: game
     attributes:
-      label: "Juego, versión e idioma / Game, version and language"
-      description: "Ej. / e.g.: Full Throttle, CD, español / Monkey Island 2, DOS floppy, English"
+      label: "Game, version and language / Juego, versión e idioma"
+      description: "e.g. / ej.: Monkey Island 2, DOS floppy, English / Full Throttle, CD, español"
     validations:
       required: true
 
   - type: input
     id: release
     attributes:
-      label: "Versión del core / Core version"
-      description: "La de la release (ej. v0.3.0) o la línea 'version ...' del principio de scummvm.log / The release (e.g. v0.3.0) or the 'version ...' line at the top of scummvm.log"
+      label: "Core version / Versión del core"
+      description: "The release (e.g. v0.5.0) or the 'version ...' line at the top of scummvm.log / La de la release (ej. v0.5.0) o la línea 'version ...' del principio de scummvm.log"
     validations:
       required: true
 
   - type: dropdown
     id: when
     attributes:
-      label: "¿Cuándo pasa? / When does it happen?"
+      label: "When does it happen? / ¿Cuándo pasa?"
       options:
-        - "Al arrancar el juego / When the game starts"
-        - "Durante la partida / While playing"
-        - "Al cargar un save state de Retro-Go / Loading a Retro-Go save state"
-        - "Al guardar un save state de Retro-Go / Saving a Retro-Go save state"
-        - "Al guardar o cargar desde el menú del juego / Saving or loading from the game's own menu"
-        - "Al volver del apagado (botón de encendido) / Coming back from sleep (power button)"
-        - "Otro / Other"
+        - "When the game starts / Al arrancar el juego"
+        - "While playing / Durante la partida"
+        - "Loading a Retro-Go save state / Al cargar un save state de Retro-Go"
+        - "Saving a Retro-Go save state / Al guardar un save state de Retro-Go"
+        - "Saving or loading from the game's own menu / Al guardar o cargar desde el menú del juego"
+        - "Coming back from sleep (power button) / Al volver del apagado (botón de encendido)"
+        - "Other / Otro"
     validations:
       required: true
 
   - type: textarea
     id: steps
     attributes:
-      label: "Qué hiciste y qué pasó / What you did and what happened"
-      description: "Pasos para reproducirlo, y qué se ve en pantalla (mensaje de error, pantallazo azul con PC/LR, se reinicia, pantalla negra...) / Steps to reproduce, and what is on screen (error message, blue screen with PC/LR, reboot, black screen...)"
+      label: "What you did and what happened / Qué hiciste y qué pasó"
+      description: "Steps to reproduce, and what is on screen (error message, blue screen with PC/LR, reboot, black screen...) / Pasos para reproducirlo, y qué se ve en pantalla (mensaje de error, pantallazo azul con PC/LR, se reinicia, pantalla negra...)"
       placeholder: |
-        1. Cargo la partida en ... / I load the game at ...
-        2. Entro en ... / I go into ...
-        3. Sale "ScummVM stopped: ..." / "ScummVM stopped: ..." appears
+        1. I load the game at ... / Cargo la partida en ...
+        2. I go into ... / Entro en ...
+        3. "ScummVM stopped: ..." appears / Sale "ScummVM stopped: ..."
     validations:
       required: true
 
@@ -57,16 +57,16 @@ body:
     id: log
     attributes:
       label: "scummvm.log"
-      description: "Arrastra aquí el fichero /saves/scummvm/scummvm.log, o pega su contenido / Drag /saves/scummvm/scummvm.log here, or paste its contents"
+      description: "Drag /saves/scummvm/scummvm.log here, or paste its contents / Arrastra aquí el fichero /saves/scummvm/scummvm.log, o pega su contenido"
     validations:
       required: true
 
   - type: textarea
     id: extra
     attributes:
-      label: "Más información (opcional) / More (optional)"
+      label: "More (optional) / Más información (opcional)"
       description: |
-        - Foto de la pantalla si hay mensaje o pantallazo azul / A photo of the screen if there is a message or a blue screen
-        - El save state de Retro-Go de justo antes del fallo (`/data/scummvm/<juego>.scummvm-N.sav`), o la partida del juego si el fallo es al cargarla / The Retro-Go save state from just before the failure (`/data/scummvm/<game>.scummvm-N.sav`), or the game's save if it fails when loading it
-        - Lista de ficheros de la carpeta del juego (solo los nombres) / The game folder's file list (names only)
-        - Modelo de consola y tamaño de la flash / Console model and flash size
+        - A photo of the screen if there is a message or a blue screen / Foto de la pantalla si hay mensaje o pantallazo azul
+        - The Retro-Go save state from just before the failure (`/data/scummvm/<game>.scummvm-N.sav`), or the game's save if it fails when loading it / El save state de Retro-Go de justo antes del fallo (`/data/scummvm/<juego>.scummvm-N.sav`), o la partida del juego si el fallo es al cargarla
+        - The game folder's file list (names only) / Lista de ficheros de la carpeta del juego (solo los nombres)
+        - Console model and flash size / Modelo de consola y tamaño de la flash
