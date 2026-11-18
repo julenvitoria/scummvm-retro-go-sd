@@ -8396,7 +8396,7 @@ index 46475ddc633..9dd24e8ab52 100644
  	// Reaching the compression terminator before writing _szUnpacked bytes is
  	// expected. For kCompLZW1View and kCompLZW1Pic, the unpacked size is not
 diff --git a/engines/sci/resource/resource.cpp b/engines/sci/resource/resource.cpp
-index c757692038a..d945a92f5cc 100644
+index c757692038a..2437125af7d 100644
 --- a/engines/sci/resource/resource.cpp
 +++ b/engines/sci/resource/resource.cpp
 @@ -39,6 +39,10 @@
@@ -8475,7 +8475,7 @@ index c757692038a..d945a92f5cc 100644
  }
  
  void ResourceManager::addAppropriateSources() {
-@@ -1004,7 +1036,332 @@ void ResourceManager::freeResourceSources() {
+@@ -1004,7 +1036,337 @@ void ResourceManager::freeResourceSources() {
  ResourceManager::ResourceManager(const bool detectionMode) :
  	_detectionMode(detectionMode) {}
  
@@ -8563,7 +8563,7 @@ index c757692038a..d945a92f5cc 100644
 +bool ResourceManager::gwPackSame(const byte *p, uint32 size, const Common::String &path) {
 +	void *f = plat_fopen(path.c_str(), "rb");
 +	if (!f)
-+		return true;	// (nothing to tell it by: taken as it is)
++		return false;	// (gwPackInit made it just before: not to be trusted without it)
 +	bool same = true;
 +	byte buf[256];
 +	for (uint i = 0; same && i < 64; i++) {
@@ -8587,11 +8587,11 @@ index c757692038a..d945a92f5cc 100644
 +	snprintf(key, sizeof(key), "svm-sci|%08x|%u", sig, _resMap.size());	// (not a new key for a new copy: the flash had no room for five more)
 +	const Common::String path = Common::String(plat_game_path()) + "/sci.gwpack";
 +	uint32 size = 0;
-+	const byte *p = plat_blob(key, nullptr, &size, 0);
-+	debug("sci.gwpack: %s in the flash (%u KB)", gwPackOK((const GWPackHead *)p, size, sig) ? "found" : "not", size / 1024);
-+	plat_log_flush();
-+	if (!gwPackOK((const GWPackHead *)p, size, sig)) {
-+		// the file on the card: made now unless it is the one for these files
++	// the file on the card first, always: it is what the copy in the flash is checked against
++	// (King's Quest V hung at its start on a copy that a new core had half overwritten, still
++	// found under its key, with no file on the card to tell it by). Made now unless it is there
++	// and is the one for these files.
++	{
 +		GWPackHead h;
 +		void *f = plat_fopen(path.c_str(), "rb");
 +		const bool ok = f && plat_fread(&h, sizeof(h), f) == sizeof(h);
@@ -8604,6 +8604,11 @@ index c757692038a..d945a92f5cc 100644
 +				error("No se pudo crear sci.gwpack en la carpeta del juego (la SD esta llena?)");
 +			}
 +		}
++	}
++	const byte *p = plat_blob(key, nullptr, &size, 0);
++	debug("sci.gwpack: %s in the flash (%u KB)", gwPackOK((const GWPackHead *)p, size, sig) ? "found" : "not", size / 1024);
++	plat_log_flush();
++	if (!gwPackOK((const GWPackHead *)p, size, sig)) {
 +		p = plat_blob(key, path.c_str(), &size, 0);
 +		debug("sci.gwpack: copied (%u KB)", size / 1024);
 +		plat_log_flush();
@@ -8808,7 +8813,7 @@ index c757692038a..d945a92f5cc 100644
  	_maxMemoryLRU = 256 * 1024; // 256KiB
  	_memoryLocked = 0;
  	_memoryLRU = 0;
-@@ -1023,6 +1380,12 @@ void ResourceManager::init() {
+@@ -1023,6 +1385,12 @@ void ResourceManager::init() {
  
  	// FIXME: put this in an Init() function, so that we can error out if detection fails completely
  
@@ -8821,7 +8826,7 @@ index c757692038a..d945a92f5cc 100644
  	_mapVersion = detectMapVersion();
  	_volVersion = detectVolVersion();
  
-@@ -1057,7 +1420,9 @@ void ResourceManager::init() {
+@@ -1057,7 +1425,9 @@ void ResourceManager::init() {
  #endif
  		_isSci2Mac = false;
  
@@ -8831,7 +8836,7 @@ index c757692038a..d945a92f5cc 100644
  
  	if (!addAudioSources()) {
  		// FIXME: This error message is not always correct.
-@@ -1069,10 +1434,27 @@ void ResourceManager::init() {
+@@ -1069,10 +1439,27 @@ void ResourceManager::init() {
  
  	addScriptChunkSources();
  	scanNewSources();
@@ -8859,7 +8864,7 @@ index c757692038a..d945a92f5cc 100644
  
  	// Resources in SCI32 games are significantly larger than SCI16
  	// games and can cause immediate exhaustion of the LRU resource
-@@ -1108,6 +1490,12 @@ void ResourceManager::init() {
+@@ -1108,6 +1495,12 @@ void ResourceManager::init() {
  }
  
  ResourceManager::~ResourceManager() {
@@ -8872,7 +8877,7 @@ index c757692038a..d945a92f5cc 100644
  	// freeing resources
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
-@@ -1169,11 +1557,27 @@ Common::List<ResourceId> ResourceManager::listResources(ResourceType type, int m
+@@ -1169,11 +1562,27 @@ Common::List<ResourceId> ResourceManager::listResources(ResourceType type, int m
  			resources.push_back(itr->_value->_id);
  		++itr;
  	}
@@ -8900,7 +8905,7 @@ index c757692038a..d945a92f5cc 100644
  	ResourceMap::iterator itr = _resMap.begin();
  	while (itr != _resMap.end()) {
  		if (itr->_value->getType() == type) {
-@@ -2188,6 +2592,10 @@ bool ResourceManager::validateResource(const ResourceId &resourceId, const Commo
+@@ -2188,6 +2597,10 @@ bool ResourceManager::validateResource(const ResourceId &resourceId, const Commo
  }
  
  Resource *ResourceManager::addResource(ResourceId resId, ResourceSource *src, uint32 offset, uint32 size, const Common::Path &sourceMapLocation) {
@@ -8911,7 +8916,7 @@ index c757692038a..d945a92f5cc 100644
  	// Adding new resource only if it does not exist
  	// Hoyle 4 contains each audio resource twice. The first file is in an unknown
  	// format and only static sounds are heard when it's played. The second file
-@@ -3120,6 +3528,11 @@ bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {
+@@ -3120,6 +3533,11 @@ bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {
  }
  
  const Common::Path &Resource::getResourceLocation() const {
