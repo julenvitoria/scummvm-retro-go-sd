@@ -15434,7 +15434,7 @@ index 6811045b707..a4648f3fd40 100644
  						handleMenuAction(&menuData, button->action);
  						doRedraw = true;
 diff --git a/engines/touche/resource.cpp b/engines/touche/resource.cpp
-index 140bfcb5053..bb33f1aab10 100644
+index 140bfcb5053..d8930e7a78a 100644
 --- a/engines/touche/resource.cpp
 +++ b/engines/touche/resource.cpp
 @@ -34,6 +34,10 @@
@@ -15650,7 +15650,7 @@ index 140bfcb5053..bb33f1aab10 100644
  }
  
  void ToucheEngine::res_loadImage(int num, uint8 *dst) {
-@@ -551,12 +645,75 @@ void ToucheEngine::res_loadImage(int num, uint8 *dst) {
+@@ -551,12 +645,101 @@ void ToucheEngine::res_loadImage(int num, uint8 *dst) {
  	_fData.seek(offsInfo);
  	_currentImageWidth = _fData.readUint16LE();
  	_currentImageHeight = _fData.readUint16LE();
@@ -15679,9 +15679,34 @@ index 140bfcb5053..bb33f1aab10 100644
 +	const int hw = gwHalf(w);
 +	_gwMarkW = w;
 +	_gwMarkH = h;
++	// the RLE read through a 2 KB window, not a byte at a time from the file: on the card each
++	// byte was a call of its own, and a room's picture stopped the game for a moment
++	uint8 win[2048];
++	uint32 at = 0, got = 0;
++	const int64 base = _fData.pos();
++	int64 used = 0;
++	auto next = [&]() -> uint8 {
++		if (at >= got) {
++			got = _fData.read(win, sizeof(win));
++			at = 0;
++			if (!got)
++				return 0;
++		}
++		used++;
++		return win[at++];
++	};
 +	for (int y = 0; y < h; ++y) {
 +		uint8 *row = y ? _gwRow : _gwRow0;
-+		res_decodeScanLineImageRLE(row, w);
++		for (int x = 0; x < w;) {
++			const uint8 code = next();
++			if ((code & 0xC0) == 0xC0) {
++				const int len = MIN(code & 0x3F, w - x);
++				memset(row + x, next(), len);
++				x += code & 0x3F;
++			} else {
++				row[x++] = code;
++			}
++		}
 +		if (y == 0) {
 +			for (int x = 0; x < w; ++x)
 +				if (row[x] == 64 || row[x] == 255) {
@@ -15697,6 +15722,7 @@ index 140bfcb5053..bb33f1aab10 100644
 +				d[x] = row[x << 1];
 +		}
 +	}
++	_fData.seek(base + used);	// (where the byte-at-a-time reading would have left it)
 +}
 +
 +void ToucheEngine::res_loadImageHelper(uint8 *imgData, int imgWidth, int imgHeight) {
@@ -15726,7 +15752,7 @@ index 140bfcb5053..bb33f1aab10 100644
  void ToucheEngine::res_loadImageHelper(uint8 *imgData, int imgWidth, int imgHeight) {
  	uint8 *p = imgData;
  	for (_currentImageHeight = 0; _currentImageHeight < imgHeight; ++_currentImageHeight, p += imgWidth) {
-@@ -584,6 +741,7 @@ void ToucheEngine::res_loadImageHelper(uint8 *imgData, int imgWidth, int imgHeig
+@@ -584,6 +767,7 @@ void ToucheEngine::res_loadImageHelper(uint8 *imgData, int imgWidth, int imgHeig
  		}
  	}
  }
