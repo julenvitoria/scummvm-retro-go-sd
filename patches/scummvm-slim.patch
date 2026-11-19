@@ -6022,10 +6022,10 @@ index ad471deedb1..4b240653a7f 100644
  	byte _replOldColor;
  	byte _replNewColor;
 diff --git a/engines/neverhood/resourceman.cpp b/engines/neverhood/resourceman.cpp
-index 726c1700d63..d0970ae0a95 100644
+index 726c1700d63..2e193b08771 100644
 --- a/engines/neverhood/resourceman.cpp
 +++ b/engines/neverhood/resourceman.cpp
-@@ -20,6 +20,24 @@
+@@ -20,6 +20,25 @@
   */
  
  #include "neverhood/resourceman.h"
@@ -6034,6 +6034,7 @@ index 726c1700d63..d0970ae0a95 100644
 +#include "common/memstream.h"
 +#include "common/bufferedstream.h"
 +#include "common/stream.h"
++#include "common/algorithm.h"
 +
 +extern "C" {
 +const char *plat_game_path(void);
@@ -6050,7 +6051,7 @@ index 726c1700d63..d0970ae0a95 100644
  
  namespace Neverhood {
  
-@@ -34,7 +52,209 @@ ResourceMan::ResourceMan() {
+@@ -34,7 +53,224 @@ ResourceMan::ResourceMan() {
  }
  
  ResourceMan::~ResourceMan() {
@@ -6238,6 +6239,21 @@ index 726c1700d63..d0970ae0a95 100644
 +		error("neverhood.gwp: cannot open it");
 +}
 +
++// a resource read from the card as it is used, through its own handle on the file (the sounds:
++// the mixer reads them while the game reads others)
++Common::SeekableReadStream *ResourceMan::gwStream(ResourceHandle &resourceHandle) {
++	GWRes res;
++	if (!gwLocate(resourceHandle, res) || res.mem)
++		return nullptr;
++	Common::File *f = new Common::File();
++	if (!f->open(res.gwp ? Common::Path("neverhood.gwp") : Common::Path(res.blb->getName()))) {
++		delete f;
++		return nullptr;
++	}
++	return Common::wrapBufferedSeekableReadStream(
++		new Common::SeekableSubReadStream(f, res.base, res.base + res.size, DisposeAfterUse::YES), 1024, DisposeAfterUse::YES);
++}
++
 +bool ResourceMan::gwLocate(ResourceHandle &resourceHandle, GWRes &res) {
 +	res = GWRes();
 +	if (!resourceHandle.isValid() || !resourceHandle._resourceFileEntry->archiveEntry ||
@@ -6260,7 +6276,101 @@ index 726c1700d63..d0970ae0a95 100644
  
  void ResourceMan::addArchive(const Common::Path &filename, bool isOptional) {
  	BlbArchive *archive = new BlbArchive();
-@@ -232,7 +452,14 @@ void ResourceMan::loadResource(ResourceHandle &resourceHandle, bool applyResourc
+@@ -44,6 +280,21 @@ void ResourceMan::addArchive(const Common::Path &filename, bool isOptional) {
+ 	}
+ 	_archives.push_back(archive);
+ 	debug(3, "ResourceMan::addArchive(%s) %d files", filename.toString(Common::Path::kNativeSeparator).c_str(), archive->getCount());
++#ifdef GW_NEVERHOOD_SLIM
++	// added as they are; gwSort() keeps the newest of each hash, as below
++	_entries.reserve(_entries.size() + archive->getCount());
++	for (uint archiveEntryIndex = 0; archiveEntryIndex < archive->getCount(); archiveEntryIndex++) {
++		ResourceFileEntry newEntry;
++		newEntry.resourceHandle = _entries.size();	// (the order they came in: gwSort())
++		newEntry.archive = archive;
++		newEntry.archiveEntry = archive->getEntry(archiveEntryIndex);
++		newEntry.nhcArchive = nullptr;
++		newEntry.nhcArchiveEntry = nullptr;
++		_entries.push_back(newEntry);
++	}
++	_gwUnsorted = true;
++	return;
++#endif
+ 	for (uint archiveEntryIndex = 0; archiveEntryIndex < archive->getCount(); archiveEntryIndex++) {
+ 		BlbArchiveEntry *archiveEntry = archive->getEntry(archiveEntryIndex);
+ 		ResourceFileEntry *entry = findEntrySimple(archiveEntry->fileHash);
+@@ -85,17 +336,71 @@ bool ResourceMan::addNhcArchive(const Common::Path &filename) {
+ 			newEntry.archiveEntry = nullptr;
+ 			newEntry.nhcArchive = archive;
+ 			newEntry.nhcArchiveEntry = archiveEntry;
++#ifdef GW_NEVERHOOD_SLIM
++			newEntry.resourceHandle = _entries.size();
++			_entries.push_back(newEntry);
++			_gwUnsorted = true;
++#else
+ 			_entries[archiveEntry->fileHash] = newEntry;
++#endif
+ 		}
+ 	}
+ 
+ 	return true;
+ }
+ 
++#ifdef GW_NEVERHOOD_SLIM
++uint32 ResourceMan::gwHash(const ResourceFileEntry &e) {
++	return e.archiveEntry ? e.archiveEntry->fileHash : e.nhcArchiveEntry->fileHash;
++}
++
++void ResourceMan::gwSort() {
++	// by hash; of one hash, the newest first (and of those, the one added first)
++	Common::sort(_entries.begin(), _entries.end(), [](const ResourceFileEntry &a, const ResourceFileEntry &b) {
++		const uint32 ha = gwHash(a), hb = gwHash(b);
++		if (ha != hb)
++			return ha < hb;
++		const uint32 ta = a.archiveEntry ? a.archiveEntry->timeStamp : 0, tb = b.archiveEntry ? b.archiveEntry->timeStamp : 0;
++		if (ta != tb)
++			return ta > tb;
++		return a.resourceHandle < b.resourceHandle;
++	});
++	uint n = 0;
++	for (uint i = 0; i < _entries.size(); i++)
++		if (!n || gwHash(_entries[i]) != gwHash(_entries[n - 1]))
++			_entries[n++] = _entries[i];
++	Common::Array<ResourceFileEntry> exact;	// (no room to spare)
++	exact.reserve(n);
++	for (uint i = 0; i < n; i++) {
++		exact.push_back(_entries[i]);
++		exact.back().resourceHandle = -1;
++	}
++	_entries.swap(exact);
++	_gwUnsorted = false;
++}
++
++ResourceFileEntry *ResourceMan::findEntrySimple(uint32 fileHash) {
++	if (_gwUnsorted)
++		gwSort();
++	int lo = 0, hi = (int)_entries.size() - 1;
++	while (lo <= hi) {
++		const int mid = (lo + hi) / 2;
++		const uint32 h = gwHash(_entries[mid]);
++		if (h == fileHash)
++			return &_entries[mid];
++		if (h < fileHash)
++			lo = mid + 1;
++		else
++			hi = mid - 1;
++	}
++	return nullptr;
++}
++#else
+ ResourceFileEntry *ResourceMan::findEntrySimple(uint32 fileHash) {
+ 	EntriesMap::iterator p = _entries.find(fileHash);
+ 	return p != _entries.end() ? &p->_value : nullptr;
+ }
++#endif
+ 
+ ResourceFileEntry *ResourceMan::findEntry(uint32 fileHash, ResourceFileEntry **firstEntry) {
+ 	ResourceFileEntry *entry = findEntrySimple(fileHash);
+@@ -232,7 +537,14 @@ void ResourceMan::loadResource(ResourceHandle &resourceHandle, bool applyResourc
  
  void ResourceMan::unloadResource(ResourceHandle &resourceHandle) {
  	if (resourceHandle.isValid()) {
@@ -6275,7 +6385,7 @@ index 726c1700d63..d0970ae0a95 100644
  		if (resourceData && resourceData->dataRefCount > 0)
  			--resourceData->dataRefCount;
  		resourceHandle._resourceFileEntry = nullptr;
-@@ -243,7 +470,7 @@ void ResourceMan::unloadResource(ResourceHandle &resourceHandle) {
+@@ -243,7 +555,7 @@ void ResourceMan::unloadResource(ResourceHandle &resourceHandle) {
  void ResourceMan::purgeResources() {
  	for (Common::HashMap<uint32, ResourceData*>::iterator it = _data.begin(); it != _data.end(); ++it) {
  		ResourceData *resourceData = it->_value;
@@ -6285,7 +6395,7 @@ index 726c1700d63..d0970ae0a95 100644
  			resourceData->data = nullptr;
  		}
 diff --git a/engines/neverhood/resourceman.h b/engines/neverhood/resourceman.h
-index 2decc59663c..1c1d258ae85 100644
+index 2decc59663c..dcb16f3ca2b 100644
 --- a/engines/neverhood/resourceman.h
 +++ b/engines/neverhood/resourceman.h
 @@ -104,6 +104,37 @@ protected:
@@ -6326,18 +6436,44 @@ index 2decc59663c..1c1d258ae85 100644
  class ResourceMan {
  public:
  	ResourceMan();
-@@ -122,6 +153,11 @@ public:
+@@ -116,17 +147,37 @@ public:
+ 	Common::SeekableReadStream *createNhcStream(uint32 fileHash, uint32 type);
+ 	bool nhcExists(uint32 fileHash, uint32 type);
+ 	bool exists(uint32 fileHash);
++#ifdef GW_NEVERHOOD_SLIM
++	const ResourceFileEntry& getEntry(uint index) { return _entries[index]; }
++	uint getEntryCount() { return _entries.size(); }
++#else
+ 	const ResourceFileEntry& getEntry(uint index) { return _entries[index]; }
+ 	uint getEntryCount() { return _entries.size(); }
++#endif
+ 	void queryResource(uint32 fileHash, ResourceHandle &resourceHandle);
  	void loadResource(ResourceHandle &resourceHandle, bool applyResourceFixes);
  	void unloadResource(ResourceHandle &resourceHandle);
  	void purgeResources();
 +#ifdef GW_NEVERHOOD_SLIM
 +	void gwPack();						// (after the archives are added)
 +	bool gwLocate(ResourceHandle &resourceHandle, GWRes &res);
++	Common::SeekableReadStream *gwStream(ResourceHandle &resourceHandle);	// (its own file handle)
 +	void *_gwp = nullptr;
 +#endif
  protected:
  	typedef Common::HashMap<uint32, ResourceFileEntry> EntriesMap;
  	Common::Array<BlbArchive*> _archives;
+ 	Common::Array<NhcArchive*> _nhcArchives;
++#ifdef GW_NEVERHOOD_SLIM
++	// a sorted array, not a hash map (255 -> ~55 KB on the console): sorted once the archives
++	// are in, before the first look-up (until then entries are only added)
++	Common::Array<ResourceFileEntry> _entries;
++	bool _gwUnsorted = false;
++	static uint32 gwHash(const ResourceFileEntry &e);
++	void gwSort();
++#else
+ 	EntriesMap _entries;
++#endif
+ 	Common::HashMap<uint32, ResourceData*> _data;
+ 	Common::Array<Resource*> _resources;
+ };
 diff --git a/engines/neverhood/screen.cpp b/engines/neverhood/screen.cpp
 index 11e8c6324de..222a4f86704 100644
 --- a/engines/neverhood/screen.cpp
@@ -6879,6 +7015,45 @@ index 8eaf854bfa4..6b0ab5d2b07 100644
  	bool _keepLastFrame;
  	bool _videoDone;
  	bool _paused;
+diff --git a/engines/neverhood/sound.cpp b/engines/neverhood/sound.cpp
+index a2aef592cb8..44ee4fd0055 100644
+--- a/engines/neverhood/sound.cpp
++++ b/engines/neverhood/sound.cpp
+@@ -602,6 +602,13 @@ AudioResourceManSoundItem::~AudioResourceManSoundItem() {
+ }
+ 
+ void AudioResourceManSoundItem::loadSound() {
++#ifdef GW_NEVERHOOD_SLIM
++	{
++		GWRes r;	// (a sound on the card is read as it plays: playSound)
++		if (_resourceHandle.isValid() && _resourceHandle.type() == kResTypeSound && _vm->_res->gwLocate(_resourceHandle, r) && !r.mem)
++			return;
++	}
++#endif
+ 	if (!_data && _resourceHandle.isValid() &&
+ 		(_resourceHandle.type() == kResTypeSound || _resourceHandle.type() == kResTypeMusic)) {
+ 		_vm->_res->loadResource(_resourceHandle, _vm->applyResourceFixes());
+@@ -629,6 +636,20 @@ void AudioResourceManSoundItem::setPan(int16 pan) {
+ }
+ 
+ void AudioResourceManSoundItem::playSound(bool looping) {
++#ifdef GW_NEVERHOOD_SLIM
++	// read from the card as it plays, not loaded whole (a speech clip is up to 160 KB)
++	if (!_data && _resourceHandle.isValid() && _resourceHandle.type() == kResTypeSound) {
++		Common::SeekableReadStream *stream = _vm->_res->gwStream(_resourceHandle);
++		if (stream) {
++			const byte *shiftValue = _resourceHandle.extData();
++			NeverhoodAudioStream *audioStream = new NeverhoodAudioStream(22050, *shiftValue, looping, DisposeAfterUse::YES, stream);
++			_vm->_mixer->playStream(Audio::Mixer::kSFXSoundType, _soundHandle,
++				audioStream, -1, VOLUME(_volume), PANNING(_panning));
++			_isPlaying = true;
++			return;
++		}
++	}
++#endif
+ 	if (!_data)
+ 		loadSound();
+ 	if (_data) {
 diff --git a/engines/queen/bankman.cpp b/engines/queen/bankman.cpp
 index 30ea16e0998..3be045075ae 100644
 --- a/engines/queen/bankman.cpp
