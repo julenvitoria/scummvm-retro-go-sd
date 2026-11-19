@@ -5883,7 +5883,7 @@ index ad471deedb1..4b240653a7f 100644
  	byte _replOldColor;
  	byte _replNewColor;
 diff --git a/engines/neverhood/resourceman.cpp b/engines/neverhood/resourceman.cpp
-index 726c1700d63..a0b279cc0f8 100644
+index 726c1700d63..6e27ec31ed0 100644
 --- a/engines/neverhood/resourceman.cpp
 +++ b/engines/neverhood/resourceman.cpp
 @@ -20,6 +20,24 @@
@@ -6118,6 +6118,30 @@ index 726c1700d63..a0b279cc0f8 100644
  
  void ResourceMan::addArchive(const Common::Path &filename, bool isOptional) {
  	BlbArchive *archive = new BlbArchive();
+@@ -232,7 +449,14 @@ void ResourceMan::loadResource(ResourceHandle &resourceHandle, bool applyResourc
+ 
+ void ResourceMan::unloadResource(ResourceHandle &resourceHandle) {
+ 	if (resourceHandle.isValid()) {
++#ifdef GW_NEVERHOOD_SLIM
++		// (find, not []: a resource read from the card was never loaded, and [] would leave an
++		// empty entry for purgeResources to trip on)
++		Common::HashMap<uint32, ResourceData*>::iterator it = _data.find(resourceHandle.fileHash());
++		ResourceData *resourceData = it != _data.end() ? it->_value : nullptr;
++#else
+ 		ResourceData *resourceData = _data[resourceHandle.fileHash()];
++#endif
+ 		if (resourceData && resourceData->dataRefCount > 0)
+ 			--resourceData->dataRefCount;
+ 		resourceHandle._resourceFileEntry = nullptr;
+@@ -243,7 +467,7 @@ void ResourceMan::unloadResource(ResourceHandle &resourceHandle) {
+ void ResourceMan::purgeResources() {
+ 	for (Common::HashMap<uint32, ResourceData*>::iterator it = _data.begin(); it != _data.end(); ++it) {
+ 		ResourceData *resourceData = it->_value;
+-		if (resourceData->dataRefCount == 0) {
++		if (resourceData && resourceData->dataRefCount == 0) {
+ 			delete[] resourceData->data;
+ 			resourceData->data = nullptr;
+ 		}
 diff --git a/engines/neverhood/resourceman.h b/engines/neverhood/resourceman.h
 index 2decc59663c..45952911aaf 100644
 --- a/engines/neverhood/resourceman.h
