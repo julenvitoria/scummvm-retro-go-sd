@@ -12,12 +12,12 @@ Version 1.4.1 and earlier cannot load cores from `/cores/`.
 
 No games are included, nor will they be: bring your own.
 
-### Current version: v0.5.1
+### Current version: v0.6.0
 
 | File | Engine | Version / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/agos.svm` | agos | `004BDB2D` |
+| `/cores/scummvm/agos.svm` | agos | `998349CB` |
 | `/cores/scummvm/cge.svm` | cge | `10CD749B` |
 | `/cores/scummvm/cine.svm` | cine | `5384CF1E` |
 | `/cores/scummvm/cruise.svm` | cruise | `FEA583E9` |
@@ -33,6 +33,7 @@ No games are included, nor will they be: bring your own.
 | `/cores/scummvm/sky.svm` | sky | `B6CED35A` |
 | `/cores/scummvm/sword1.svm` | sword1 | `5E9E9DAA` |
 | `/cores/scummvm/teenagent.svm` | teenagent | `503E03D6` |
+| `/cores/scummvm/touche.svm` | touche | `4D18E019` |
 | `/cores/scummvm/drascula.dat` | ScummVM data | `-` |
 | `/cores/scummvm/kyra.dat` | ScummVM data | `-` |
 | `/cores/scummvm/lure.dat` | ScummVM data | `-` |
@@ -81,6 +82,7 @@ its own in its notes.
 | Space Quest IV (CD) | SCI | ✅ | the same; also the Spanish fan translation |
 | Leisure Suit Larry 5 | SCI | ✅ | the same |
 | Freddy Pharkas: Frontier Pharmacist (CD) | SCI | ✅ | the same |
+| Touché: The Adventures of the Fifth Musketeer (CD) | Touché | ✅ | half resolution; its CD music as MP3; see the notes |
 | The Dig | SCUMM | ❌ | too big for the flash |
 | The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
 | Macintosh versions | — | ❌ | |
@@ -252,6 +254,14 @@ or changed with the GAME keyboard. Animations, voices and sprites are read from 
 they are used (the game wants more memory than the console has). With the Spanish fan
 translation, the core shows its accents right and puts ScummVM's own texts (intro captions,
 verbs, options, puzzle) in Spanish too; other versions are not affected.
+
+**Touché: The Adventures of the Fifth Musketeer**: the game is 640x400 and is kept at half
+size, 320x200, the panel's own -- nothing it shows is lost, at a quarter of the memory. The
+talk and the menu are drawn in letters half as big again, to be read at that size.
+
+- **Its CD music must be MP3**, `track02.mp3`…: the Ogg Vorbis decoder needs 95 KB that the
+  biggest rooms do not leave. Convert `.ogg` tracks with e.g. `ffmpeg -i track02.ogg track02.mp3`.
+- The game may stop for an instant when it loads a new picture from the card.
 
 **Sierra games (SCI)**: King's Quest V and VI, Space Quest IV, Leisure Suit Larry 5, Freddy
 Pharkas…
@@ -444,12 +454,12 @@ La 1.4.1 y anteriores no pueden cargar cores desde `/cores/`.
 
 No incluye juegos ni los incluirá: usa los tuyos.
 
-### Versión actual: v0.5.1
+### Versión actual: v0.6.0
 
 | Fichero | Motor | Versión / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/agos.svm` | agos | `004BDB2D` |
+| `/cores/scummvm/agos.svm` | agos | `998349CB` |
 | `/cores/scummvm/cge.svm` | cge | `10CD749B` |
 | `/cores/scummvm/cine.svm` | cine | `5384CF1E` |
 | `/cores/scummvm/cruise.svm` | cruise | `FEA583E9` |
@@ -465,6 +475,7 @@ No incluye juegos ni los incluirá: usa los tuyos.
 | `/cores/scummvm/sky.svm` | sky | `B6CED35A` |
 | `/cores/scummvm/sword1.svm` | sword1 | `5E9E9DAA` |
 | `/cores/scummvm/teenagent.svm` | teenagent | `503E03D6` |
+| `/cores/scummvm/touche.svm` | touche | `4D18E019` |
 | `/cores/scummvm/drascula.dat` | datos de ScummVM | `-` |
 | `/cores/scummvm/kyra.dat` | datos de ScummVM | `-` |
 | `/cores/scummvm/lure.dat` | datos de ScummVM | `-` |
@@ -513,6 +524,7 @@ los ficheros con identificador nuevo. Cada versión publica los suyos en sus not
 | Space Quest IV (CD) | SCI | ✅ | igual; también la traducción de fans al español |
 | Leisure Suit Larry 5 | SCI | ✅ | igual |
 | Freddy Pharkas: Frontier Pharmacist (CD) | SCI | ✅ | igual |
+| Touché: The Adventures of the Fifth Musketeer (CD) | Touché | ✅ | a media resolución; su música de CD en MP3; ver las notas |
 | The Dig | SCUMM | ❌ | no cabe en la flash |
 | The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
 | Versiones de Macintosh | — | ❌ | |
@@ -676,6 +688,16 @@ o cambiar con el teclado de GAME. Las animaciones, voces y sprites se leen de la
 usan (el juego pide más memoria de la que tiene la consola). Con la traducción de fans al español,
 el core muestra bien sus tildes y pone también en español los textos propios de ScummVM (subtítulos
 de la intro, verbos, opciones, puzle); las demás versiones no cambian.
+
+**Touché: The Adventures of the Fifth Musketeer**: el juego es de 640x400 y se guarda a media
+resolución, 320x200, la de la pantalla: no se pierde nada de lo que se ve, con la cuarta parte
+de memoria. Los diálogos y el menú se dibujan con letras una vez y media más grandes, para que
+se lean a ese tamaño.
+
+- **Su música de CD tiene que estar en MP3**, `track02.mp3`…: el descodificador de Ogg Vorbis
+  necesita 95 KB que las salas más grandes no dejan. Convierte las pistas `.ogg` con, por
+  ejemplo, `ffmpeg -i track02.ogg track02.mp3`.
+- El juego puede pararse un instante cuando carga una imagen nueva de la tarjeta.
 
 **Juegos de Sierra (SCI)**: King's Quest V y VI, Space Quest IV, Leisure Suit Larry 5, Freddy
 Pharkas…
