@@ -1114,3 +1114,14 @@ engines/sci/sound/drivers/pcjr.cpp
 engines/sci/sound/drivers/pc9801.cpp
 engines/sci/video/seq_decoder.cpp
 engines/sci/detection.cpp
+engines/touche/console.cpp
+engines/touche/graphics.cpp
+engines/touche/menu.cpp
+engines/touche/metaengine.cpp
+engines/touche/midi.cpp
+engines/touche/opcodes.cpp
+engines/touche/resource.cpp
+engines/touche/saveload.cpp
+engines/touche/staticres.cpp
+engines/touche/touche.cpp
+engines/touche/detection.cpp
