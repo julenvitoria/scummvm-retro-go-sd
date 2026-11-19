@@ -250,9 +250,12 @@ def convert(job):
 
 
 def main():
-    if len(sys.argv) != 2:
-        raise SystemExit(__doc__)
-    gamedir = sys.argv[1]
+    if len(sys.argv) < 2:
+        raise SystemExit('usage: python3 nhfilms.py GAMEDIR   (the folder with the .BLB files;\n'
+                         '       a name with spaces goes in quotes: "/path/The Neverhood")')
+    gamedir = ' '.join(sys.argv[1:])	# (a folder name with spaces, unquoted: put back together)
+    if not os.path.isdir(gamedir):
+        raise SystemExit('%s: no such folder' % gamedir)
     todo = films(gamedir)
     if not todo:
         raise SystemExit('%s: no films found (the .BLB files go in this folder)' % gamedir)
