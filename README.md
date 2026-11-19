@@ -17,7 +17,7 @@ No games are included, nor will they be: bring your own.
 | File | Engine | Version / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/agos.svm` | agos | `998349CB` |
+| `/cores/scummvm/agos.svm` | agos | `004BDB2D` |
 | `/cores/scummvm/cge.svm` | cge | `10CD749B` |
 | `/cores/scummvm/cine.svm` | cine | `5384CF1E` |
 | `/cores/scummvm/cruise.svm` | cruise | `FEA583E9` |
@@ -31,9 +31,9 @@ No games are included, nor will they be: bring your own.
 | `/cores/scummvm/sci.svm` | sci | `5B05E74F` |
 | `/cores/scummvm/scumm.svm` | scumm | `1F1A9548` |
 | `/cores/scummvm/sky.svm` | sky | `B6CED35A` |
-| `/cores/scummvm/sword1.svm` | sword1 | `5E9E9DAA` |
+| `/cores/scummvm/sword1.svm` | sword1 | `C1393092` |
 | `/cores/scummvm/teenagent.svm` | teenagent | `503E03D6` |
-| `/cores/scummvm/touche.svm` | touche | `4D18E019` |
+| `/cores/scummvm/touche.svm` | touche | `906D62FE` |
 | `/cores/scummvm/drascula.dat` | ScummVM data | `-` |
 | `/cores/scummvm/kyra.dat` | ScummVM data | `-` |
 | `/cores/scummvm/lure.dat` | ScummVM data | `-` |
@@ -463,7 +463,7 @@ No incluye juegos ni los incluirá: usa los tuyos.
 | Fichero | Motor | Versión / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/agos.svm` | agos | `998349CB` |
+| `/cores/scummvm/agos.svm` | agos | `004BDB2D` |
 | `/cores/scummvm/cge.svm` | cge | `10CD749B` |
 | `/cores/scummvm/cine.svm` | cine | `5384CF1E` |
 | `/cores/scummvm/cruise.svm` | cruise | `FEA583E9` |
@@ -477,9 +477,9 @@ No incluye juegos ni los incluirá: usa los tuyos.
 | `/cores/scummvm/sci.svm` | sci | `5B05E74F` |
 | `/cores/scummvm/scumm.svm` | scumm | `1F1A9548` |
 | `/cores/scummvm/sky.svm` | sky | `B6CED35A` |
-| `/cores/scummvm/sword1.svm` | sword1 | `5E9E9DAA` |
+| `/cores/scummvm/sword1.svm` | sword1 | `C1393092` |
 | `/cores/scummvm/teenagent.svm` | teenagent | `503E03D6` |
-| `/cores/scummvm/touche.svm` | touche | `4D18E019` |
+| `/cores/scummvm/touche.svm` | touche | `906D62FE` |
 | `/cores/scummvm/drascula.dat` | datos de ScummVM | `-` |
 | `/cores/scummvm/kyra.dat` | datos de ScummVM | `-` |
 | `/cores/scummvm/lure.dat` | datos de ScummVM | `-` |
