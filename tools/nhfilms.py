@@ -28,7 +28,21 @@ A film (.gws):
     3 sixteen pixels (FULL x16).
 """
 import heapq, multiprocessing, os, shutil, struct, subprocess, sys, tempfile
-import numpy as np
+
+HELP = """
+Install it, then open a NEW terminal window (PowerShell, cmd...) so it is found, and try again:
+  Windows: winget install Gyan.FFmpeg
+  macOS:   brew install ffmpeg
+  Linux:   sudo apt install ffmpeg        (or your distribution's package)
+  numpy:   python -m pip install numpy
+"""
+try:
+    import numpy as np
+except ImportError:
+    raise SystemExit('nhfilms.py needs numpy, which this Python does not have.' + HELP)
+for _tool in ('ffmpeg', 'ffprobe'):
+    if not shutil.which(_tool):
+        raise SystemExit('nhfilms.py needs ffmpeg: "%s" was not found on the PATH.' % _tool + HELP)
 
 MAXLEN = 12
 TYPE, FILL, COL, MASK, FULL = range(5)
