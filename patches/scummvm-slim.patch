@@ -6339,21 +6339,22 @@ index 2decc59663c..1c1d258ae85 100644
  	typedef Common::HashMap<uint32, ResourceFileEntry> EntriesMap;
  	Common::Array<BlbArchive*> _archives;
 diff --git a/engines/neverhood/screen.cpp b/engines/neverhood/screen.cpp
-index 11e8c6324de..9f2f050b99a 100644
+index 11e8c6324de..222a4f86704 100644
 --- a/engines/neverhood/screen.cpp
 +++ b/engines/neverhood/screen.cpp
-@@ -23,6 +23,10 @@
+@@ -22,6 +22,11 @@
+ #include "graphics/paletteman.h"
  #include "video/smk_decoder.h"
  #include "neverhood/screen.h"
- 
++#include "neverhood/smackerplayer.h"
++
 +#ifdef GW_NEVERHOOD_SLIM
 +void gwAdoptable(const byte *lo, const byte *hi);	// src/gw_system.cpp
 +#endif
-+
+ 
  namespace Neverhood {
  
- Screen::Screen(NeverhoodEngine *vm)
-@@ -33,7 +37,12 @@ Screen::Screen(NeverhoodEngine *vm)
+@@ -33,7 +38,12 @@ Screen::Screen(NeverhoodEngine *vm)
  	_ticks = _vm->_system->getMillis();
  
  	_backScreen = new Graphics::Surface();
@@ -6366,7 +6367,7 @@ index 11e8c6324de..9f2f050b99a 100644
  
  	_renderQueue = new RenderQueue();
  	_prevRenderQueue = new RenderQueue();
-@@ -42,6 +51,9 @@ Screen::Screen(NeverhoodEngine *vm)
+@@ -42,6 +52,9 @@ Screen::Screen(NeverhoodEngine *vm)
  }
  
  Screen::~Screen() {
@@ -6376,7 +6377,7 @@ index 11e8c6324de..9f2f050b99a 100644
  	delete _microTiles;
  	delete _renderQueue;
  	delete _prevRenderQueue;
-@@ -55,7 +67,7 @@ void Screen::update() {
+@@ -55,7 +68,7 @@ void Screen::update() {
  
  	if (_fullRefresh) {
  		// NOTE When playing a fullscreen/doubled Smacker video usually a full screen refresh is needed
@@ -6385,7 +6386,7 @@ index 11e8c6324de..9f2f050b99a 100644
  		_fullRefresh = false;
  		return;
  	}
-@@ -100,6 +112,13 @@ void Screen::update() {
+@@ -100,6 +113,13 @@ void Screen::update() {
  
  	for (RectangleList::iterator ri = updateRects->begin(); ri != updateRects->end(); ++ri) {
  		Common::Rect &r = *ri;
@@ -6399,7 +6400,7 @@ index 11e8c6324de..9f2f050b99a 100644
  		_vm->_system->copyRectToScreen((const byte*)_backScreen->getBasePtr(r.left, r.top), _backScreen->pitch, r.left, r.top, r.width(), r.height());
  	}
  
-@@ -257,6 +276,14 @@ void Screen::drawSurface3(const Graphics::Surface *surface, int16 x, int16 y, ND
+@@ -257,6 +277,14 @@ void Screen::drawSurface3(const Graphics::Surface *surface, int16 x, int16 y, ND
  }
  
  void Screen::drawDoubleSurface2(const Graphics::Surface *surface, NDrawRect &drawRect) {
@@ -6414,7 +6415,7 @@ index 11e8c6324de..9f2f050b99a 100644
  
  	const byte *source = (const byte*)surface->getPixels();
  	byte *dest = (byte*)_backScreen->getBasePtr(drawRect.x, drawRect.y);
-@@ -277,6 +304,17 @@ void Screen::drawDoubleSurface2(const Graphics::Surface *surface, NDrawRect &dra
+@@ -277,6 +305,17 @@ void Screen::drawDoubleSurface2(const Graphics::Surface *surface, NDrawRect &dra
  }
  
  void Screen::drawDoubleSurface2Alpha(const Graphics::Surface *surface, NDrawRect &drawRect, byte alphaColor) {
@@ -6432,7 +6433,7 @@ index 11e8c6324de..9f2f050b99a 100644
  
  	const byte *source = (const byte*)surface->getPixels();
  	byte *dest = (byte*)_backScreen->getBasePtr(drawRect.x, drawRect.y);
-@@ -413,6 +451,33 @@ void Screen::blitRenderItem(const RenderItem &renderItem, const Common::Rect &cl
+@@ -413,6 +452,33 @@ void Screen::blitRenderItem(const RenderItem &renderItem, const Common::Rect &cl
  	if (width < 0 || height < 0)
  		return;
  
@@ -6466,12 +6467,281 @@ index 11e8c6324de..9f2f050b99a 100644
  	const byte *source = (const byte*)surface->getBasePtr(renderItem._srcX + x0 - renderItem._destX, renderItem._srcY + y0 - renderItem._destY);
  	byte *dest = (byte*)_backScreen->getBasePtr(x0, y0);
  
+diff --git a/engines/neverhood/screen.h b/engines/neverhood/screen.h
+index 7bd2f3b4fc5..ed81d0921cb 100644
+--- a/engines/neverhood/screen.h
++++ b/engines/neverhood/screen.h
+@@ -33,6 +33,12 @@ namespace Video {
+ }
+ 
+ namespace Neverhood {
++#ifdef GW_NEVERHOOD_SLIM
++class NeverhoodSmackerDecoder;	// (the films from neverhood.gwf: smackerplayer.h)
++#define GW_SMK_DECODER NeverhoodSmackerDecoder
++#else
++#define GW_SMK_DECODER Video::SmackerDecoder
++#endif
+ 
+ struct RenderItem {
+ 	const Graphics::Surface *_surface;
+@@ -87,7 +93,7 @@ public:
+ 	void drawDoubleSurface2Alpha(const Graphics::Surface *surface, NDrawRect &drawRect, byte alphaColor);
+ 	void drawUnk(const Graphics::Surface *surface, NDrawRect &drawRect, NDrawRect &sysRect, NRect &clipRect, bool transparent, byte version);
+ 	void drawSurfaceClipRects(const Graphics::Surface *surface, NDrawRect &drawRect, NRect *clipRects, uint clipRectsCount, bool transparent, byte version);
+-	void setSmackerDecoder(Video::SmackerDecoder *smackerDecoder) { _smackerDecoder = smackerDecoder; }
++	void setSmackerDecoder(GW_SMK_DECODER *smackerDecoder) { _smackerDecoder = smackerDecoder; }
+ 	void queueBlit(const Graphics::Surface *surface, int16 destX, int16 destY, NRect &ddRect, bool transparent, byte version,
+ 		       const Graphics::Surface *shadowSurface = NULL, byte alphaColor = 0);
+ 	void blitRenderItem(const RenderItem &renderItem, const Common::Rect &clipRect);
+@@ -95,7 +101,7 @@ protected:
+ 	NeverhoodEngine *_vm;
+ 	MicroTileArray *_microTiles;
+ 	Graphics::Surface *_backScreen;
+-	Video::SmackerDecoder *_smackerDecoder, *_savedSmackerDecoder;
++	GW_SMK_DECODER *_smackerDecoder, *_savedSmackerDecoder;
+ 	int32 _ticks;
+ 	int32 _frameDelay, _savedFrameDelay;
+ 	byte *_paletteData;
 diff --git a/engines/neverhood/smackerplayer.cpp b/engines/neverhood/smackerplayer.cpp
-index 79812aa97a0..b84f061d315 100644
+index 79812aa97a0..3fc44b2ddd4 100644
 --- a/engines/neverhood/smackerplayer.cpp
 +++ b/engines/neverhood/smackerplayer.cpp
-@@ -176,7 +176,9 @@ void SmackerPlayer::open(uint32 fileHash, bool keepLastFrame) {
+@@ -119,6 +119,215 @@ void SmackerDoubleSurface::draw() {
  
+ // NeverhoodSmackerDecoder
+ 
++#ifdef GW_NEVERHOOD_SLIM
++NeverhoodSmackerDecoder::~NeverhoodSmackerDecoder() {
++	stop();
++	_frame.free();
++}
++
++bool NeverhoodSmackerDecoder::loadFilm(uint32 fileHash) {
++	if (!_f.open("neverhood.gwf"))
++		error("neverhood.gwf is missing: make it once from the game's .BLB files with tools/nhfilms.py (see the README)");
++	byte h[12];
++	if (_f.read(h, 12) != 12 || READ_BE_UINT32(h) != MKTAG('N', 'H', 'F', 'V') || READ_LE_UINT32(h + 4) != 1)
++		error("neverhood.gwf: not made by this version of tools/nhfilms.py");
++	// the film's place, by halves through the index (sorted by hash)
++	int lo = 0, hi = (int)READ_LE_UINT32(h + 8) - 1;
++	uint32 off = 0;
++	while (lo <= hi) {
++		const int mid = (lo + hi) / 2;
++		_f.seek(12 + mid * 12);
++		const uint32 hh = _f.readUint32LE();
++		if (hh == fileHash) {
++			off = _f.readUint32LE();
++			break;
++		}
++		if (hh < fileHash)
++			lo = mid + 1;
++		else
++			hi = mid - 1;
++	}
++	if (!off) {
++		warning("neverhood.gwf: no film %08X", fileHash);
++		_f.close();
++		return false;
++	}
++	_f.seek(off);
++	byte g[24 + 1088];
++	if (_f.read(g, sizeof g) != sizeof g || READ_BE_UINT32(g) != MKTAG('G', 'W', 'S', '1'))
++		error("neverhood.gwf: film %08X is damaged", fileHash);
++	const int w = READ_LE_UINT16(g + 4), ht = READ_LE_UINT16(g + 6);
++	_frames = READ_LE_UINT16(g + 8);
++	_us = READ_LE_UINT32(g + 12);
++	_rate = READ_LE_UINT32(g + 16);
++	_frame.create(w, ht, Graphics::PixelFormat::createFormatCLUT8());
++	memset(_frame.getPixels(), 0, w * ht);
++	memset(_palette, 0, sizeof _palette);
++	// canonical Huffman codes from their lengths, as tools/nhfilms.py made them
++	static const int sizes[5] = { 64, 256, 256, 256, 256 };
++	const byte *len = g + 24;
++	for (int t = 0; t < 5; t++) {
++		memset(_lut[t], 0, sizeof _lut[t]);
++		uint32 code = 0;
++		for (int l = 1; l <= 12; l++) {
++			for (int s = 0; s < sizes[t]; s++) {
++				if (len[s] != l)
++					continue;
++				const uint32 from = code << (12 - l), n = 1u << (12 - l);
++				for (uint32 k = 0; k < n && from + k < 4096; k++)
++					_lut[t][from + k] = (uint16)(s << 4 | l);
++				code++;
++			}
++			code <<= 1;
++		}
++		len += sizes[t];
++	}
++	_first = _pos = off + sizeof g;
++	_cur = -1;
++	return true;
++}
++
++void NeverhoodSmackerDecoder::start() {
++	_started = true;
++	_startTime = g_system->getMillis();
++	if (_rate && !_audio) {
++		_audio = Audio::makeQueuingAudioStream(_rate, false);
++		g_system->getMixer()->playStream(Audio::Mixer::kSFXSoundType, &_audioHandle, _audio);
++	}
++}
++
++void NeverhoodSmackerDecoder::stop() {
++	_started = false;
++	if (_audio) {
++		_audio->finish();
++		g_system->getMixer()->stopHandle(_audioHandle);	// (frees the stream)
++		_audio = nullptr;
++	}
++}
++
++bool NeverhoodSmackerDecoder::rewind() {
++	_pos = _first;
++	_cur = -1;
++	_startTime = g_system->getMillis();
++	return true;
++}
++
++void NeverhoodSmackerDecoder::forceSeekToFrame(uint frame) {
++	// every frame holds only its changes: the ones before it are decoded too (no sound)
++	if (frame >= _frames)
++		error("Can't force film seek to invalid frame %d", frame);
++	Audio::QueuingAudioStream *audio = _audio;
++	_audio = nullptr;
++	rewind();
++	while (_cur + 1 < (int)frame)
++		decodeNextFrame();
++	_audio = audio;
++}
++
++uint32 NeverhoodSmackerDecoder::getTimeToNextFrame() const {
++	if (!_started)
++		return 0;
++	const uint32 next = (uint32)((uint64)(_cur + 1) * _us / 1000), now = g_system->getMillis() - _startTime;
++	return next > now ? next - now : 0;
++}
++
++int NeverhoodSmackerDecoder::byteIn() {
++	if (_at >= _got) {
++		if (!_left)
++			return -1;
++		_got = _f.read(_win, MIN<uint32>(_left, sizeof _win));
++		_left -= _got;
++		_at = 0;
++		if (!_got)
++			return -1;
++	}
++	return _win[_at++];
++}
++
++bool NeverhoodSmackerDecoder::readOut(byte *dst, uint32 n) {
++	while (n--) {
++		const int c = byteIn();
++		if (c < 0)
++			return false;
++		if (dst)
++			*dst++ = c;
++	}
++	return true;
++}
++
++int NeverhoodSmackerDecoder::sym(int table) {
++	while (_bits <= 24) {
++		const int c = byteIn();
++		_acc = _acc << 8 | (c < 0 ? 0 : c);	// (past the end: zeros)
++		_bits += 8;
++	}
++	const uint16 e = _lut[table][(_acc >> (_bits - 12)) & 0xFFF];
++	_bits -= e ? (e & 15) : 1;
++	return e >> 4;
++}
++
++const Graphics::Surface *NeverhoodSmackerDecoder::decodeNextFrame() {
++	if (_cur + 1 >= (int)_frames)
++		return &_frame;
++	_f.seek(_pos);
++	const uint32 size = _f.readUint32LE();
++	_pos += 4 + size;
++	_cur++;
++	_left = size;
++	_at = _got = 0;
++	_acc = 0;
++	_bits = 0;
++	const int flags = byteIn();
++	if (flags < 0)
++		return &_frame;
++	if (flags & 1) {
++		readOut(_palette, 768);
++		_dirtyPalette = true;
++	}
++	byte nb[2];
++	readOut(nb, 2);
++	const uint n = READ_LE_UINT16(nb);
++	byte *pcm = _audio && n ? (byte *)malloc(n * 2) : nullptr;
++	readOut(pcm, n * 2);
++	if (pcm)
++		_audio->queueBuffer(pcm, n * 2, DisposeAfterUse::YES, Audio::FLAG_16BITS | Audio::FLAG_LITTLE_ENDIAN);
++
++	// the 4x4 blocks
++	const int bw = _frame.w / 4, blocks = bw * (_frame.h / 4), pitch = _frame.pitch;
++	int b = 0;
++	while (b < blocks) {
++		const int s = sym(0), type = s >> 4;
++		for (int r = (s & 15) + 1; r > 0 && b < blocks; r--, b++) {
++			byte *d = (byte *)_frame.getBasePtr((b % bw) * 4, (b / bw) * 4);
++			switch (type) {
++			case 1: {
++				const byte c = sym(1);
++				for (int y = 0; y < 4; y++)
++					memset(d + y * pitch, c, 4);
++				break;
++			}
++			case 2: {
++				const byte c0 = sym(2), c1 = sym(2);
++				uint m = sym(3);
++				m |= sym(3) << 8;
++				for (int y = 0; y < 4; y++, m >>= 4)
++					for (int x = 0; x < 4; x++)
++						d[y * pitch + x] = (m >> x) & 1 ? c1 : c0;
++				break;
++			}
++			case 3:
++				for (int y = 0; y < 4; y++)
++					for (int x = 0; x < 4; x++)
++						d[y * pitch + x] = sym(4);
++				break;
++			default:
++				break;
++			}
++		}
++	}
++	return &_frame;
++}
++#else
+ void NeverhoodSmackerDecoder::forceSeekToFrame(uint frame) {
+ 	if (!isVideoLoaded())
+ 		return;
+@@ -140,6 +349,7 @@ void NeverhoodSmackerDecoder::forceSeekToFrame(uint frame) {
+ 
+ 	_fileStream->seek(offset, SEEK_CUR);
+ }
++#endif
+ 
+ // SmackerPlayer
+ 
+@@ -174,12 +384,23 @@ void SmackerPlayer::open(uint32 fileHash, bool keepLastFrame) {
+ 
+ 	_smackerFirst = true;
+ 
++#ifdef GW_NEVERHOOD_SLIM
++	_smackerDecoder = new NeverhoodSmackerDecoder();
++	if (!_smackerDecoder->loadFilm(fileHash)) {
++		delete _smackerDecoder;
++		_smackerDecoder = nullptr;
++		return;
++	}
++#else
  	_stream = _vm->_res->createStream(fileHash);
  
 +#ifndef GW_NEVERHOOD_SLIM
@@ -6480,7 +6750,11 @@ index 79812aa97a0..b84f061d315 100644
  
  	_smackerDecoder = new NeverhoodSmackerDecoder();
  	_smackerDecoder->loadStream(_stream);
-@@ -199,6 +201,9 @@ void SmackerPlayer::close() {
++#endif
+ 
+ 	_palette = new Palette(_vm);
+ 	_palette->usePalette();
+@@ -199,6 +420,9 @@ void SmackerPlayer::close() {
  	_palette = nullptr;
  	_stream = nullptr;
  	_smackerSurface->unsetSmackerFrame();
@@ -6490,7 +6764,7 @@ index 79812aa97a0..b84f061d315 100644
  }
  
  void SmackerPlayer::gotoFrame(int frameNumber) {
-@@ -265,11 +270,32 @@ void SmackerPlayer::updateFrame() {
+@@ -265,11 +489,32 @@ void SmackerPlayer::updateFrame() {
  		return;
  
  	const Graphics::Surface *smackerFrame = _smackerDecoder->decodeNextFrame();
@@ -6524,10 +6798,78 @@ index 79812aa97a0..b84f061d315 100644
  			if (_doubleSurface) {
  				_drawX = 320 - _smackerDecoder->getWidth();
 diff --git a/engines/neverhood/smackerplayer.h b/engines/neverhood/smackerplayer.h
-index 8eaf854bfa4..2a261f9b39c 100644
+index 8eaf854bfa4..6b0ab5d2b07 100644
 --- a/engines/neverhood/smackerplayer.h
 +++ b/engines/neverhood/smackerplayer.h
-@@ -82,6 +82,9 @@ protected:
+@@ -23,6 +23,12 @@
+ #define NEVERHOOD_SMACKERPLAYER_H
+ 
+ #include "video/smk_decoder.h"
++#ifdef GW_NEVERHOOD_SLIM
++#include "audio/audiostream.h"
++#include "audio/decoders/raw.h"
++#include "audio/mixer.h"
++#include "common/file.h"
++#endif
+ #include "neverhood/neverhood.h"
+ #include "neverhood/entity.h"
+ #include "neverhood/subtitles.h"
+@@ -53,10 +59,54 @@ public:
+ 	void draw() override;
+ };
+ 
++#ifdef GW_NEVERHOOD_SLIM
++// Game & Watch: the films from neverhood.gwf (tools/nhfilms.py), not Smacker -- Smacker's
++// trees alone take up to 506 KB. The same calls as the Smacker decoder had here; the frame is
++// read from the card a little at a time and decoded into the one frame kept (the film's size).
++class NeverhoodSmackerDecoder {
++public:
++	NeverhoodSmackerDecoder() {}
++	~NeverhoodSmackerDecoder();
++	bool loadFilm(uint32 fileHash);
++	void start();
++	void stop();
++	bool isVideoLoaded() const { return _frames > 0; }
++	bool endOfVideo() const { return _cur + 1 >= (int)_frames; }
++	const Graphics::Surface *decodeNextFrame();
++	int getCurFrame() const { return _cur; }
++	uint32 getFrameCount() const { return _frames; }
++	uint16 getWidth() const { return _frame.w; }
++	uint16 getHeight() const { return _frame.h; }
++	bool hasDirtyPalette() const { return _dirtyPalette; }
++	const byte *getPalette() { _dirtyPalette = false; return _palette; }
++	bool rewind();
++	void forceSeekToFrame(uint frame);
++	uint32 getTimeToNextFrame() const;
++private:
++	Common::File _f;
++	uint32 _first = 0, _pos = 0, _us = 0, _rate = 0, _frames = 0;
++	int _cur = -1;
++	bool _started = false, _dirtyPalette = false;
++	uint32 _startTime = 0;
++	Graphics::Surface _frame;
++	byte _palette[768];
++	uint16 _lut[5][4096];	// (symbol << 4 | code length) by the next 12 bits; 0: no code
++	Audio::QueuingAudioStream *_audio = nullptr;
++	Audio::SoundHandle _audioHandle;
++	// the frame's bytes through a small window
++	byte _win[1024];
++	uint32 _left = 0, _at = 0, _got = 0, _acc = 0;
++	int _bits = 0;
++	int byteIn();
++	bool readOut(byte *dst, uint32 n);
++	int sym(int table);
++};
++#else
+ class NeverhoodSmackerDecoder : public Video::SmackerDecoder {
+ public:
+ 	void forceSeekToFrame(uint frame);
+ };
++#endif
+ 
+ class SmackerPlayer : public Entity {
+ public:
+@@ -82,6 +132,9 @@ protected:
  	bool _smackerFirst;
  	bool _doubleSurface;
  	Common::SeekableReadStream *_stream;
@@ -14177,6 +14519,189 @@ index 8b0b8ce28a6..035f5626b89 100644
  	static int giveCurrentScreen();
  
  	static uint32 giveScriptVar(uint32 s);
+diff --git a/engines/sword1/animation.cpp b/engines/sword1/animation.cpp
+index 6dd77a271ff..5a4412fb60a 100644
+--- a/engines/sword1/animation.cpp
++++ b/engines/sword1/animation.cpp
+@@ -20,6 +20,9 @@
+  */
+ 
+ #include "common/file.h"
++#include "audio/audiostream.h"
++#include "audio/mixer.h"
++#include "audio/decoders/raw.h"
+ #include "common/events.h"
+ #include "common/keyboard.h"
+ #include "common/textconsole.h"
+@@ -520,6 +523,153 @@ void MoviePlayer::drawFramePSX(const Graphics::Surface *frame) {
+ 	scaledFrame.free();
+ }
+ 
++#ifdef GW_SWORD1_SLIM
++// Game & Watch: the cutscenes as .gwv films (tools/smk2gwv.py: the Smacker film already decoded,
++// at the half size the panel shows, as each frame's changes). A Smacker film itself cannot be
++// played here (821 KB of Huffman trees, and the CPU to walk them). The film is read from the
++// card a frame at a time, straight into the screen; its sound goes to the mixer as it comes.
++// false: there is no such film.
++bool gwFilmExists(uint32 id) {
++	return Common::File::exists(Common::Path(Common::String::format("%s.gwv", sequenceList[id])));
++}
++
++bool gwPlayFilm(SwordEngine *vm, OSystem *sys, uint32 id) {
++	Common::File f;
++	if (!f.open(Common::Path(Common::String::format("%s.gwv", sequenceList[id]))))
++		return false;
++	byte head[32];
++	if (f.read(head, 32) != 32 || memcmp(head, "GWV1", 4))
++		return false;
++	const int w = READ_LE_UINT16(head + 4), h = READ_LE_UINT16(head + 6), frames = READ_LE_UINT16(head + 8);
++	const uint32 us = READ_LE_UINT32(head + 12), rate = READ_LE_UINT32(head + 16);
++
++	Audio::QueuingAudioStream *audio = rate ? Audio::makeQueuingAudioStream(rate, false) : nullptr;
++	Audio::SoundHandle handle;
++	if (audio)
++		sys->getMixer()->playStream(Audio::Mixer::kSFXSoundType, &handle, audio);
++
++	{
++		Graphics::Surface *s = sys->lockScreen();
++		s->fillRect(Common::Rect(s->w, s->h), 0);
++		sys->unlockScreen();
++	}
++	// a frame is read through a small window, not whole (a key frame is 64 KB, which a room
++	// in the middle of the game may not have to spare)
++	enum { WIN = 2048 };
++	byte win[WIN];
++	uint32 left = 0, at = 0, got = 0;
++	auto more = [&]() -> bool {
++		if (at < got)
++			return true;
++		if (!left)
++			return false;
++		got = f.read(win, MIN<uint32>(left, WIN));
++		left -= got;
++		at = 0;
++		return got > 0;
++	};
++	auto byteAt = [&]() -> int { return more() ? win[at++] : -1; };
++	auto copyOut = [&](byte *d, uint32 n) -> bool {
++		while (n) {
++			if (!more())
++				return false;
++			const uint32 k = MIN<uint32>(n, got - at);
++			if (d) {
++				memcpy(d, win + at, k);
++				d += k;
++			}
++			at += k;
++			n -= k;
++		}
++		return true;
++	};
++
++	const uint32 start = sys->getMillis();
++	bool skipped = false, broken = false;
++	for (int k = 0; k < frames && !skipped && !broken && !vm->shouldQuit(); k++) {
++		left = f.readUint32LE();
++		at = got = 0;
++		if (f.eos() || left < 3)
++			break;
++		const int flags = byteAt();
++		if (flags & 1) {
++			byte pal[768];
++			if (!copyOut(pal, 768))
++				break;
++			sys->getPaletteManager()->setPalette(pal, 0, 256);
++		}
++		byte nb[2];
++		if (!copyOut(nb, 2))
++			break;
++		const uint n = READ_LE_UINT16(nb);
++		byte *pcm = audio && n ? (byte *)malloc(n * 2) : nullptr;
++		if (!copyOut(pcm, n * 2)) {
++			free(pcm);
++			break;
++		}
++		if (pcm)
++			audio->queueBuffer(pcm, n * 2, DisposeAfterUse::YES, Audio::FLAG_16BITS | Audio::FLAG_LITTLE_ENDIAN);
++
++		// the picture's changes, into the screen (the film centred in it)
++		Graphics::Surface *s = sys->lockScreen();
++		const int x0 = (s->w - w) / 2, y0 = (s->h - h) / 2;
++		int x = 0, y = 0;
++		auto advance = [&](int c) { x += c; while (x >= w) { x -= w; y++; } };
++		for (int op; y < h && (op = byteAt()) >= 0;) {
++			int c = op & 63;
++			if (c == 63) {
++				byte e[2];
++				if (!copyOut(e, 2)) { broken = true; break; }
++				c += READ_LE_UINT16(e);
++			}
++			c++;
++			const int kind = op >> 6;
++			if (kind == 0) {
++				advance(c);
++				continue;
++			}
++			const int fill = kind == 2 ? byteAt() : 0;
++			while (c > 0 && y < h) {
++				const int k2 = MIN(c, w - x);
++				byte *d = (byte *)s->getBasePtr(x0 + x, y0 + y);
++				if (kind == 1) {
++					if (!copyOut(d, k2)) { broken = true; break; }
++				} else {
++					memset(d, fill, k2);
++				}
++				c -= k2;
++				advance(k2);
++			}
++			if (broken)
++				break;
++		}
++		sys->unlockScreen();
++		copyOut(nullptr, left + got - at);	// (anything after the picture)
++
++		// shown when its time comes; a frame already late is not shown (the next one is)
++		const uint32 due = start + (uint32)((uint64)(k + 1) * us / 1000);
++		if (sys->getMillis() < due + us / 1000)
++			sys->updateScreen();
++		while (sys->getMillis() < due) {
++			Common::Event e;
++			while (sys->getEventManager()->pollEvent(e)) {
++				if (e.type == Common::EVENT_KEYDOWN || e.type == Common::EVENT_LBUTTONDOWN ||
++				    e.type == Common::EVENT_RBUTTONDOWN || e.type == Common::EVENT_CUSTOM_ENGINE_ACTION_START)
++					skipped = true;
++			}
++			if (skipped)
++				break;
++			sys->delayMillis(5);
++		}
++	}
++	if (audio) {
++		audio->finish();
++		sys->getMixer()->stopHandle(handle);
++	}
++	return true;
++}
++#endif
++
+ ///////////////////////////////////////////////////////////////////////////////
+ // Factory function for creating the appropriate cutscene player
+ ///////////////////////////////////////////////////////////////////////////////
+diff --git a/engines/sword1/animation.h b/engines/sword1/animation.h
+index 84effd73c15..625978f277a 100644
+--- a/engines/sword1/animation.h
++++ b/engines/sword1/animation.h
+@@ -91,6 +91,10 @@ protected:
+ };
+ 
+ MoviePlayer *makeMoviePlayer(uint32 id, SwordEngine *vm, Text *textMan, ResMan *resMan, Sound *sound, OSystem *system);
++#ifdef GW_SWORD1_SLIM
++bool gwPlayFilm(SwordEngine *vm, OSystem *sys, uint32 id);
++bool gwFilmExists(uint32 id);
++#endif
+ 
+ } // End of namespace Sword1
+ 
 diff --git a/engines/sword1/control.cpp b/engines/sword1/control.cpp
 index 1c40eb63566..e422f620669 100644
 --- a/engines/sword1/control.cpp
@@ -15015,10 +15540,18 @@ index fd004607df5..9ff556eecc2 100644
  	int32 _gamesSaved = 0;
  	int32 _textCursor;
 diff --git a/engines/sword1/logic.cpp b/engines/sword1/logic.cpp
-index dbc9282a3fb..7653ee1d66d 100644
+index dbc9282a3fb..f4a776b6125 100644
 --- a/engines/sword1/logic.cpp
 +++ b/engines/sword1/logic.cpp
-@@ -48,7 +48,11 @@ namespace Sword1 {
+@@ -39,6 +39,7 @@
+ 
+ #include "sword1/debug.h"
+ 
++#include "graphics/paletteman.h"
+ #include "gui/error.h"
+ #include "gui/message.h"
+ 
+@@ -48,7 +49,11 @@ namespace Sword1 {
  #define SCRIPT_VERSION  13
  #define LAST_FRAME 999
  
@@ -15030,7 +15563,7 @@ index dbc9282a3fb..7653ee1d66d 100644
  
  Logic::Logic(SwordEngine *vm, ObjectMan *pObjMan, ResMan *resMan, Screen *pScreen, Mouse *pMouse, Sound *pSound, Menu *pMenu, OSystem *system, Audio::Mixer *mixer)
  	: _rnd("sword1") {
-@@ -124,6 +128,15 @@ void Logic::newScreen(uint32 screen) {
+@@ -124,6 +129,15 @@ void Logic::newScreen(uint32 screen) {
  	if (screen == 33)
  		_scriptVars[SAM_RETURNING] = 0;
  
@@ -15046,7 +15579,7 @@ index dbc9282a3fb..7653ee1d66d 100644
  	if (SwordEngine::_systemVars.justRestoredGame) { // if we've just restored a game - we want George to be exactly as saved
  		fnAddHuman(NULL, 0, 0, 0, 0, 0, 0, 0);
  		if (_scriptVars[GEORGE_WALKING]) { // except that if George was walking when we saveed the game
-@@ -1013,7 +1026,13 @@ int Logic::fnPlaySequence(Object *cpt, int32 id, int32 sequenceId, int32 d, int3
+@@ -1013,7 +1027,22 @@ int Logic::fnPlaySequence(Object *cpt, int32 id, int32 sequenceId, int32 d, int3
  	if (SwordEngine::isPsx() && sequenceId == 19) {
  		_control->psxEndCredits();
  	} else {
@@ -15054,13 +15587,22 @@ index dbc9282a3fb..7653ee1d66d 100644
 +		// Game & Watch: no cutscenes. A 640x480 Smacker film needs some 1.5 MB to decode
 +		// (821 KB of Huffman trees alone); the console has under 900 KB.
 +		MoviePlayer *player = nullptr;
++		// ... but the same film made into a .gwv (tools/smk2gwv.py) plays
++		if (gwFilmExists(sequenceId)) {
++			_screen->clearScreen();
++			gwPlayFilm(_vm, _system, sequenceId);
++			byte pal[3 * 256];
++			memset(pal, 0, sizeof(pal));
++			_system->getPaletteManager()->setPalette(pal, 0, 256);
++			_screen->setNextFadeOutToBlack();
++		}
 +#else
  		MoviePlayer *player = makeMoviePlayer(sequenceId, _vm, _textMan, _resMan, _sound, _system);
 +#endif
  		if (player) {
  			Common::Error err;
  
-@@ -1237,7 +1256,12 @@ int Logic::fnISpeak(Object *cpt, int32 id, int32 cdt, int32 textNo, int32 spr, i
+@@ -1237,7 +1266,12 @@ int Logic::fnISpeak(Object *cpt, int32 id, int32 cdt, int32 textNo, int32 spr, i
  
  		char *text = _objMan->lockText(textNo);
  		cpt->o_speech_time = strlen(text) + 5;
@@ -16057,6 +16599,952 @@ index 5cc7d430465..8b8ea11dbfb 100644
  
  	Common::Point _mouseCoord;
  	uint16 _mouseState;
+diff --git a/engines/touche/graphics.cpp b/engines/touche/graphics.cpp
+index 5a6652ef826..967847a0d35 100644
+--- a/engines/touche/graphics.cpp
++++ b/engines/touche/graphics.cpp
+@@ -71,9 +71,17 @@ int Graphics::getStringWidth16(const char *str) {
+ 	return w;
+ }
+ 
++#ifdef GW_TOUCHE_HALF
++int Graphics::_gwBig = 0;
++#endif
++
+ int Graphics::getCharWidth16(uint8 chr) {
+ 	assert(chr >= 32 && chr < 32 + _fontSize);
+ 	const uint8 *chrData = _fontData + _fontOffs[chr - 32];
++#ifdef GW_TOUCHE_HALF
++	if (_gwBig)
++		return chrData[2] * gwNum() / gwDen();
++#endif
+ 	return chrData[2];
+ }
+ 
+@@ -88,6 +96,96 @@ void Graphics::drawString16(uint8 *dst, int dstPitch, uint16 color, int x, int y
+ }
+ 
+ int Graphics::drawChar16(uint8 *dst, int dstPitch, uint8 chr, int x, int y, uint16 color) {
++#ifdef GW_TOUCHE_HALF
++	{
++		// each 2x2 cell of the glyph is one pixel: its body colour if any of the four is body,
++		// else its outline colour (thin strokes at odd positions would vanish otherwise)
++		const int hp = gwHalf(dstPitch);
++		uint8 color1 = color & 0xFF;
++		uint8 color2 = color >> 8;
++		assert(chr >= 32 && chr < 32 + _fontSize);
++		const uint8 *chrData = _fontData + _fontOffs[chr - 32];
++		int chrHeight = chrData[1];
++		int chrWidth = chrData[2];
++		chrData += 3;
++		if (_gwBig) {
++			// 1.5x: glyph pixel (i, row) lands on half pixel (x/2 + i*3/4, y/2 + row*3/4); each
++			// half pixel takes the strongest of what lands on it (body over outline)
++			uint8 big[18][48];
++			memset(big, 0, sizeof(big));
++			// (glyph pixel i lands on i * scale / 2: x1.5 is i * 3 / 4, x1.25 i * 5 / 8)
++			const int num = gwNum(), den = gwDen() * 2;
++			const int bw = MIN(48, (chrWidth * num + den - 1) / den), bh = MIN(18, (chrHeight * num + den - 1) / den);
++			for (int row = 0; row < chrHeight; ++row) {
++				int shiftCount = 0;
++				int mask = 0;
++				for (int i = 0; i < chrWidth; ++i) {
++					if (shiftCount == 0) {
++						mask = READ_BE_UINT16(chrData); chrData += 2;
++						shiftCount = 8;
++					}
++					const int b = (mask & 0xC000) >> 14;
++					mask <<= 2;
++					--shiftCount;
++					if (b) {
++						const int cx = i * num / den, cy = row * num / den;
++						if (cx < 48 && cy < 18) {
++							const uint8 v = (b & 2) ? 1 : 2;
++							if (v > big[cy][cx])
++								big[cy][cx] = v;
++						}
++					}
++				}
++			}
++			for (int r = 0; r < bh; ++r) {
++				uint8 *d = dst + ((y >> 1) + r) * hp + (x >> 1);
++				for (int c = 0; c < bw; ++c) {
++					if (big[r][c] == 2)
++						d[c] = color1;
++					else if (big[r][c] == 1)
++						d[c] = color2;
++				}
++			}
++			return chrWidth * gwNum() / gwDen();
++		}
++		uint8 cell[64];	// per half column of the current half row: 0 none, 1 outline, 2 body
++		for (int row = 0; row < chrHeight; ++row) {
++			const int yy = y + row;
++			if (((yy & 1) == 0 || row == 0))
++				memset(cell, 0, sizeof(cell));
++			int shiftCount = 0;
++			int mask = 0;
++			for (int i = 0; i < chrWidth; ++i) {
++				if (shiftCount == 0) {
++					mask = READ_BE_UINT16(chrData); chrData += 2;
++					shiftCount = 8;
++				}
++				int b = (mask & 0xC000) >> 14;
++				mask <<= 2;
++				--shiftCount;
++				if (b) {
++					const int c = ((x + i) >> 1) - (x >> 1);
++					if (c < 64) {
++						const uint8 v = (b & 2) ? 1 : 2;
++						if (v > cell[c])
++							cell[c] = v;
++					}
++				}
++			}
++			if ((yy & 1) == 1 || row == chrHeight - 1) {
++				uint8 *d = dst + (yy >> 1) * hp + (x >> 1);
++				const int n = MIN(64, ((x + chrWidth - 1) >> 1) - (x >> 1) + 1);
++				for (int c = 0; c < n; ++c) {
++					if (cell[c] == 2)
++						d[c] = color1;
++					else if (cell[c] == 1)
++						d[c] = color2;
++				}
++			}
++		}
++		return chrWidth;
++	}
++#endif
+ 	dst += y * dstPitch + x;
+ 	uint8 color1 = color & 0xFF;
+ 	uint8 color2 = color >> 8;
+@@ -121,6 +219,19 @@ int Graphics::drawChar16(uint8 *dst, int dstPitch, uint8 chr, int x, int y, uint
+ }
+ 
+ void Graphics::fillRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, uint8 color) {
++#ifdef GW_TOUCHE_HALF
++	{
++		// the even pixels inside; a rectangle one pixel thin still leaves its line
++		int x0 = x >> 1, x1 = (x + w + 1) >> 1;
++		int y0 = y >> 1, y1 = (y + h + 1) >> 1;
++		if (w <= 0 || h <= 0)
++			return;
++		const int hp = gwHalf(dstPitch);
++		for (int yy = y0; yy < y1; ++yy)
++			memset(dst + yy * hp + x0, color, x1 - x0);
++		return;
++	}
++#endif
+ 	dst += y * dstPitch + x;
+ 	while (h--) {
+ 		memset(dst, color, w);
+@@ -129,6 +240,15 @@ void Graphics::fillRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, ui
+ }
+ 
+ void Graphics::drawRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, uint8 color1, uint8 color2) {
++#ifdef GW_TOUCHE_HALF
++	{
++		fillRect(dst, dstPitch, x, y, w, 1, color1);
++		fillRect(dst, dstPitch, x, y, 1, h, color1);
++		fillRect(dst, dstPitch, x + w - 1, y + 1, 1, h - 1, color2);
++		fillRect(dst, dstPitch, x + 1, y + h - 1, w - 1, 1, color2);
++		return;
++	}
++#endif
+ 	::Graphics::Surface s;
+ 	s.init(x+w, y+h, dstPitch, dst, ::Graphics::PixelFormat::createFormatCLUT8());
+ 	const int x1 = x;
+@@ -143,6 +263,15 @@ void Graphics::drawRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, ui
+ 
+ void Graphics::drawLine(uint8 *dst, int dstPitch, int x1, int y1, int x2, int y2, uint8 color) {
+ 	assert(x1 >= 0 && y1 >= 0 && x2 >= 0 && y2 >= 0);
++#ifdef GW_TOUCHE_HALF
++	{
++		::Graphics::Surface s;
++		const int hp = gwHalf(dstPitch);
++		s.init(MAX(x1, x2) / 2 + 1, MAX(y1, y2) / 2 + 1, hp, dst, ::Graphics::PixelFormat::createFormatCLUT8());
++		s.drawLine(x1 / 2, y1 / 2, x2 / 2, y2 / 2, color);
++		return;
++	}
++#endif
+ 
+ 	::Graphics::Surface s;
+ 	s.init(MAX(x1, x2) + 1, MAX(y1, y2) + 1, dstPitch, dst, ::Graphics::PixelFormat::createFormatCLUT8());
+@@ -165,6 +294,24 @@ void Graphics::copyRect(uint8 *dst, int dstPitch, int dstX, int dstY, const uint
+ 	if (h <= 0) {
+ 		return;
+ 	}
++#ifdef GW_TOUCHE_HALF
++	{
++		// even destination pixels, each taking the source pixel at the same place
++		const int hdp = gwHalf(dstPitch), hsp = gwHalf(srcPitch);
++		const int x0 = (dstX + 1) >> 1, x1 = (dstX + w + 1) >> 1;
++		const int y0 = (dstY + 1) >> 1, y1 = (dstY + h + 1) >> 1;
++		for (int yy = y0; yy < y1; ++yy) {
++			uint8 *drow = dst + yy * hdp;
++			const uint8 *srow = src + ((srcY + (yy << 1) - dstY) >> 1) * hsp;
++			for (int xx = x0; xx < x1; ++xx) {
++			const uint8 c = srow[(srcX + (xx << 1) - dstX) >> 1];
++			if ((flags & kTransparent) == 0 || c != 0)
++				drow[xx] = c;
++			}
++		}
++		return;
++	}
++#endif
+ 	dst += dstY * dstPitch + dstX;
+ 	src += srcY * srcPitch + srcX;
+ 	while (h--) {
+@@ -193,6 +340,23 @@ void Graphics::copyMask(uint8 *dst, int dstPitch, int dstX, int dstY, const uint
+ 	if (h <= 0) {
+ 		return;
+ 	}
++#ifdef GW_TOUCHE_HALF
++	{
++		// even destination pixels, each taking the source pixel at the same place
++		const int hdp = gwHalf(dstPitch), hsp = gwHalf(srcPitch);
++		const int x0 = (dstX + 1) >> 1, x1 = (dstX + w + 1) >> 1;
++		const int y0 = (dstY + 1) >> 1, y1 = (dstY + h + 1) >> 1;
++		for (int yy = y0; yy < y1; ++yy) {
++			uint8 *drow = dst + yy * hdp;
++			const uint8 *srow = src + ((srcY + (yy << 1) - dstY) >> 1) * hsp;
++			for (int xx = x0; xx < x1; ++xx) {
++			if (srow[(srcX + (xx << 1) - dstX) >> 1] != 0)
++				drow[xx] = fillColor;
++			}
++		}
++		return;
++	}
++#endif
+ 	dst += dstY * dstPitch + dstX;
+ 	src += srcY * srcPitch + srcX;
+ 	while (h--) {
+diff --git a/engines/touche/graphics.h b/engines/touche/graphics.h
+index 2bb445a4de6..30a170b4f97 100644
+--- a/engines/touche/graphics.h
++++ b/engines/touche/graphics.h
+@@ -26,6 +26,17 @@
+ 
+ namespace Touche {
+ 
++#ifdef GW_TOUCHE_SLIM
++// Game & Watch: every picture -- room backdrop, sprites, the screen itself -- is kept at HALF
++// resolution, which is all the 320-wide panel shows of the game's 640x400. The engine still
++// works in its own coordinates and pitches throughout: a picture of width w is stored
++// (w + 1) / 2 wide, a full-size pixel (x, y) lives at (x / 2, y / 2), and only pixels at even
++// (x, y) are written -- so what is drawn is what nearest-neighbour scaling of the original
++// screen would show, at a quarter of the memory (the backdrops alone reach 1 MB).
++#define GW_TOUCHE_HALF
++static inline int gwHalf(int v) { return (v + 1) >> 1; }
++#endif
++
+ class Graphics {
+ public:
+ 
+@@ -36,6 +47,15 @@ public:
+ 	static void setupFont(Common::Language language);
+ 	static int getStringWidth16(const char *str);
+ 	static int getCharWidth16(uint8 chr);
++#ifdef GW_TOUCHE_HALF
++	// set while the characters' talk is laid out and drawn: its letters half as big again (at
++	// half size the 16-pixel font is 8 on the panel, too small to read in the intro)
++	// (0: as drawn, 1: x1.5, 2: x1.25, 3: x1.125 -- buttons too narrow for the bigger ones)
++	static int _gwBig;
++	static int gwNum() { return _gwBig == 1 ? 3 : _gwBig == 2 ? 5 : _gwBig == 3 ? 9 : 1; }
++	static int gwDen() { return _gwBig == 1 ? 2 : _gwBig == 2 ? 4 : _gwBig == 3 ? 8 : 1; }
++	static int textHeight16() { return 16 * gwNum() / gwDen(); }
++#endif
+ 	static void drawString16(uint8 *dst, int dstPitch, uint16 color, int x, int y, const char *str, int xmax = 0);
+ 	static int drawChar16(uint8 *dst, int dstPitch, uint8 chr, int x, int y, uint16 color);
+ 	static void fillRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, uint8 color);
+diff --git a/engines/touche/menu.cpp b/engines/touche/menu.cpp
+index 6811045b707..a4648f3fd40 100644
+--- a/engines/touche/menu.cpp
++++ b/engines/touche/menu.cpp
+@@ -58,11 +58,29 @@ void ToucheEngine::drawButton(Button *button) {
+ 	if (button->flags & kButtonText) {
+ 		if (button->data != 0) {
+ 			const char *str = getString(button->data);
++#ifdef GW_TOUCHE_HALF
++			// letters half as big again where they fit the button (as the talk; the panel shows
++			// the 16-pixel font at 8)
++			Graphics::_gwBig = 1;
++			if (getStringWidth(button->data) > button->w - 4 || button->h < 20)
++				Graphics::_gwBig = 2;
++			if (getStringWidth(button->data) > button->w - 4 || button->h < 20)
++				Graphics::_gwBig = 3;
++			if (getStringWidth(button->data) > button->w || button->h < 20)	// (to the border)
++				Graphics::_gwBig = 0;
++			const int w = getStringWidth(button->data);
++			const int h = Graphics::textHeight16();
++			const int x = button->x + (button->w - w) / 2;
++			const int y = button->y + MAX(0, (button->h - h) / 2);
++			Graphics::drawString16(_offscreenBuffer, kScreenWidth, 0xFF, x, y, str);
++			Graphics::_gwBig = 0;
++#else
+ 			const int w = getStringWidth(button->data);
+ 			const int h = kTextHeight;
+ 			const int x = button->x + (button->w - w) / 2;
+ 			const int y = button->y + (button->h - h) / 2;
+ 			Graphics::drawString16(_offscreenBuffer, kScreenWidth, 0xFF, x, y, str);
++#endif
+ 		}
+ 	}
+ 	if (button->flags & kButtonArrow) {
+@@ -319,7 +337,11 @@ void ToucheEngine::handleOptions(int forceDisplay) {
+ 					menuData.exit = true;
+ 					break;
+ 				case Common::EVENT_LBUTTONDOWN:
++#ifdef GW_TOUCHE_HALF
++					button = menuData.findButtonUnderCursor(event.mouse.x * 2, event.mouse.y * 2);
++#else
+ 					button = menuData.findButtonUnderCursor(event.mouse.x, event.mouse.y);
++#endif
+ 					if (button) {
+ 						handleMenuAction(&menuData, button->action);
+ 						doRedraw = true;
+diff --git a/engines/touche/resource.cpp b/engines/touche/resource.cpp
+index 140bfcb5053..d8930e7a78a 100644
+--- a/engines/touche/resource.cpp
++++ b/engines/touche/resource.cpp
+@@ -34,6 +34,10 @@
+ #include "touche/touche.h"
+ #include "touche/graphics.h"
+ 
++#ifdef GW_TOUCHE_SLIM
++void gwAdoptable(const byte *lo, const byte *hi);	// src/gw_system.cpp
++#endif
++
+ namespace Touche {
+ 
+ enum {
+@@ -103,21 +107,38 @@ void ToucheEngine::res_allocateTables() {
+ 	const int bw = _fData.readUint16LE();
+ 	const int bh = _fData.readUint16LE();
+ 	uint32 size = bw * bh;
++#ifdef GW_TOUCHE_HALF
++	// (the biggest room's, made once: one made per room leaves the heap in pieces)
++	size = gwHalf(bw) * gwHalf(bh);
++#endif
+ 	_backdropBuffer = (uint8 *)malloc(size);
+ 	if (!_backdropBuffer) {
+ 		error("Unable to allocate memory for backdrop buffer");
+ 	}
+ 
++#ifdef GW_TOUCHE_HALF
++	_menuKitData = (uint8 *)malloc(gwHalf(42) * gwHalf(120));
++#else
+ 	_menuKitData = (uint8 *)malloc(42 * 120);
++#endif
+ 	if (!_menuKitData) {
+ 		error("Unable to allocate memory for menu kit data");
+ 	}
+ 
++#ifdef GW_TOUCHE_HALF
++	_convKitData = (uint8 *)malloc(gwHalf(152) * gwHalf(80));
++#else
+ 	_convKitData = (uint8 *)malloc(152 * 80);
++#endif
+ 	if (!_convKitData) {
+ 		error("Unable to allocate memory for conv kit data");
+ 	}
+ 
++#ifdef GW_TOUCHE_HALF
++	// (sequences and the room program are made at their own size when loaded: 16 KB x 7 and
++	// 60 KB otherwise)
++	if (0)
++#endif
+ 	for (int i = 0; i < NUM_SEQUENCES; ++i) {
+ 		_sequenceDataTable[i] = (uint8 *)malloc(16384);
+ 		if (!_sequenceDataTable[i]) {
+@@ -125,30 +146,56 @@ void ToucheEngine::res_allocateTables() {
+ 		}
+ 	}
+ 
++#ifndef GW_TOUCHE_HALF
+ 	_programData = (uint8 *)malloc(kMaxProgramDataSize);
+ 	if (!_programData) {
+ 		error("Unable to allocate memory for program data");
+ 	}
++#endif
+ 
++#ifdef GW_TOUCHE_HALF
++	_mouseData = (uint8 *)malloc(gwHalf(kCursorWidth) * gwHalf(kCursorHeight));
++#else
+ 	_mouseData = (uint8 *)malloc(kCursorWidth * kCursorHeight);
++#endif
+ 	if (!_mouseData) {
+ 		error("Unable to allocate memory for mouse data");
+ 	}
+ 
++#ifdef GW_TOUCHE_HALF
++	_iconData = (uint8 *)malloc(gwHalf(kIconWidth) * gwHalf(kIconHeight));
++#else
+ 	_iconData = (uint8 *)malloc(kIconWidth * kIconHeight);
++#endif
+ 	if (!_iconData) {
+ 		error("Unable to allocate memory for object data");
+ 	}
+ 
+ 	memset(_spritesTable, 0, sizeof(_spritesTable));
+ 
++#ifdef GW_TOUCHE_HALF
++	_offscreenBuffer = (uint8 *)calloc(gwHalf(kScreenWidth) * gwHalf(kScreenHeight), 1);
++	// it IS the screen (src/gw_system.cpp, gwAdoptable): the 62 KB copy of it not made
++	if (_offscreenBuffer)
++		gwAdoptable(_offscreenBuffer, _offscreenBuffer + gwHalf(kScreenWidth) * gwHalf(kScreenHeight));
++#else
+ 	_offscreenBuffer = (uint8 *)malloc(kScreenWidth * kScreenHeight);
++#endif
+ 	if (!_offscreenBuffer) {
+ 		error("Unable to allocate memory for offscreen buffer");
+ 	}
+ }
+ 
+ void ToucheEngine::res_deallocateTables() {
++#ifdef GW_TOUCHE_HALF
++	gwAdoptable(nullptr, nullptr);
++#endif
++#ifdef GW_TOUCHE_HALF
++	free(_gwRow);
++	free(_gwRow0);
++	_gwRow = _gwRow0 = nullptr;
++	_gwRowSize = 0;
++#endif
+ 	free(_textData);
+ 	_textData = nullptr;
+ 
+@@ -230,9 +277,13 @@ void ToucheEngine::res_loadSpriteImage(int num, uint8 *dst) {
+ 	_fData.seek(offs);
+ 	_currentImageWidth = _fData.readUint16LE();
+ 	_currentImageHeight = _fData.readUint16LE();
++#ifdef GW_TOUCHE_HALF
++	gwDecodeHalf(dst, _currentImageWidth, _currentImageWidth, _currentImageHeight);
++#else
+ 	for (int i = 0; i < _currentImageHeight; ++i) {
+ 		res_decodeScanLineImageRLE(dst + _currentImageWidth * i, _currentImageWidth);
+ 	}
++#endif
+ }
+ 
+ void ToucheEngine::res_loadProgram(int num) {
+@@ -240,6 +291,12 @@ void ToucheEngine::res_loadProgram(int num) {
+ 	const uint32 offs = res_getDataOffset(kResourceTypeProgram, num, &_programDataSize);
+ 	_fData.seek(offs);
+ 	assert(_programDataSize <= kMaxProgramDataSize);
++#ifdef GW_TOUCHE_HALF
++	free(_programData);
++	_programData = (uint8 *)malloc(_programDataSize);
++	if (!_programData)
++		error("Unable to allocate memory for program data");
++#endif
+ 	_fData.read(_programData, _programDataSize);
+ }
+ 
+@@ -464,7 +521,11 @@ void ToucheEngine::res_loadSprite(int num, int index) {
+ 	_fData.seek(offs);
+ 	_currentImageWidth = _fData.readUint16LE();
+ 	_currentImageHeight = _fData.readUint16LE();
++#ifdef GW_TOUCHE_HALF
++	const uint32 size = gwHalf(_currentImageWidth) * gwHalf(_currentImageHeight);
++#else
+ 	const uint32 size = _currentImageWidth * _currentImageHeight;
++#endif
+ 	if (size > spr->size) {
+ 		debug(8, "Reallocating memory for sprite %d (index %d), %d bytes needed", num, index, size - spr->size);
+ 		spr->size = size;
+@@ -485,9 +546,13 @@ void ToucheEngine::res_loadSprite(int num, int index) {
+ 
+ 		spr->ptr = buffer;
+ 	}
++#ifdef GW_TOUCHE_HALF
++	gwDecodeHalf(spr->ptr, _currentImageWidth, _currentImageWidth, _currentImageHeight);
++#else
+ 	for (int i = 0; i < _currentImageHeight; ++i) {
+ 		res_decodeScanLineImageRLE(spr->ptr + _currentImageWidth * i, _currentImageWidth);
+ 	}
++#endif
+ 	spr->bitmapWidth = _currentImageWidth;
+ 	spr->bitmapHeight = _currentImageHeight;
+ 	if (_flagsTable[268] == 0) {
+@@ -501,9 +566,21 @@ void ToucheEngine::res_loadSequence(int num, int index) {
+ 	debugC(9, kDebugResource, "ToucheEngine::res_loadSequence() num=%d index=%d", num, index);
+ 	assert(index < NUM_SEQUENCES);
+ 	_sequenceEntryTable[index].seqNum = num;
++#ifdef GW_TOUCHE_HALF
++	uint32 size = 0;
++	const uint32 offs = res_getDataOffset(kResourceTypeSequence, num, &size);
++	size = MIN<uint32>(size, 16000);
++	free(_sequenceDataTable[index]);
++	_sequenceDataTable[index] = (uint8 *)calloc(size + 16, 1);
++	if (!_sequenceDataTable[index])
++		error("Unable to allocate memory for sequence data %d", index);
++	_fData.seek(offs);
++	_fData.read(_sequenceDataTable[index], size);
++#else
+ 	const uint32 offs = res_getDataOffset(kResourceTypeSequence, num);
+ 	_fData.seek(offs);
+ 	_fData.read(_sequenceDataTable[index], 16000);
++#endif
+ }
+ 
+ void ToucheEngine::res_decodeScanLineImageRLE(uint8 *dst, int lineWidth) {
+@@ -528,6 +605,22 @@ void ToucheEngine::res_loadBackdrop() {
+ 	debugC(9, kDebugResource, "ToucheEngine::res_loadBackdrop()");
+ 	_currentBitmapWidth = _fData.readUint16LE();
+ 	_currentBitmapHeight = _fData.readUint16LE();
++#ifdef GW_TOUCHE_HALF
++	gwDecodeHalf(_backdropBuffer, _currentBitmapWidth, _currentBitmapWidth, _currentBitmapHeight);
++	// (the room's width: where its first row, kept whole by gwDecodeHalf, has a 255)
++	_roomWidth = _currentBitmapWidth;
++	for (int i = 0; i < _currentBitmapWidth; ++i) {
++		if (_gwRow0[i] == 255) {
++			_roomWidth = i;
++			if ((i & 1) == 0)
++				_backdropBuffer[i >> 1] = 0;
++			break;
++		}
++	}
++	if (_currentRoomNum == 8 && _currentBitmapWidth == 860) {
++		_backdropBuffer[60 * gwHalf(_currentBitmapWidth) + 367] = 0;
++	}
++#else
+ 	for (int i = 0; i < _currentBitmapHeight; ++i) {
+ 		res_decodeScanLineImageRLE(_backdropBuffer + _currentBitmapWidth * i, _currentBitmapWidth);
+ 	}
+@@ -543,6 +636,7 @@ void ToucheEngine::res_loadBackdrop() {
+ 	if (_currentRoomNum == 8 && _currentBitmapWidth == 860) {
+ 		_backdropBuffer[120 * _currentBitmapWidth + 734] = 0;
+ 	}
++#endif
+ }
+ 
+ void ToucheEngine::res_loadImage(int num, uint8 *dst) {
+@@ -551,12 +645,101 @@ void ToucheEngine::res_loadImage(int num, uint8 *dst) {
+ 	_fData.seek(offsInfo);
+ 	_currentImageWidth = _fData.readUint16LE();
+ 	_currentImageHeight = _fData.readUint16LE();
++#ifdef GW_TOUCHE_HALF
++	gwDecodeHalf(dst, _currentImageWidth, _currentImageWidth, _currentImageHeight);
++#else
+ 	for (int i = 0; i < _currentImageHeight; ++i) {
+ 		res_decodeScanLineImageRLE(dst + _currentImageWidth * i, _currentImageWidth);
+ 	}
++#endif
+ 	res_loadImageHelper(dst, _currentImageWidth, _currentImageHeight);
+ }
+ 
++#ifdef GW_TOUCHE_HALF
++void ToucheEngine::gwDecodeHalf(uint8 *dst, int dstPitch, int w, int h) {
++	if (w > _gwRowSize) {
++		free(_gwRow);
++		free(_gwRow0);
++		_gwRowSize = w;
++		_gwRow = (uint8 *)malloc(w);
++		_gwRow0 = (uint8 *)malloc(w);
++		if (!_gwRow || !_gwRow0)
++			error("Unable to allocate memory for a scan line");
++	}
++	const int hp = gwHalf(dstPitch);
++	const int hw = gwHalf(w);
++	_gwMarkW = w;
++	_gwMarkH = h;
++	// the RLE read through a 2 KB window, not a byte at a time from the file: on the card each
++	// byte was a call of its own, and a room's picture stopped the game for a moment
++	uint8 win[2048];
++	uint32 at = 0, got = 0;
++	const int64 base = _fData.pos();
++	int64 used = 0;
++	auto next = [&]() -> uint8 {
++		if (at >= got) {
++			got = _fData.read(win, sizeof(win));
++			at = 0;
++			if (!got)
++				return 0;
++		}
++		used++;
++		return win[at++];
++	};
++	for (int y = 0; y < h; ++y) {
++		uint8 *row = y ? _gwRow : _gwRow0;
++		for (int x = 0; x < w;) {
++			const uint8 code = next();
++			if ((code & 0xC0) == 0xC0) {
++				const int len = MIN(code & 0x3F, w - x);
++				memset(row + x, next(), len);
++				x += code & 0x3F;
++			} else {
++				row[x++] = code;
++			}
++		}
++		if (y == 0) {
++			for (int x = 0; x < w; ++x)
++				if (row[x] == 64 || row[x] == 255) {
++					_gwMarkW = x;
++					break;
++				}
++		}
++		if (_gwMarkH == h && (row[0] == 64 || row[0] == 255))
++			_gwMarkH = y;
++		if ((y & 1) == 0) {
++			uint8 *d = dst + (y >> 1) * hp;
++			for (int x = 0; x < hw; ++x)
++				d[x] = row[x << 1];
++		}
++	}
++	_fData.seek(base + used);	// (where the byte-at-a-time reading would have left it)
++}
++
++void ToucheEngine::res_loadImageHelper(uint8 *imgData, int imgWidth, int imgHeight) {
++	// the size as the 64/255 markers in the first row and column give it, noted at full size
++	// by the decoding just before; then the colours, at half size
++	_currentImageHeight = _gwMarkH;
++	_currentImageWidth = _gwMarkW;
++	if (_flagsTable[267] == 0) {
++		const int hp = gwHalf(imgWidth);
++		for (int y = 0; y < gwHalf(imgHeight); ++y) {
++			uint8 *p = imgData + y * hp;
++			for (int x = 0; x < hp; ++x) {
++				uint8 color = p[x];
++				if (color != 0) {
++					if (color < 64) {
++						color += 192;
++					} else {
++						color = 0;
++					}
++				}
++				p[x] = color;
++			}
++		}
++	}
++}
++#else
+ void ToucheEngine::res_loadImageHelper(uint8 *imgData, int imgWidth, int imgHeight) {
+ 	uint8 *p = imgData;
+ 	for (_currentImageHeight = 0; _currentImageHeight < imgHeight; ++_currentImageHeight, p += imgWidth) {
+@@ -584,6 +767,7 @@ void ToucheEngine::res_loadImageHelper(uint8 *imgData, int imgWidth, int imgHeig
+ 		}
+ 	}
+ }
++#endif
+ 
+ void ToucheEngine::res_loadSound(int priority, int num) {
+ 	debugC(9, kDebugResource, "ToucheEngine::res_loadSound() num=%d", num);
+diff --git a/engines/touche/touche.cpp b/engines/touche/touche.cpp
+index 166c0872e7e..b02679e892c 100644
+--- a/engines/touche/touche.cpp
++++ b/engines/touche/touche.cpp
+@@ -46,6 +46,12 @@
+ 
+ namespace Touche {
+ 
++#ifdef GW_TOUCHE_HALF
++#define GW_TEXT_H Graphics::textHeight16()
++#else
++#define GW_TEXT_H kTextHeight
++#endif
++
+ ToucheEngine::ToucheEngine(OSystem *system, Common::Language language)
+ 	: Engine(system), _midiPlayer(nullptr), _language(language), _rnd("touche") {
+ 	_saveLoadCurrentPage = 0;
+@@ -71,6 +77,10 @@ ToucheEngine::ToucheEngine(OSystem *system, Common::Language language)
+ 	_currentImageWidth = 0;
+ 	_currentImageHeight = 0;
+ 	_roomWidth = 0;
++#ifdef GW_TOUCHE_HALF
++	_gwRow = _gwRow0 = nullptr;
++	_gwRowSize = 0;
++#endif
+ 	_programTextDataPtr = nullptr;
+ 	_offscreenBuffer = nullptr;
+ 
+@@ -190,7 +200,11 @@ ToucheEngine::~ToucheEngine() {
+ }
+ 
+ Common::Error ToucheEngine::run() {
++#ifdef GW_TOUCHE_HALF
++	initGraphics(gwHalf(kScreenWidth), gwHalf(kScreenHeight));
++#else
+ 	initGraphics(kScreenWidth, kScreenHeight);
++#endif
+ 
+ 	Graphics::setupFont(_language);
+ 
+@@ -337,6 +351,10 @@ void ToucheEngine::writeConfigurationSettings() {
+ }
+ 
+ Common::Point ToucheEngine::getMousePos() const {
++#ifdef GW_TOUCHE_HALF
++	const Common::Point p = _eventMan->getMousePos();
++	return Common::Point(p.x * 2, p.y * 2);
++#endif
+ 	return _eventMan->getMousePos();
+ }
+ 
+@@ -975,6 +993,16 @@ void ToucheEngine::redrawRoom() {
+ 	if (_flagsTable[615] < 0 || _flagsTable[615] > _currentBitmapHeight - h) {
+ 		error("Invalid room_y_offset = %d (h=%d, room_h=%d)", _flagsTable[615], h, _currentBitmapHeight);
+ 	}
++#ifdef GW_TOUCHE_HALF
++	{
++		// the even rows of the screen from the backdrop's: (ox + 2j) / 2 = ox / 2 + j for odd ox too
++		const int hw = gwHalf(_currentBitmapWidth);
++		const int ox = _flagsTable[614], oy = _flagsTable[615];
++		for (int j = 0; j < gwHalf(h); ++j)
++			memcpy(_offscreenBuffer + j * gwHalf(kScreenWidth), _backdropBuffer + ((oy + 2 * j) >> 1) * hw + (ox >> 1), gwHalf(w));
++		return;
++	}
++#endif
+ 	uint8 *dst = _offscreenBuffer;
+ 	const uint8 *src = _backdropBuffer + _flagsTable[615] * _currentBitmapWidth + _flagsTable[614];
+ 	while (h--) {
+@@ -1154,6 +1182,25 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+ 				vflipped = !vflipped;
+ 			}
+ 
++#ifdef GW_TOUCHE_HALF
++			{
++				// even screen pixels only, each from the sprite pixel at the same place
++				const int hdp = gwHalf(dstPitch), hsp = gwHalf(spr->bitmapWidth);
++				const Common::Rect &r = copyRegion.r;
++				for (int y = r.top + (r.top & 1); y < r.bottom; y += 2) {
++					const uint8 *srow = spr->ptr + ((srcOffsY + copyRegion.srcY + y - r.top) >> 1) * hsp;
++					uint8 *drow = dst + (y >> 1) * hdp;
++					for (int x = r.left + (r.left & 1); x < r.right; x += 2) {
++						const int d = x - r.left;
++						const int sx = vflipped ? srcOffsX + spr->w - 1 - copyRegion.srcX - d : srcOffsX + copyRegion.srcX + d;
++						const uint8 color = srow[sx >> 1];
++						if (color != 0)
++							drow[x >> 1] = color;
++					}
++				}
++				continue;
++			}
++#endif
+ 			uint8 *dstCur = dst + copyRegion.r.top * dstPitch + copyRegion.r.left;
+ 			const uint8 *srcSpr = spr->ptr + (srcOffsY + copyRegion.srcY) * spr->bitmapWidth;
+ 			srcSpr += vflipped ? srcOffsX + spr->w - 1 - copyRegion.srcX : srcOffsX + copyRegion.srcX;
+@@ -1206,7 +1253,17 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+ 			assert(framesPerLine != 0);
+ 			const int srcOffsX = spr->w * (frameDir % framesPerLine);
+ 			const int srcOffsY = spr->h * (frameDir / framesPerLine);
++#ifdef GW_TOUCHE_HALF
++			// (the sprite's row as a full-size row number; pixels are read and written at half size)
++			int gwSrcRow = srcOffsY;
++			const int gwHsp = gwHalf(spr->bitmapWidth), gwHdp = gwHalf(dstPitch);
++#define GW_SPR(k) spr->ptr[(gwSrcRow >> 1) * gwHsp + ((srcOffsX + (k)) >> 1)]
++#define GW_PUT(c) do { if (((spr_x2 | sprScaledY) & 1) == 0) dst[(sprScaledY >> 1) * gwHdp + (spr_x2 >> 1)] = (c); } while (0)
++#else
+ 			const uint8 *srcSpr = spr->ptr + srcOffsY * spr->bitmapWidth + srcOffsX;
++#define GW_SPR(k) srcSpr[k]
++#define GW_PUT(c) (*dstCur = (c))
++#endif
+ 
+ 			assert(dstY >= -500 && dstY < 500);
+ 			int scalingIndex = _spriteScalingIndex[500 + dstY];
+@@ -1235,7 +1292,11 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+ 				}
+ 				sprStartY = sprCurY - sprStartY;
+ 				while (sprStartY != 0) {
++#ifdef GW_TOUCHE_HALF
++					++gwSrcRow;
++#else
+ 					srcSpr += spr->bitmapWidth;
++#endif
+ 					--sprStartY;
+ 				}
+ 				sprStartY = sprCurY;
+@@ -1253,9 +1314,9 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+ 							break;
+ 						}
+ 						if (spr_x2 >= clippingRect_x1) {
+-							uint8 color = vflipped ? srcSpr[spr->w - 1 - spr_x1] : srcSpr[spr_x1];
++							uint8 color = vflipped ? GW_SPR(spr->w - 1 - spr_x1) : GW_SPR(spr_x1);
+ 							if (color != 0) {
+-								*dstCur = color;
++								GW_PUT(color);
+ 							}
+ 						}
+ 						++spr_x2;
+@@ -1269,9 +1330,9 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+ 							break;
+ 						}
+ 						if (spr_x2 < clippingRect_x2) {
+-							uint8 color = vflipped ? srcSpr[spr->w - 1 - spr_x1] : srcSpr[spr_x1];
++							uint8 color = vflipped ? GW_SPR(spr->w - 1 - spr_x1) : GW_SPR(spr_x1);
+ 							if (color != 0) {
+-								*dstCur = color;
++								GW_PUT(color);
+ 							}
+ 						}
+ 						--spr_x2;
+@@ -1284,6 +1345,8 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+ 			}
+ 		}
+ 	}
++#undef GW_SPR
++#undef GW_PUT
+ 	if (walkDataNum != -1) {
+ 		if (_flagsTable[604] == 0) {
+ 			int area1 = _programWalkTable[walkDataNum].area1;
+@@ -1391,7 +1454,11 @@ void ToucheEngine::drawGameString(uint16 color, int x1, int y, const char *str)
+ 	while (*str) {
+ 		char chr = *str++;
+ 		if (chr == '\\') {
++#ifdef GW_TOUCHE_HALF
++			y += Graphics::textHeight16();
++#else
+ 			y += kTextHeight;
++#endif
+ 			w = Graphics::getStringWidth16(str);
+ 			x = x1 - w / 2;
+ 		} else {
+@@ -1663,7 +1730,11 @@ void ToucheEngine::setCursor(int num) {
+ 	debugC(9, kDebugEngine, "ToucheEngine::setCursor(%d)", num);
+ 	_currentCursorObject = num;
+ 	res_loadImage(num, _mouseData);
++#ifdef GW_TOUCHE_HALF
++	CursorMan.replaceCursor(_mouseData, gwHalf(kCursorWidth), gwHalf(kCursorHeight), kCursorWidth / 4, kCursorHeight / 4, 0);
++#else
+ 	CursorMan.replaceCursor(_mouseData, kCursorWidth, kCursorHeight, kCursorWidth / 2, kCursorHeight / 2, 0);
++#endif
+ }
+ 
+ void ToucheEngine::setDefaultCursor(int num) {
+@@ -2323,7 +2394,11 @@ void ToucheEngine::drawInventory(int index, int flag) {
+ 		_inventoryVar1 = _inventoryStateTable[index].itemsList;
+ 		_inventoryVar2 = &_inventoryStateTable[index].displayOffset;
+ 		_objectDescriptionNum = index;
++#ifdef GW_TOUCHE_HALF
++		uint8 *dst = _offscreenBuffer + gwHalf(kScreenWidth) * (kRoomHeight / 2);
++#else
+ 		uint8 *dst = _offscreenBuffer + kScreenWidth * kRoomHeight;
++#endif
+ 		res_loadSpriteImage(index + 12, dst);
+ 		res_loadImageHelper(dst, _currentImageWidth, _currentImageHeight);
+ 		int firstObjNum = _inventoryVar2[0];
+@@ -2459,6 +2534,10 @@ int ToucheEngine::updateKeyCharTalk(int skipFlag) {
+ 	int y = key->yPos - _flagsTable[615] - (key->zPos / 2 + 16);
+ 	int stringNum = _talkTable[_talkListCurrent].num;
+ 	const char *stringData = getString(stringNum);
++#ifdef GW_TOUCHE_HALF
++	// the talk in letters half as big again (Graphics::_gwBig), laid out with them
++	struct GwBig { GwBig() { Graphics::_gwBig = 1; } ~GwBig() { Graphics::_gwBig = 0; } } gwBig;
++#endif
+ 	int textWidth = getStringWidth(stringNum);
+ 	if (!_talkTextInitialized && !_skipTalkText) {
+ 		_keyCharTalkCounter = textWidth / 32 + 20;
+@@ -2479,8 +2558,8 @@ int ToucheEngine::updateKeyCharTalk(int skipFlag) {
+ 	}
+ 	if (_keyCharTalkCounter != 0) {
+ 		_talkTextDisplayed = true;
+-		int textHeight = kTextHeight;
+-		y -= kTextHeight;
++		int textHeight = GW_TEXT_H;
++		y -= GW_TEXT_H;
+ 		if (y < 0) {
+ 			y = 1;
+ 		} else if (y > kRoomHeight) {
+@@ -2541,8 +2620,8 @@ const char *ToucheEngine::formatTalkText(int *y, int *h, const char *text) {
+ 			if (lineWidth + newLineWidth >= 200) {
+ 				*textLine = '\\';
+ 				newLineWidth = lineWidth - chrWidth;
+-				*y -= kTextHeight;
+-				*h += kTextHeight;
++				*y -= GW_TEXT_H;
++				*h += GW_TEXT_H;
+ 				lineWidth = chrWidth;
+ 			} else {
+ 				newLineWidth += lineWidth;
+@@ -2557,8 +2636,8 @@ const char *ToucheEngine::formatTalkText(int *y, int *h, const char *text) {
+ 	}
+ 	if (newLineWidth + lineWidth >= 200) {
+ 		*textLine = '\\';
+-		*y -= kTextHeight;
+-		*h += kTextHeight;
++		*y -= GW_TEXT_H;
++		*h += GW_TEXT_H;
+ 	}
+ 	*textBuffer = '\0';
+ 	if (*y < 0) {
+@@ -3553,12 +3632,30 @@ void ToucheEngine::setPalette(int firstColor, int colorCount, int rScale, int gS
+ 	_system->getPaletteManager()->setPalette(&pal[firstColor * 3], firstColor, colorCount);
+ }
+ 
++#ifdef GW_TOUCHE_HALF
++// the half-size screen's pixels that cover the full-size rectangle
++static void gwCopyToScreen(OSystem *sys, const uint8 *buf, int x, int y, int w, int h) {
++	const int x0 = MAX(0, x >> 1), y0 = MAX(0, y >> 1);
++	const int x1 = MIN(gwHalf(kScreenWidth), (x + w + 1) >> 1), y1 = MIN(gwHalf(kScreenHeight), (y + h + 1) >> 1);
++	if (x1 > x0 && y1 > y0)
++		sys->copyRectToScreen(buf + y0 * gwHalf(kScreenWidth) + x0, gwHalf(kScreenWidth), x0, y0, x1 - x0, y1 - y0);
++}
++#endif
++
+ void ToucheEngine::updateScreenArea(int x, int y, int w, int h) {
++#ifdef GW_TOUCHE_HALF
++	gwCopyToScreen(_system, _offscreenBuffer, x, y, w, h);
++	return;
++#endif
+ 	_system->copyRectToScreen(_offscreenBuffer + y * kScreenWidth + x, kScreenWidth, x, y, w, h);
+ }
+ 
+ void ToucheEngine::updateEntireScreen() {
+ 	int h = (_flagsTable[606] != 0) ? kScreenHeight : kRoomHeight;
++#ifdef GW_TOUCHE_HALF
++	gwCopyToScreen(_system, _offscreenBuffer, 0, 0, kScreenWidth, h);
++	return;
++#endif
+ 	_system->copyRectToScreen(_offscreenBuffer, kScreenWidth, 0, 0, kScreenWidth, h);
+ }
+ 
+@@ -3574,11 +3671,19 @@ void ToucheEngine::updateDirtyScreenAreas() {
+ #if 0
+ 			Graphics::drawRect(_offscreenBuffer, kScreenWidth, r.left, r.top, r.width(), r.height(), 0xFF, 0xFF);
+ #endif
++#ifdef GW_TOUCHE_HALF
++			gwCopyToScreen(_system, _offscreenBuffer, r.left, r.top, r.width(), r.height());
++#else
+ 			_system->copyRectToScreen(_offscreenBuffer + r.top * kScreenWidth + r.left, kScreenWidth, r.left, r.top, r.width(), r.height());
++#endif
+ 		}
+ 		if (_menuRedrawCounter) {
+ 			const Common::Rect &r = _cursorObjectRect;
++#ifdef GW_TOUCHE_HALF
++			gwCopyToScreen(_system, _offscreenBuffer, r.left, r.top, r.width(), r.height());
++#else
+ 			_system->copyRectToScreen(_offscreenBuffer + r.top * kScreenWidth + r.left, kScreenWidth, r.left, r.top, r.width(), r.height());
++#endif
+ 			--_menuRedrawCounter;
+ 		}
+ 	}
+diff --git a/engines/touche/touche.h b/engines/touche/touche.h
+index 591fab88937..1547467e9a6 100644
+--- a/engines/touche/touche.h
++++ b/engines/touche/touche.h
+@@ -23,6 +23,7 @@
+ #define TOUCHE_TOUCHE_H
+ 
+ #include "common/array.h"
++#include "touche/graphics.h"
+ #include "common/endian.h"
+ #include "common/file.h"
+ #include "common/random.h"
+@@ -742,6 +743,14 @@ protected:
+ 	void res_loadSprite(int num, int index);
+ 	void res_loadSequence(int num, int index);
+ 	void res_decodeScanLineImageRLE(uint8 *dst, int lineWidth);
++#ifdef GW_TOUCHE_HALF
++	// decodes an image of w x h into dst at half size (pitch: the full-size pitch of dst), and
++	// notes where its first row and first column reach a 64/255 marker for res_loadImageHelper
++	void gwDecodeHalf(uint8 *dst, int dstPitch, int w, int h);
++	int _gwMarkW, _gwMarkH;
++	uint8 *_gwRow, *_gwRow0;
++	int _gwRowSize;
++#endif
+ 	void res_loadBackdrop();
+ 	void res_loadImage(int num, uint8 *dst);
+ 	void res_loadImageHelper(uint8 *imgData, int imgWidth, int imgHeight);
 diff --git a/graphics/scaler/thumbnail_intern.cpp b/graphics/scaler/thumbnail_intern.cpp
 index 11f20630172..24383334490 100644
 --- a/graphics/scaler/thumbnail_intern.cpp
