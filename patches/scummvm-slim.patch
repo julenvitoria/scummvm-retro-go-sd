@@ -13049,6 +13049,189 @@ index 8b0b8ce28a6..035f5626b89 100644
  	static int giveCurrentScreen();
  
  	static uint32 giveScriptVar(uint32 s);
+diff --git a/engines/sword1/animation.cpp b/engines/sword1/animation.cpp
+index 6dd77a271ff..5a4412fb60a 100644
+--- a/engines/sword1/animation.cpp
++++ b/engines/sword1/animation.cpp
+@@ -20,6 +20,9 @@
+  */
+ 
+ #include "common/file.h"
++#include "audio/audiostream.h"
++#include "audio/mixer.h"
++#include "audio/decoders/raw.h"
+ #include "common/events.h"
+ #include "common/keyboard.h"
+ #include "common/textconsole.h"
+@@ -520,6 +523,153 @@ void MoviePlayer::drawFramePSX(const Graphics::Surface *frame) {
+ 	scaledFrame.free();
+ }
+ 
++#ifdef GW_SWORD1_SLIM
++// Game & Watch: the cutscenes as .gwv films (tools/smk2gwv.py: the Smacker film already decoded,
++// at the half size the panel shows, as each frame's changes). A Smacker film itself cannot be
++// played here (821 KB of Huffman trees, and the CPU to walk them). The film is read from the
++// card a frame at a time, straight into the screen; its sound goes to the mixer as it comes.
++// false: there is no such film.
++bool gwFilmExists(uint32 id) {
++	return Common::File::exists(Common::Path(Common::String::format("%s.gwv", sequenceList[id])));
++}
++
++bool gwPlayFilm(SwordEngine *vm, OSystem *sys, uint32 id) {
++	Common::File f;
++	if (!f.open(Common::Path(Common::String::format("%s.gwv", sequenceList[id]))))
++		return false;
++	byte head[32];
++	if (f.read(head, 32) != 32 || memcmp(head, "GWV1", 4))
++		return false;
++	const int w = READ_LE_UINT16(head + 4), h = READ_LE_UINT16(head + 6), frames = READ_LE_UINT16(head + 8);
++	const uint32 us = READ_LE_UINT32(head + 12), rate = READ_LE_UINT32(head + 16);
++
++	Audio::QueuingAudioStream *audio = rate ? Audio::makeQueuingAudioStream(rate, false) : nullptr;
++	Audio::SoundHandle handle;
++	if (audio)
++		sys->getMixer()->playStream(Audio::Mixer::kSFXSoundType, &handle, audio);
++
++	{
++		Graphics::Surface *s = sys->lockScreen();
++		s->fillRect(Common::Rect(s->w, s->h), 0);
++		sys->unlockScreen();
++	}
++	// a frame is read through a small window, not whole (a key frame is 64 KB, which a room
++	// in the middle of the game may not have to spare)
++	enum { WIN = 2048 };
++	byte win[WIN];
++	uint32 left = 0, at = 0, got = 0;
++	auto more = [&]() -> bool {
++		if (at < got)
++			return true;
++		if (!left)
++			return false;
++		got = f.read(win, MIN<uint32>(left, WIN));
++		left -= got;
++		at = 0;
++		return got > 0;
++	};
++	auto byteAt = [&]() -> int { return more() ? win[at++] : -1; };
++	auto copyOut = [&](byte *d, uint32 n) -> bool {
++		while (n) {
++			if (!more())
++				return false;
++			const uint32 k = MIN<uint32>(n, got - at);
++			if (d) {
++				memcpy(d, win + at, k);
++				d += k;
++			}
++			at += k;
++			n -= k;
++		}
++		return true;
++	};
++
++	const uint32 start = sys->getMillis();
++	bool skipped = false, broken = false;
++	for (int k = 0; k < frames && !skipped && !broken && !vm->shouldQuit(); k++) {
++		left = f.readUint32LE();
++		at = got = 0;
++		if (f.eos() || left < 3)
++			break;
++		const int flags = byteAt();
++		if (flags & 1) {
++			byte pal[768];
++			if (!copyOut(pal, 768))
++				break;
++			sys->getPaletteManager()->setPalette(pal, 0, 256);
++		}
++		byte nb[2];
++		if (!copyOut(nb, 2))
++			break;
++		const uint n = READ_LE_UINT16(nb);
++		byte *pcm = audio && n ? (byte *)malloc(n * 2) : nullptr;
++		if (!copyOut(pcm, n * 2)) {
++			free(pcm);
++			break;
++		}
++		if (pcm)
++			audio->queueBuffer(pcm, n * 2, DisposeAfterUse::YES, Audio::FLAG_16BITS | Audio::FLAG_LITTLE_ENDIAN);
++
++		// the picture's changes, into the screen (the film centred in it)
++		Graphics::Surface *s = sys->lockScreen();
++		const int x0 = (s->w - w) / 2, y0 = (s->h - h) / 2;
++		int x = 0, y = 0;
++		auto advance = [&](int c) { x += c; while (x >= w) { x -= w; y++; } };
++		for (int op; y < h && (op = byteAt()) >= 0;) {
++			int c = op & 63;
++			if (c == 63) {
++				byte e[2];
++				if (!copyOut(e, 2)) { broken = true; break; }
++				c += READ_LE_UINT16(e);
++			}
++			c++;
++			const int kind = op >> 6;
++			if (kind == 0) {
++				advance(c);
++				continue;
++			}
++			const int fill = kind == 2 ? byteAt() : 0;
++			while (c > 0 && y < h) {
++				const int k2 = MIN(c, w - x);
++				byte *d = (byte *)s->getBasePtr(x0 + x, y0 + y);
++				if (kind == 1) {
++					if (!copyOut(d, k2)) { broken = true; break; }
++				} else {
++					memset(d, fill, k2);
++				}
++				c -= k2;
++				advance(k2);
++			}
++			if (broken)
++				break;
++		}
++		sys->unlockScreen();
++		copyOut(nullptr, left + got - at);	// (anything after the picture)
++
++		// shown when its time comes; a frame already late is not shown (the next one is)
++		const uint32 due = start + (uint32)((uint64)(k + 1) * us / 1000);
++		if (sys->getMillis() < due + us / 1000)
++			sys->updateScreen();
++		while (sys->getMillis() < due) {
++			Common::Event e;
++			while (sys->getEventManager()->pollEvent(e)) {
++				if (e.type == Common::EVENT_KEYDOWN || e.type == Common::EVENT_LBUTTONDOWN ||
++				    e.type == Common::EVENT_RBUTTONDOWN || e.type == Common::EVENT_CUSTOM_ENGINE_ACTION_START)
++					skipped = true;
++			}
++			if (skipped)
++				break;
++			sys->delayMillis(5);
++		}
++	}
++	if (audio) {
++		audio->finish();
++		sys->getMixer()->stopHandle(handle);
++	}
++	return true;
++}
++#endif
++
+ ///////////////////////////////////////////////////////////////////////////////
+ // Factory function for creating the appropriate cutscene player
+ ///////////////////////////////////////////////////////////////////////////////
+diff --git a/engines/sword1/animation.h b/engines/sword1/animation.h
+index 84effd73c15..625978f277a 100644
+--- a/engines/sword1/animation.h
++++ b/engines/sword1/animation.h
+@@ -91,6 +91,10 @@ protected:
+ };
+ 
+ MoviePlayer *makeMoviePlayer(uint32 id, SwordEngine *vm, Text *textMan, ResMan *resMan, Sound *sound, OSystem *system);
++#ifdef GW_SWORD1_SLIM
++bool gwPlayFilm(SwordEngine *vm, OSystem *sys, uint32 id);
++bool gwFilmExists(uint32 id);
++#endif
+ 
+ } // End of namespace Sword1
+ 
 diff --git a/engines/sword1/control.cpp b/engines/sword1/control.cpp
 index 1c40eb63566..e422f620669 100644
 --- a/engines/sword1/control.cpp
@@ -13887,10 +14070,18 @@ index fd004607df5..9ff556eecc2 100644
  	int32 _gamesSaved = 0;
  	int32 _textCursor;
 diff --git a/engines/sword1/logic.cpp b/engines/sword1/logic.cpp
-index dbc9282a3fb..7653ee1d66d 100644
+index dbc9282a3fb..f4a776b6125 100644
 --- a/engines/sword1/logic.cpp
 +++ b/engines/sword1/logic.cpp
-@@ -48,7 +48,11 @@ namespace Sword1 {
+@@ -39,6 +39,7 @@
+ 
+ #include "sword1/debug.h"
+ 
++#include "graphics/paletteman.h"
+ #include "gui/error.h"
+ #include "gui/message.h"
+ 
+@@ -48,7 +49,11 @@ namespace Sword1 {
  #define SCRIPT_VERSION  13
  #define LAST_FRAME 999
  
@@ -13902,7 +14093,7 @@ index dbc9282a3fb..7653ee1d66d 100644
  
  Logic::Logic(SwordEngine *vm, ObjectMan *pObjMan, ResMan *resMan, Screen *pScreen, Mouse *pMouse, Sound *pSound, Menu *pMenu, OSystem *system, Audio::Mixer *mixer)
  	: _rnd("sword1") {
-@@ -124,6 +128,15 @@ void Logic::newScreen(uint32 screen) {
+@@ -124,6 +129,15 @@ void Logic::newScreen(uint32 screen) {
  	if (screen == 33)
  		_scriptVars[SAM_RETURNING] = 0;
  
@@ -13918,7 +14109,7 @@ index dbc9282a3fb..7653ee1d66d 100644
  	if (SwordEngine::_systemVars.justRestoredGame) { // if we've just restored a game - we want George to be exactly as saved
  		fnAddHuman(NULL, 0, 0, 0, 0, 0, 0, 0);
  		if (_scriptVars[GEORGE_WALKING]) { // except that if George was walking when we saveed the game
-@@ -1013,7 +1026,13 @@ int Logic::fnPlaySequence(Object *cpt, int32 id, int32 sequenceId, int32 d, int3
+@@ -1013,7 +1027,22 @@ int Logic::fnPlaySequence(Object *cpt, int32 id, int32 sequenceId, int32 d, int3
  	if (SwordEngine::isPsx() && sequenceId == 19) {
  		_control->psxEndCredits();
  	} else {
@@ -13926,13 +14117,22 @@ index dbc9282a3fb..7653ee1d66d 100644
 +		// Game & Watch: no cutscenes. A 640x480 Smacker film needs some 1.5 MB to decode
 +		// (821 KB of Huffman trees alone); the console has under 900 KB.
 +		MoviePlayer *player = nullptr;
++		// ... but the same film made into a .gwv (tools/smk2gwv.py) plays
++		if (gwFilmExists(sequenceId)) {
++			_screen->clearScreen();
++			gwPlayFilm(_vm, _system, sequenceId);
++			byte pal[3 * 256];
++			memset(pal, 0, sizeof(pal));
++			_system->getPaletteManager()->setPalette(pal, 0, 256);
++			_screen->setNextFadeOutToBlack();
++		}
 +#else
  		MoviePlayer *player = makeMoviePlayer(sequenceId, _vm, _textMan, _resMan, _sound, _system);
 +#endif
  		if (player) {
  			Common::Error err;
  
-@@ -1237,7 +1256,12 @@ int Logic::fnISpeak(Object *cpt, int32 id, int32 cdt, int32 textNo, int32 spr, i
+@@ -1237,7 +1266,12 @@ int Logic::fnISpeak(Object *cpt, int32 id, int32 cdt, int32 textNo, int32 spr, i
  
  		char *text = _objMan->lockText(textNo);
  		cpt->o_speech_time = strlen(text) + 5;
