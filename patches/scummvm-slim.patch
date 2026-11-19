@@ -1082,15 +1082,16 @@ index 785c692e2c5..9cdfff7c776 100644
  	vgaPeriod = (_fastMode) ? 10 : _vgaPeriod;
  	if (getGameType() == GType_PP && getGameId() != GID_DIMP) {
 diff --git a/engines/agos/metaengine.cpp b/engines/agos/metaengine.cpp
-index 1f66dec7050..5f8fb78fedc 100644
+index 1f66dec7050..529ddb665c0 100644
 --- a/engines/agos/metaengine.cpp
 +++ b/engines/agos/metaengine.cpp
-@@ -66,7 +66,16 @@ bool AGOS::AGOSEngine::hasFeature(EngineFeature f) const {
+@@ -66,7 +66,21 @@ bool AGOS::AGOSEngine::hasFeature(EngineFeature f) const {
  		(f == kSupportsReturnToLauncher);
  }
  
 +#ifdef GW_AGOS_SLIM
 +extern "C" int heap_small_hint;	// src/heap.c
++extern "C" const char *gw_test_env(const char *name);
 +#endif
 +
  Common::Error AgosMetaEngine::createInstance(OSystem *syst, Engine **engine, const AGOS::AGOSGameDescription *gd) const {
@@ -1098,6 +1099,10 @@ index 1f66dec7050..5f8fb78fedc 100644
 +	// Game & Watch: the engine object (70 KB, there all game long) in the small heap, so the big
 +	// one stays in one piece for the VGA files (up to 178 KB) -- Simon 1 in French failed one
 +	struct SmallFirst { SmallFirst() { heap_small_hint = 1; } ~SmallFirst() { heap_small_hint = 0; } } smallFirst;
++#ifndef __arm__		// (the PC test build: GW_AGOS_NOHINT=1 leaves it as before, to compare)
++	if (gw_test_env("GW_AGOS_NOHINT"))
++		heap_small_hint = 0;
++#endif
 +#endif
  	switch (gd->gameType) {
  	case AGOS::GType_PN:
@@ -1472,7 +1477,7 @@ index cf01a1c5e33..737870a3469 100644
  }
  
 diff --git a/engines/agos/zones.cpp b/engines/agos/zones.cpp
-index 37fc11af101..3973e0c679a 100644
+index 37fc11af101..b27ec0fd0a9 100644
 --- a/engines/agos/zones.cpp
 +++ b/engines/agos/zones.cpp
 @@ -25,16 +25,64 @@
@@ -1674,7 +1679,7 @@ index 37fc11af101..3973e0c679a 100644
  	_zoneBuffers = (byte *)malloc(_vgaMemSize);
  
  	_vgaMemPtr = _zoneBuffers;
-@@ -115,9 +280,138 @@ void AGOSEngine::setZoneBuffers() {
+@@ -115,9 +280,143 @@ void AGOSEngine::setZoneBuffers() {
  	_vgaFrozenBase = _zoneBuffers;
  	_vgaRealBase = _zoneBuffers;
  	_vgaMemEnd = _zoneBuffers + _vgaMemSize;
@@ -1776,6 +1781,11 @@ index 37fc11af101..3973e0c679a 100644
 +	GWCHK("entering allocBlock", size);
 +#endif
 +#ifdef GW_AGOS_SLIM
++#ifndef __arm__		// (the PC test build: GW_AGOS_PAD=<KB> makes every big block that much bigger,
++			// to stand for a version whose files are -- Simon 1 French, 178 KB where ours has 174)
++	if (size > 100 * 1024 && gw_test_env("GW_AGOS_PAD"))
++		size += atoi(gw_test_env("GW_AGOS_PAD")) * 1024;
++#endif
 +	while (gwZoneBytes + size > gwZoneCap && gwFreeZoneMemory())
 +		;
 +	for (;;) {
