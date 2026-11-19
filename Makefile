@@ -146,7 +146,7 @@ ENGGFX_gob     := -DGW_GOB_SCREEN
 ENG_OUT  := $(ENGINES:%=out/scummvm/%.svm)
 # ScummVM's engine data files the engines here need (copied into a game's folder on its first
 # start: src/platform_core.c, provide_dat)
-ENGDATA  := lure.dat drascula.dat teenagent.dat kyra.dat
+ENGDATA  := lure.dat drascula.dat teenagent.dat kyra.dat neverhood.dat
 core: $(OUT) $(ENG_OUT) out/scummvm/engines.txt $(ENGDATA:%=out/scummvm/%)
 
 # Kyrandia's: only Kyrandia 1 (DOS) of the six games in it (tools/kyra_dat.py)
