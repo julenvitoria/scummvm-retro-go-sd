@@ -5,10 +5,10 @@ A Smacker film cannot be decoded on the console: its Huffman trees alone take up
 (Broken Sword's INTRO.SMK) beside a 256 KB frame, and walking them bit by bit for every 4x4
 block is more than the CPU has at 12 frames a second. A .gwv is the same film already decoded,
 at the size the panel shows (every other pixel: 640x400 -> 320x200), as the changes from one
-frame to the next -- played by a few dozen lines of code (src/gw_film.cpp) that read it from the
+frame to the next -- played by a few dozen lines of code (engines/sword1/animation.cpp) that read it from the
 card as it goes, into the screen itself, with no memory of their own but one frame's chunk.
 
-Needs ffmpeg (on the PATH) and numpy.
+Needs ffmpeg and ffprobe (on the PATH) and numpy; it says how to install what is missing.
 
 Format (little-endian):
   header, 32 bytes: "GWV1", u16 width, u16 height, u16 frames, u16 reserved,
@@ -21,8 +21,23 @@ Format (little-endian):
                       count = n + 1; kind 0 skips count pixels (unchanged), 1 copies count
                       bytes that follow, 2 repeats the byte that follows count times
 """
-import os, struct, subprocess, sys
-import numpy as np
+import os, shutil, struct, subprocess, sys
+
+HELP = '''
+Install it, then open a NEW terminal window (PowerShell, cmd...) so it is found, and try again:
+  Windows: winget install Gyan.FFmpeg     (or https://www.gyan.dev/ffmpeg/builds/, with its
+           "bin" folder added to the PATH)
+  macOS:   brew install ffmpeg
+  Linux:   sudo apt install ffmpeg        (or your distribution's package)
+  numpy:   python -m pip install numpy
+'''
+try:
+    import numpy as np
+except ImportError:
+    raise SystemExit('smk2gwv.py needs numpy, which this Python does not have.' + HELP)
+for tool in ('ffmpeg', 'ffprobe'):
+    if not shutil.which(tool):
+        raise SystemExit('smk2gwv.py needs ffmpeg: "%s" was not found on the PATH.' % tool + HELP)
 
 
 def probe(path):
@@ -103,6 +118,8 @@ def emit_lit(px):
 
 
 def main():
+    if len(sys.argv) < 2:
+        raise SystemExit(__doc__)
     src = sys.argv[1]
     dst = sys.argv[2] if len(sys.argv) > 2 else os.path.splitext(src)[0] + '.gwv'
     w, h, num, den, rate = probe(src)
