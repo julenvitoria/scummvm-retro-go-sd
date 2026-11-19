@@ -1081,6 +1081,27 @@ index 785c692e2c5..9cdfff7c776 100644
  
  	vgaPeriod = (_fastMode) ? 10 : _vgaPeriod;
  	if (getGameType() == GType_PP && getGameId() != GID_DIMP) {
+diff --git a/engines/agos/metaengine.cpp b/engines/agos/metaengine.cpp
+index 1f66dec7050..5f8fb78fedc 100644
+--- a/engines/agos/metaengine.cpp
++++ b/engines/agos/metaengine.cpp
+@@ -66,7 +66,16 @@ bool AGOS::AGOSEngine::hasFeature(EngineFeature f) const {
+ 		(f == kSupportsReturnToLauncher);
+ }
+ 
++#ifdef GW_AGOS_SLIM
++extern "C" int heap_small_hint;	// src/heap.c
++#endif
++
+ Common::Error AgosMetaEngine::createInstance(OSystem *syst, Engine **engine, const AGOS::AGOSGameDescription *gd) const {
++#ifdef GW_AGOS_SLIM
++	// Game & Watch: the engine object (70 KB, there all game long) in the small heap, so the big
++	// one stays in one piece for the VGA files (up to 178 KB) -- Simon 1 in French failed one
++	struct SmallFirst { SmallFirst() { heap_small_hint = 1; } ~SmallFirst() { heap_small_hint = 0; } } smallFirst;
++#endif
+ 	switch (gd->gameType) {
+ 	case AGOS::GType_PN:
+ 		*engine = new AGOS::AGOSEngine_PN(syst, gd);
 diff --git a/engines/agos/res.cpp b/engines/agos/res.cpp
 index 1ef1d3c9391..51eaa745211 100644
 --- a/engines/agos/res.cpp
