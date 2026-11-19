@@ -350,6 +350,51 @@ index 6bc59a83f10..e62c0c96b11 100644
  
  	ArchiveNodeList::iterator find(const String &name);
  	ArchiveNodeList::const_iterator find(const String &name) const;
+diff --git a/common/compression/dcl.cpp b/common/compression/dcl.cpp
+index 7450b6aa4f4..0e7870b79b6 100644
+--- a/common/compression/dcl.cpp
++++ b/common/compression/dcl.cpp
+@@ -478,6 +478,11 @@ bool decompressDCL(ReadStream *src, byte *dest, uint32 packedSize, uint32 unpack
+ 	return success;
+ }
+ 
++bool decompressDCL(SeekableReadStream *sourceStream, WriteStream *targetStream, uint32 unpackedSize) {
++	DecompressorDCL dcl;
++	return dcl.unpack(sourceStream, targetStream, unpackedSize, true);
++}
++
+ SeekableReadStream *decompressDCL(SeekableReadStream *sourceStream, uint32 packedSize, uint32 unpackedSize) {
+ 	bool success = false;
+ 	byte *targetPtr = nullptr;
+diff --git a/common/compression/dcl.h b/common/compression/dcl.h
+index bd2fcd4d4fd..2beb2d561b6 100644
+--- a/common/compression/dcl.h
++++ b/common/compression/dcl.h
+@@ -43,6 +43,7 @@ namespace Common {
+ 
+ class ReadStream;
+ class SeekableReadStream;
++class WriteStream;
+ 
+ /**
+  * Decompress a PKWARE DCL compressed stream.
+@@ -60,6 +61,16 @@ bool decompressDCL(ReadStream *sourceStream, byte *dest, uint32 packedSize, uint
+  */
+ SeekableReadStream *decompressDCL(SeekableReadStream *sourceStream, uint32 packedSize, uint32 unpackedSize);
+ 
++/**
++ * @overload
++ *
++ * Decompress a PKWARE DCL compressed stream into another stream, as it goes (no buffer of either
++ * size: the decompressor's window is 4 KB at most).
++ *
++ * @return Returns true if successful.
++ */
++bool decompressDCL(SeekableReadStream *sourceStream, WriteStream *targetStream, uint32 unpackedSize);
++
+ /**
+  * @overload
+  *
 diff --git a/common/compression/unarj.cpp b/common/compression/unarj.cpp
 index ce182a84063..92b7c31af85 100644
 --- a/common/compression/unarj.cpp
@@ -5409,6 +5454,723 @@ index 8b664cbd5c9..d51d88eb046 100644
  
  		Screen &screen = Screen::getReference();
  
+diff --git a/engines/neverhood/blbarchive.cpp b/engines/neverhood/blbarchive.cpp
+index 0260300eada..12dd45f8535 100644
+--- a/engines/neverhood/blbarchive.cpp
++++ b/engines/neverhood/blbarchive.cpp
+@@ -78,6 +78,9 @@ bool BlbArchive::open(const Common::Path &filename, bool isOptional) {
+ 		entry.offset = _fd.readUint32LE();
+ 		entry.diskSize = _fd.readUint32LE();
+ 		entry.size = _fd.readUint32LE();
++#ifdef GW_NEVERHOOD_SLIM
++		entry.gwOffs = 0;
++#endif
+ 		debug(4, "%08X: %03d, %02X, %04X, %08X, %08X, %08X, %08X",
+ 			entry.fileHash, entry.type, entry.comprType, extDataOffsets[i], entry.timeStamp,
+ 			entry.offset, entry.diskSize, entry.size);
+diff --git a/engines/neverhood/blbarchive.h b/engines/neverhood/blbarchive.h
+index 4b830e8c9bc..520e24421df 100644
+--- a/engines/neverhood/blbarchive.h
++++ b/engines/neverhood/blbarchive.h
+@@ -48,6 +48,9 @@ struct BlbArchiveEntry {
+ 	uint32 offset;
+ 	uint32 diskSize;
+ 	uint32 size;
++#ifdef GW_NEVERHOOD_SLIM
++	uint32 gwOffs;	// where it is, decompressed, in neverhood.gwp (0: not there -- stored as is)
++#endif
+ };
+ 
+ class BlbArchive {
+@@ -64,6 +67,9 @@ public:
+ 	uint getCount() { return _entries.size(); }
+ 	Common::SeekableReadStream *createStream(uint index);
+ 	Common::SeekableReadStream *createStream(BlbArchiveEntry *entry);
++#ifdef GW_NEVERHOOD_SLIM
++	Common::File &gwFile() { return _fd; }
++#endif
+ private:
+ 	Common::File _fd;
+ 	Common::Mutex _mutex;
+diff --git a/engines/neverhood/graphics.cpp b/engines/neverhood/graphics.cpp
+index cdf91b8dddf..1f00e306393 100644
+--- a/engines/neverhood/graphics.cpp
++++ b/engines/neverhood/graphics.cpp
+@@ -22,6 +22,7 @@
+ #include "neverhood/graphics.h"
+ #include "neverhood/resource.h"
+ #include "neverhood/screen.h"
++#include "neverhood/resourceman.h"
+ 
+ namespace Neverhood {
+ 
+@@ -355,4 +356,107 @@ int calcDistance(int16 x1, int16 y1, int16 x2, int16 y2) {
+ 	return (int)sqrt((double)(deltaX * deltaX + deltaY * deltaY));
+ }
+ 
++#ifdef GW_NEVERHOOD_SLIM
++bool parseBitmapHeader(GWReader &r, bool *rle, NDimensions *dimensions, NPoint *position, uint32 *pixOfs, uint32 *palOfs) {
++	const uint16 flags = r.u16();
++	uint32 ofs = 2;
++	if (rle)
++		*rle = flags & BF_RLE;
++	if (dimensions) {
++		dimensions->width = 1;
++		dimensions->height = 1;
++	}
++	if (position) {
++		position->x = 0;
++		position->y = 0;
++	}
++	if (flags & BF_HAS_DIMENSIONS) {
++		const uint16 w = r.u16(), h = r.u16();
++		if (dimensions) {
++			dimensions->width = w;
++			dimensions->height = h;
++		}
++		ofs += 4;
++	}
++	if (flags & BF_HAS_POSITION) {
++		const uint16 x = r.u16(), y = r.u16();
++		if (position) {
++			position->x = x;
++			position->y = y;
++		}
++		ofs += 4;
++	}
++	if (palOfs)
++		*palOfs = (flags & BF_HAS_PALETTE) ? ofs : 0;
++	if (flags & BF_HAS_PALETTE)
++		ofs += 1024;
++	if (pixOfs)
++		*pixOfs = ofs;
++	return flags & BF_HAS_IMAGE;
++}
++
++void unpackSpriteRle(GWReader &source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY, byte oldColor, byte newColor) {
++	const bool replaceColors = oldColor != newColor;
++	if (flipY) {
++		dest += destPitch * (height - 1);
++		destPitch = -destPitch;
++	}
++	byte row[2048];
++	int16 rows = source.u16();
++	int16 chunks = source.u16();
++	do {
++		if (chunks == 0) {
++			dest += rows * destPitch;
++		} else {
++			while (rows-- > 0) {
++				uint16 rowChunks = chunks;
++				while (rowChunks-- > 0) {
++					const int16 skip = source.u16();
++					const int16 copy = source.u16();
++					if (!flipX) {
++						source.read(dest + skip, copy);
++					} else {
++						const int16 c = MIN<int16>(copy, sizeof(row));
++						source.read(row, c);
++						source.skip(copy - c);
++						byte *flipDest = dest + width - skip - 1;
++						for (int xc = 0; xc < c; xc++)
++							*flipDest-- = row[xc];
++					}
++				}
++				if (replaceColors)
++					for (int xc = 0; xc < width; xc++)
++						if (dest[xc] == oldColor)
++							dest[xc] = newColor;
++				dest += destPitch;
++			}
++		}
++		rows = source.u16();
++		chunks = source.u16();
++	} while (rows > 0);
++}
++
++void unpackSpriteNormal(GWReader &source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY) {
++	const int sourcePitch = (width + 3) & 0xFFFC;
++	if (flipY) {
++		dest += destPitch * (height - 1);
++		destPitch = -destPitch;
++	}
++	byte row[2048];
++	while (height-- > 0) {
++		if (!flipX) {
++			source.read(dest, width);
++			source.skip(sourcePitch - width);
++		} else {
++			const int c = MIN<int>(width, sizeof(row));
++			source.read(row, c);
++			source.skip(sourcePitch - c);
++			for (int xc = 0; xc < c; xc++)
++				dest[width - 1 - xc] = row[xc];
++		}
++		dest += destPitch;
++	}
++}
++#endif
++
+ } // End of namespace Neverhood
+diff --git a/engines/neverhood/graphics.h b/engines/neverhood/graphics.h
+index 759ae929059..4e5f08b2722 100644
+--- a/engines/neverhood/graphics.h
++++ b/engines/neverhood/graphics.h
+@@ -155,6 +155,14 @@ protected:
+ void parseBitmapResource(const byte *sprite, bool *rle, NDimensions *dimensions, NPoint *position, const byte **palette, const byte **pixels);
+ void unpackSpriteRle(const byte *source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY, byte oldColor = 0, byte newColor = 0);
+ void unpackSpriteNormal(const byte *source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY);
++#ifdef GW_NEVERHOOD_SLIM
++class GWReader;
++// the same, reading the sprite from the card as they go (resourceman.h)
++void unpackSpriteRle(GWReader &source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY, byte oldColor = 0, byte newColor = 0);
++void unpackSpriteNormal(GWReader &source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY);
++// a bitmap's header: false if it has no image; *pixOfs where the image starts
++bool parseBitmapHeader(GWReader &r, bool *rle, NDimensions *dimensions, NPoint *position, uint32 *pixOfs, uint32 *palOfs);
++#endif
+ int calcDistance(int16 x1, int16 y1, int16 x2, int16 y2);
+ 
+ } // End of namespace Neverhood
+diff --git a/engines/neverhood/neverhood.cpp b/engines/neverhood/neverhood.cpp
+index 787e50e354b..e3b2b325c4c 100644
+--- a/engines/neverhood/neverhood.cpp
++++ b/engines/neverhood/neverhood.cpp
+@@ -107,6 +107,9 @@ Common::Error NeverhoodEngine::run() {
+ 		_res->addArchive("s.blb");
+ 		_res->addArchive("t.blb");
+ 	}
++#ifdef GW_NEVERHOOD_SLIM
++	_res->gwPack();
++#endif
+ 
+ 	Common::String nhcFile = ConfMan.get("nhc_file");
+ 	if (!nhcFile.empty() && _res->addNhcArchive(Common::Path(nhcFile + ".nhc"))) {
+diff --git a/engines/neverhood/resource.cpp b/engines/neverhood/resource.cpp
+index be76adfba7b..2f4050d4f14 100644
+--- a/engines/neverhood/resource.cpp
++++ b/engines/neverhood/resource.cpp
+@@ -28,8 +28,16 @@ namespace Neverhood {
+ 
+ // SpriteResource
+ 
++#ifdef GW_NEVERHOOD_SLIM
++static const byte gwStreamed = 0;	// what _pixels points at while the image is read as drawn
++#endif
++
+ SpriteResource::SpriteResource(NeverhoodEngine *vm)
+ 	 : _vm(vm), _pixels(nullptr) {
++#ifdef GW_NEVERHOOD_SLIM
++	_gwPixOfs = 0;
++	_gwOwn = nullptr;
++#endif
+ }
+ 
+ SpriteResource::~SpriteResource() {
+@@ -37,6 +45,17 @@ SpriteResource::~SpriteResource() {
+ }
+ 
+ void SpriteResource::draw(Graphics::Surface *destSurface, bool flipX, bool flipY) {
++#ifdef GW_NEVERHOOD_SLIM
++	if (_pixels == &gwStreamed) {
++		GWReader r(_gwRes, _gwPixOfs);
++		byte *dest = (byte*)destSurface->getPixels();
++		if (_rle)
++			unpackSpriteRle(r, _dimensions.width, _dimensions.height, dest, destSurface->pitch, flipX, flipY);
++		else
++			unpackSpriteNormal(r, _dimensions.width, _dimensions.height, dest, destSurface->pitch, flipX, flipY);
++		return;
++	}
++#endif
+ 	if (_pixels) {
+ 		byte *dest = (byte*)destSurface->getPixels();
+ 		const int destPitch = destSurface->pitch;
+@@ -51,6 +70,26 @@ bool SpriteResource::load(uint32 fileHash, bool doLoadPosition) {
+ 	debug(2, "SpriteResource::load(%08X)", fileHash);
+ 	unload();
+ 	_vm->_res->queryResource(fileHash, _resourceHandle);
++#ifdef GW_NEVERHOOD_SLIM
++	if (_resourceHandle.isValid() && _resourceHandle.type() == kResTypeBitmap && _vm->_res->gwLocate(_resourceHandle, _gwRes)) {
++		GWReader r(_gwRes, 0);
++		NPoint *position = doLoadPosition ? &_position : nullptr;
++		if (!parseBitmapHeader(r, &_rle, &_dimensions, position, &_gwPixOfs, nullptr))
++			return false;
++		const uint32 n = _gwRes.size - _gwPixOfs;
++		if (!_rle && n <= 32 * 1024) {
++			// small and plain (the cursors): kept, as they are read a cell at a time
++			_gwOwn = (byte *)malloc(n);
++			if (_gwOwn) {
++				_gwRes.read(_gwPixOfs, _gwOwn, n);
++				_pixels = _gwOwn;
++				return true;
++			}
++		}
++		_pixels = &gwStreamed;
++		return true;
++	}
++#endif
+ 	if (_resourceHandle.isValid() && _resourceHandle.type() == kResTypeBitmap) {
+ 		_vm->_res->loadResource(_resourceHandle, _vm->applyResourceFixes());
+ 		const byte *spriteData = _resourceHandle.data();
+@@ -63,6 +102,11 @@ bool SpriteResource::load(uint32 fileHash, bool doLoadPosition) {
+ void SpriteResource::unload() {
+ 	_vm->_res->unloadResource(_resourceHandle);
+ 	_pixels = nullptr;
++#ifdef GW_NEVERHOOD_SLIM
++	free(_gwOwn);
++	_gwOwn = nullptr;
++	_gwRes = GWRes();
++#endif
+ 	_rle = false;
+ }
+ 
+@@ -82,6 +126,20 @@ bool PaletteResource::load(uint32 fileHash) {
+ 	_vm->_res->queryResource(fileHash, _resourceHandle);
+ 	if (_resourceHandle.isValid() &&
+ 		(_resourceHandle.type() == kResTypeBitmap || _resourceHandle.type() == kResTypePalette)) {
++#ifdef GW_NEVERHOOD_SLIM
++		GWRes res;
++		if (_resourceHandle.type() == kResTypeBitmap && _vm->_res->gwLocate(_resourceHandle, res)) {
++			// the palette alone, not the 300 KB picture with it
++			GWReader r(res, 0);
++			uint32 palOfs = 0;
++			parseBitmapHeader(r, nullptr, nullptr, nullptr, nullptr, &palOfs);
++			if (palOfs) {
++				res.read(palOfs, _gwPalette, 1024);
++				_palette = _gwPalette;
++			}
++			return _palette != nullptr;
++		}
++#endif
+ 		_vm->_res->loadResource(_resourceHandle, _vm->applyResourceFixes());
+ 		_palette = _resourceHandle.data();
+ 		// Check if the palette is stored in a bitmap
+@@ -107,6 +165,9 @@ void PaletteResource::copyPalette(byte *destPalette) {
+ AnimResource::AnimResource(NeverhoodEngine *vm)
+ 	: _vm(vm), _width(0), _height(0), _currSpriteData(nullptr), _fileHash(0), _paletteData(nullptr),
+ 	_spriteData(nullptr), _replEnabled(false), _replOldColor(0), _replNewColor(0) {
++#ifdef GW_NEVERHOOD_SLIM
++	_gwSpriteOfs = 0;
++#endif
+ }
+ 
+ AnimResource::~AnimResource() {
+@@ -117,6 +178,18 @@ void AnimResource::draw(uint frameIndex, Graphics::Surface *destSurface, bool fl
+ 	const AnimFrameInfo frameInfo = _frames[frameIndex];
+ 	byte *dest = (byte*)destSurface->getPixels();
+ 	const int destPitch = destSurface->pitch;
++#ifdef GW_NEVERHOOD_SLIM
++	if (_gwRes.valid()) {
++		GWReader r(_gwRes, _gwSpriteOfs + frameInfo.spriteDataOffs);
++		_width = frameInfo.drawOffset.width;
++		_height = frameInfo.drawOffset.height;
++		if (_replEnabled && _replOldColor != _replNewColor)
++			unpackSpriteRle(r, _width, _height, dest, destPitch, flipX, flipY, _replOldColor, _replNewColor);
++		else
++			unpackSpriteRle(r, _width, _height, dest, destPitch, flipX, flipY);
++		return;
++	}
++#endif
+ 	_currSpriteData = _spriteData + frameInfo.spriteDataOffs;
+ 	_width = frameInfo.drawOffset.width;
+ 	_height = frameInfo.drawOffset.height;
+@@ -143,6 +216,60 @@ bool AnimResource::load(uint32 fileHash) {
+ 	uint16 frameListStartOfs, frameCount;
+ 	uint32 spriteDataOfs, paletteDataOfs;
+ 
++#ifdef GW_NEVERHOOD_SLIM
++	if (_vm->_res->gwLocate(_resourceHandle, _gwRes)) {
++		// the lists alone; the frames are read as they are drawn
++		byte head[12];
++		_gwRes.read(0, head, 12);
++		animListCount = READ_LE_UINT16(head);
++		animInfoStartOfs = READ_LE_UINT16(head + 2);
++		spriteDataOfs = READ_LE_UINT32(head + 4);
++		paletteDataOfs = READ_LE_UINT32(head + 8);
++		GWReader r(_gwRes, 12);
++		for (animListIndex = 0; animListIndex < animListCount; animListIndex++) {
++			const uint32 hash = r.u16() | (r.u16() << 16);
++			frameCount = r.u16();
++			frameListStartOfs = r.u16();
++			if (hash == fileHash)
++				break;
++		}
++		if (animListIndex >= animListCount) {
++			_gwRes = GWRes();
++			_vm->_res->unloadResource(_resourceHandle);
++			return false;
++		}
++		_gwSpriteOfs = spriteDataOfs;
++		if (paletteDataOfs > 0) {
++			_gwRes.read(paletteDataOfs, _gwPalette, 1024);
++			_paletteData = _gwPalette;
++		}
++		_spriteData = nullptr;
++		_frames.clear();
++		_frames.reserve(frameCount);
++		GWReader fr(_gwRes, animInfoStartOfs + frameListStartOfs);
++		for (uint16 frameIndex = 0; frameIndex < frameCount; frameIndex++) {
++			byte b[32];
++			fr.read(b, 32);
++			AnimFrameInfo frameInfo;
++			frameInfo.frameHash = READ_LE_UINT32(b);
++			frameInfo.counter = READ_LE_UINT16(b + 4);
++			frameInfo.drawOffset.x = READ_LE_UINT16(b + 6);
++			frameInfo.drawOffset.y = READ_LE_UINT16(b + 8);
++			frameInfo.drawOffset.width = READ_LE_UINT16(b + 10);
++			frameInfo.drawOffset.height = READ_LE_UINT16(b + 12);
++			frameInfo.deltaX = READ_LE_UINT16(b + 14);
++			frameInfo.deltaY = READ_LE_UINT16(b + 16);
++			frameInfo.collisionBoundsOffset.x = READ_LE_UINT16(b + 18);
++			frameInfo.collisionBoundsOffset.y = READ_LE_UINT16(b + 20);
++			frameInfo.collisionBoundsOffset.width = READ_LE_UINT16(b + 22);
++			frameInfo.collisionBoundsOffset.height = READ_LE_UINT16(b + 24);
++			frameInfo.spriteDataOffs = READ_LE_UINT32(b + 28);
++			_frames.push_back(frameInfo);
++		}
++		_fileHash = fileHash;
++		return true;
++	}
++#endif
+ 	_vm->_res->loadResource(_resourceHandle, _vm->applyResourceFixes());
+ 	resourceData = _resourceHandle.data();
+ 
+@@ -215,6 +342,9 @@ void AnimResource::unload() {
+ 	_fileHash = 0;
+ 	_paletteData = nullptr;
+ 	_spriteData = nullptr;
++#ifdef GW_NEVERHOOD_SLIM
++	_gwRes = GWRes();
++#endif
+ 	_replEnabled = true;
+ 	_replOldColor = 0;
+ 	_replNewColor = 0;
+diff --git a/engines/neverhood/resource.h b/engines/neverhood/resource.h
+index ad471deedb1..4b240653a7f 100644
+--- a/engines/neverhood/resource.h
++++ b/engines/neverhood/resource.h
+@@ -66,6 +66,11 @@ protected:
+ 	NPoint _position;
+ 	const byte *_pixels;
+ 	bool _rle;
++#ifdef GW_NEVERHOOD_SLIM
++	GWRes _gwRes;		// the bitmap, read as it is drawn
++	uint32 _gwPixOfs;
++	byte *_gwOwn;		// (a cursor's pixels, kept: it is read a cell at a time)
++#endif
+ };
+ 
+ class PaletteResource {
+@@ -80,6 +85,9 @@ protected:
+ 	NeverhoodEngine *_vm;
+ 	ResourceHandle _resourceHandle;
+ 	const byte *_palette;
++#ifdef GW_NEVERHOOD_SLIM
++	byte _gwPalette[1024];	// (a bitmap's palette, read alone)
++#endif
+ };
+ 
+ struct AnimFrameInfo {
+@@ -113,6 +121,11 @@ protected:
+ 	uint32 _fileHash;
+ 	const byte *_paletteData;
+ 	const byte *_spriteData;
++#ifdef GW_NEVERHOOD_SLIM
++	GWRes _gwRes;		// the animation, its frames read as they are drawn
++	uint32 _gwSpriteOfs;
++	byte _gwPalette[1024];
++#endif
+ 	bool _replEnabled;
+ 	byte _replOldColor;
+ 	byte _replNewColor;
+diff --git a/engines/neverhood/resourceman.cpp b/engines/neverhood/resourceman.cpp
+index 726c1700d63..a0b279cc0f8 100644
+--- a/engines/neverhood/resourceman.cpp
++++ b/engines/neverhood/resourceman.cpp
+@@ -20,6 +20,24 @@
+  */
+ 
+ #include "neverhood/resourceman.h"
++#ifdef GW_NEVERHOOD_SLIM
++#include "common/compression/dcl.h"
++#include "common/memstream.h"
++#include "common/bufferedstream.h"
++#include "common/stream.h"
++
++extern "C" {
++const char *plat_game_path(void);
++void *plat_fopen(const char *path, const char *mode);
++uint32 plat_fread(void *buf, uint32 n, void *f);
++uint32 plat_fwrite(const void *buf, uint32 n, void *f);
++bool plat_fseek(void *f, int32 off, int whence);
++void plat_fclose(void *f);
++void plat_progress(int pct);
++void plat_log_flush(void);
++void gw_wdog_kick(void);
++}
++#endif
+ 
+ namespace Neverhood {
+ 
+@@ -34,7 +52,206 @@ ResourceMan::ResourceMan() {
+ }
+ 
+ ResourceMan::~ResourceMan() {
++#ifdef GW_NEVERHOOD_SLIM
++	if (_gwp)
++		plat_fclose(_gwp);
++#endif
++}
++
++#ifdef GW_NEVERHOOD_SLIM
++void GWRes::read(uint32 offs, void *buf, uint32 n) const {
++	if (offs >= size)
++		n = 0;
++	else if (n > size - offs)
++		n = size - offs;
++	uint32 got = 0;
++	if (gwp) {
++		if (plat_fseek(gwp, base + offs, SEEK_SET))
++			got = plat_fread(buf, n, gwp);
++	} else if (blb) {
++		blb->seek(base + offs);
++		got = blb->read(buf, n);
++	}
++	if (got < n)
++		memset((byte *)buf + got, 0, n - got);
++}
++
++void GWReader::fill() {
++	_got = MIN<uint32>(sizeof(_win), _res.size > _pos ? _res.size - _pos : 0);
++	_res.read(_pos, _win, _got);
++	_pos += _got;
++	_at = 0;
++}
++
++void GWReader::read(byte *d, uint32 n) {
++	while (n) {
++		if (_at >= _got) {
++			fill();
++			if (!_got) {
++				memset(d, 0, n);
++				return;
++			}
++		}
++		const uint32 k = MIN(n, _got - _at);
++		memcpy(d, _win + _at, k);
++		_at += k;
++		d += k;
++		n -= k;
++	}
++}
++
++void GWReader::skip(uint32 n) {
++	const uint32 k = MIN(n, _got - _at);
++	_at += k;
++	n -= k;
++	if (n) {
++		_pos += n;
++		_at = _got = 0;
++	}
++}
++
++// the decompressed bytes into neverhood.gwp, through a 4 KB buffer
++class GWPackWriter : public Common::WriteStream {
++public:
++	GWPackWriter(void *f) : _f(f), _n(0), _total(0), _ok(true) {}
++	uint32 write(const void *data, uint32 n) override {
++		const byte *p = (const byte *)data;
++		for (uint32 k = n; k; ) {
++			const uint32 c = MIN<uint32>(k, sizeof(_buf) - _n);
++			memcpy(_buf + _n, p, c);
++			_n += c; p += c; k -= c;
++			if (_n == sizeof(_buf))
++				flush();
++		}
++		_total += n;
++		return n;
++	}
++	bool flush() override {
++		if (_n && plat_fwrite(_buf, _n, _f) != _n)
++			_ok = false;
++		_n = 0;
++		return _ok;
++	}
++	int64 pos() const override { return _total; }
++	bool ok() const { return _ok; }
++private:
++	void *_f;
++	byte _buf[4096];
++	uint32 _n, _total;
++	bool _ok;
++};
++
++// neverhood.gwp: "NHGW", version, the entry count, then each entry's offset (in archive order;
++// 0: not in it), then the data. Made once; checked by the count and the archives' sizes.
++void ResourceMan::gwPack() {
++	enum { kVersion = 1 };
++	uint32 count = 0, sig = 0;
++	for (uint a = 0; a < _archives.size(); a++) {
++		count += _archives[a]->getCount();
++		sig = sig * 31 + _archives[a]->gwFile().size();
++	}
++	Common::String path = Common::String::format("%s/neverhood.gwp", plat_game_path());
++	const uint32 headSize = 16 + count * 4;
++	uint32 *offs = (uint32 *)calloc(count, 4);
++	if (!offs)
++		error("neverhood.gwp: no memory for its index");
++	void *f = plat_fopen(path.c_str(), "rb");
++	bool ok = false;
++	if (f) {
++		uint32 h[4];
++		ok = plat_fread(h, 16, f) == 16 && h[0] == MKTAG('W', 'G', 'H', 'N') && h[1] == kVersion &&
++		     h[2] == count && h[3] == sig && plat_fread(offs, count * 4, f) == count * 4;
++		plat_fclose(f);
++	}
++	if (!ok) {
++		debug("neverhood.gwp: making it (once)");
++		plat_log_flush();
++		f = plat_fopen(path.c_str(), "wb");
++		if (!f)
++			error("neverhood.gwp: cannot write it into the game's folder");
++		memset(offs, 0, count * 4);
++		uint32 pos = headSize;
++		byte zero[256];
++		memset(zero, 0, sizeof(zero));
++		for (uint32 k = 0; k < headSize; k += sizeof(zero))
++			plat_fwrite(zero, MIN<uint32>(sizeof(zero), headSize - k), f);
++		uint32 total = 0, done = 0;
++		for (uint a = 0; a < _archives.size(); a++)
++			for (uint i = 0; i < _archives[a]->getCount(); i++) {
++				BlbArchiveEntry *e = _archives[a]->getEntry(i);
++				if ((e->type == 2 || e->type == 4 || e->type == 7) && e->comprType == 3)
++					total += e->size;
++			}
++		uint32 n = 0;
++		int lastPct = -1;
++		for (uint a = 0; a < _archives.size(); a++)
++			for (uint i = 0; i < _archives[a]->getCount(); i++, n++) {
++				BlbArchiveEntry *e = _archives[a]->getEntry(i);
++				if (!((e->type == 2 || e->type == 4 || e->type == 7) && e->comprType == 3))
++					continue;
++				Common::SeekableReadStream *src = Common::wrapBufferedSeekableReadStream(
++					_archives[a]->createStream(e), 4096, DisposeAfterUse::YES);
++				GWPackWriter w(f);
++				const bool good = Common::decompressDCL(src, &w, e->size);
++				delete src;
++				w.flush();
++				if (!w.ok())
++					error("neverhood.gwp: the card is full?");
++				for (uint32 k = w.pos(); k < e->size; k += sizeof(zero))	// (a short one, padded)
++					plat_fwrite(zero, MIN<uint32>(sizeof(zero), e->size - k), f);
++				if (!good)
++					warning("neverhood.gwp: %08X did not decompress", e->fileHash);
++				offs[n] = pos;
++				pos += e->size;
++				done += e->size;
++				const int pct = (int)((uint64)done * 100 / MAX<uint32>(total, 1));
++				if (pct != lastPct) {
++					plat_progress(lastPct = pct);
++					gw_wdog_kick();
++					if (pct % 10 == 0) {
++						debug("neverhood.gwp: %d%%, %u KB", pct, pos / 1024);
++						plat_log_flush();
++					}
++				}
++			}
++		const uint32 h[4] = { MKTAG('W', 'G', 'H', 'N'), kVersion, count, sig };
++		if (!plat_fseek(f, 0, SEEK_SET) || plat_fwrite(h, 16, f) != 16 || plat_fwrite(offs, count * 4, f) != count * 4)
++			error("neverhood.gwp: cannot write its index");
++		plat_fclose(f);
++		plat_progress(100);
++		debug("neverhood.gwp: made, %u KB", pos / 1024);
++	}
++	{
++		uint32 n = 0;
++		for (uint a = 0; a < _archives.size(); a++)
++			for (uint i = 0; i < _archives[a]->getCount(); i++, n++)
++				_archives[a]->getEntry(i)->gwOffs = offs[n];
++	}
++	free(offs);
++	_gwp = plat_fopen(path.c_str(), "rb");
++	if (!_gwp)
++		error("neverhood.gwp: cannot open it");
++}
++
++bool ResourceMan::gwLocate(ResourceHandle &resourceHandle, GWRes &res) {
++	res = GWRes();
++	if (!resourceHandle.isValid() || !resourceHandle._resourceFileEntry->archiveEntry ||
++	    (resourceHandle._resourceFileEntry->nhcArchiveEntry && resourceHandle._resourceFileEntry->nhcArchiveEntry->isNormal()))
++		return false;
++	BlbArchiveEntry *e = resourceHandle._resourceFileEntry->archiveEntry;
++	if (e->gwOffs && _gwp) {
++		res.gwp = _gwp;
++		res.base = e->gwOffs;
++	} else if (e->comprType == 1) {
++		res.blb = &resourceHandle._resourceFileEntry->archive->gwFile();
++		res.base = e->offset;
++	} else {
++		return false;
++	}
++	res.size = e->size;
++	return true;
+ }
++#endif
+ 
+ void ResourceMan::addArchive(const Common::Path &filename, bool isOptional) {
+ 	BlbArchive *archive = new BlbArchive();
+diff --git a/engines/neverhood/resourceman.h b/engines/neverhood/resourceman.h
+index 2decc59663c..45952911aaf 100644
+--- a/engines/neverhood/resourceman.h
++++ b/engines/neverhood/resourceman.h
+@@ -104,6 +104,36 @@ protected:
+ 	const byte *_data;
+ };
+ 
++#ifdef GW_NEVERHOOD_SLIM
++// Game & Watch: a bitmap or an animation is read from the card as it is drawn, never loaded
++// whole (an animation is up to 1.9 MB decompressed). One that is DCL-compressed in its archive is
++// read from neverhood.gwp in the game's folder, where ResourceMan::gwPack() put it decompressed
++// on the first start; one stored as is, from its archive.
++struct GWRes {
++	Common::File *blb;	// the archive, or
++	void *gwp;		// neverhood.gwp (plat_fopen)
++	uint32 base, size;
++	GWRes() : blb(nullptr), gwp(nullptr), base(0), size(0) {}
++	bool valid() const { return blb || gwp; }
++	void read(uint32 offs, void *buf, uint32 n) const;
++};
++
++// a resource's bytes through a small window
++class GWReader {
++public:
++	GWReader(const GWRes &res, uint32 offs) : _res(res), _pos(offs), _at(0), _got(0) {}
++	byte u8() { if (_at >= _got) fill(); return _at < _got ? _win[_at++] : 0; }
++	uint16 u16() { const byte a = u8(); return a | (u8() << 8); }
++	void read(byte *d, uint32 n);
++	void skip(uint32 n);
++private:
++	void fill();
++	const GWRes &_res;
++	uint32 _pos, _at, _got;
++	byte _win[1024];
++};
++#endif
++
+ class ResourceMan {
+ public:
+ 	ResourceMan();
+@@ -122,6 +152,11 @@ public:
+ 	void loadResource(ResourceHandle &resourceHandle, bool applyResourceFixes);
+ 	void unloadResource(ResourceHandle &resourceHandle);
+ 	void purgeResources();
++#ifdef GW_NEVERHOOD_SLIM
++	void gwPack();						// (after the archives are added)
++	bool gwLocate(ResourceHandle &resourceHandle, GWRes &res);
++	void *_gwp = nullptr;
++#endif
+ protected:
+ 	typedef Common::HashMap<uint32, ResourceFileEntry> EntriesMap;
+ 	Common::Array<BlbArchive*> _archives;
 diff --git a/engines/queen/bankman.cpp b/engines/queen/bankman.cpp
 index 30ea16e0998..3be045075ae 100644
 --- a/engines/queen/bankman.cpp
