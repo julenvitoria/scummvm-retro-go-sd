@@ -13019,7 +13019,7 @@ index 8b0b8ce28a6..035f5626b89 100644
  
  	static uint32 giveScriptVar(uint32 s);
 diff --git a/engines/sword1/animation.cpp b/engines/sword1/animation.cpp
-index 6dd77a271ff..1b6a4c6ea28 100644
+index 6dd77a271ff..5a4412fb60a 100644
 --- a/engines/sword1/animation.cpp
 +++ b/engines/sword1/animation.cpp
 @@ -20,6 +20,9 @@
@@ -13032,7 +13032,7 @@ index 6dd77a271ff..1b6a4c6ea28 100644
  #include "common/events.h"
  #include "common/keyboard.h"
  #include "common/textconsole.h"
-@@ -520,6 +523,129 @@ void MoviePlayer::drawFramePSX(const Graphics::Surface *frame) {
+@@ -520,6 +523,153 @@ void MoviePlayer::drawFramePSX(const Graphics::Surface *frame) {
  	scaledFrame.free();
  }
  
@@ -13066,51 +13066,74 @@ index 6dd77a271ff..1b6a4c6ea28 100644
 +		s->fillRect(Common::Rect(s->w, s->h), 0);
 +		sys->unlockScreen();
 +	}
-+	byte *buf = nullptr;
-+	uint32 bufSize = 0;
-+	const uint32 start = sys->getMillis();
-+	bool skipped = false;
-+	for (int k = 0; k < frames && !skipped && !vm->shouldQuit(); k++) {
-+		uint32 len = f.readUint32LE();
-+		if (f.eos() || len < 3)
-+			break;
-+		if (len > bufSize) {
-+			free(buf);
-+			buf = (byte *)malloc(len);
-+			bufSize = buf ? len : 0;
-+			if (!buf)
-+				break;
-+		}
-+		if (f.read(buf, len) != len)
-+			break;
-+		const byte *p = buf, *end = buf + len;
-+		const byte flags = *p++;
-+		if (flags & 1) {
-+			sys->getPaletteManager()->setPalette(p, 0, 256);
-+			p += 768;
-+		}
-+		const uint n = READ_LE_UINT16(p);
-+		p += 2;
-+		if (audio && n) {
-+			byte *pcm = (byte *)malloc(n * 2);
-+			if (pcm) {
-+				memcpy(pcm, p, n * 2);
-+				audio->queueBuffer(pcm, n * 2, DisposeAfterUse::YES, Audio::FLAG_16BITS | Audio::FLAG_LITTLE_ENDIAN);
++	// a frame is read through a small window, not whole (a key frame is 64 KB, which a room
++	// in the middle of the game may not have to spare)
++	enum { WIN = 2048 };
++	byte win[WIN];
++	uint32 left = 0, at = 0, got = 0;
++	auto more = [&]() -> bool {
++		if (at < got)
++			return true;
++		if (!left)
++			return false;
++		got = f.read(win, MIN<uint32>(left, WIN));
++		left -= got;
++		at = 0;
++		return got > 0;
++	};
++	auto byteAt = [&]() -> int { return more() ? win[at++] : -1; };
++	auto copyOut = [&](byte *d, uint32 n) -> bool {
++		while (n) {
++			if (!more())
++				return false;
++			const uint32 k = MIN<uint32>(n, got - at);
++			if (d) {
++				memcpy(d, win + at, k);
++				d += k;
 +			}
++			at += k;
++			n -= k;
 +		}
-+		p += n * 2;
++		return true;
++	};
++
++	const uint32 start = sys->getMillis();
++	bool skipped = false, broken = false;
++	for (int k = 0; k < frames && !skipped && !broken && !vm->shouldQuit(); k++) {
++		left = f.readUint32LE();
++		at = got = 0;
++		if (f.eos() || left < 3)
++			break;
++		const int flags = byteAt();
++		if (flags & 1) {
++			byte pal[768];
++			if (!copyOut(pal, 768))
++				break;
++			sys->getPaletteManager()->setPalette(pal, 0, 256);
++		}
++		byte nb[2];
++		if (!copyOut(nb, 2))
++			break;
++		const uint n = READ_LE_UINT16(nb);
++		byte *pcm = audio && n ? (byte *)malloc(n * 2) : nullptr;
++		if (!copyOut(pcm, n * 2)) {
++			free(pcm);
++			break;
++		}
++		if (pcm)
++			audio->queueBuffer(pcm, n * 2, DisposeAfterUse::YES, Audio::FLAG_16BITS | Audio::FLAG_LITTLE_ENDIAN);
 +
 +		// the picture's changes, into the screen (the film centred in it)
 +		Graphics::Surface *s = sys->lockScreen();
 +		const int x0 = (s->w - w) / 2, y0 = (s->h - h) / 2;
 +		int x = 0, y = 0;
 +		auto advance = [&](int c) { x += c; while (x >= w) { x -= w; y++; } };
-+		while (p < end && y < h) {
-+			const byte op = *p++;
++		for (int op; y < h && (op = byteAt()) >= 0;) {
 +			int c = op & 63;
-+			if (c == 63 && p + 2 <= end) {
-+				c += READ_LE_UINT16(p);
-+				p += 2;
++			if (c == 63) {
++				byte e[2];
++				if (!copyOut(e, 2)) { broken = true; break; }
++				c += READ_LE_UINT16(e);
 +			}
 +			c++;
 +			const int kind = op >> 6;
@@ -13118,21 +13141,23 @@ index 6dd77a271ff..1b6a4c6ea28 100644
 +				advance(c);
 +				continue;
 +			}
-+			const byte fill = kind == 2 ? *p++ : 0;
++			const int fill = kind == 2 ? byteAt() : 0;
 +			while (c > 0 && y < h) {
 +				const int k2 = MIN(c, w - x);
 +				byte *d = (byte *)s->getBasePtr(x0 + x, y0 + y);
 +				if (kind == 1) {
-+					memcpy(d, p, k2);
-+					p += k2;
++					if (!copyOut(d, k2)) { broken = true; break; }
 +				} else {
 +					memset(d, fill, k2);
 +				}
 +				c -= k2;
 +				advance(k2);
 +			}
++			if (broken)
++				break;
 +		}
 +		sys->unlockScreen();
++		copyOut(nullptr, left + got - at);	// (anything after the picture)
 +
 +		// shown when its time comes; a frame already late is not shown (the next one is)
 +		const uint32 due = start + (uint32)((uint64)(k + 1) * us / 1000);
@@ -13150,7 +13175,6 @@ index 6dd77a271ff..1b6a4c6ea28 100644
 +			sys->delayMillis(5);
 +		}
 +	}
-+	free(buf);
 +	if (audio) {
 +		audio->finish();
 +		sys->getMixer()->stopHandle(handle);
