@@ -170,10 +170,15 @@ game's folder on the first launch. Everything goes to the flash.
 - Copy the CD's `clusters`, `music`, `speech` and `smackshi` folders into the game's folder.
   ScummVM recognises the game by `smackshi/intro.smk`.
 - **Cutscenes**: a Smacker film cannot be played on the console (over 1.5 MB to decode it).
-  Convert them on a PC instead, and they play: `python3 tools/smk2gwv.py FILM.SMK` (needs
-  ffmpeg and numpy) makes `FILM.gwv`, the same film at the panel's size with its sound; put
-  the `.gwv` files in `smackshi` beside the `.smk`. All nineteen take about 72 MB. Without
-  them the cutscenes are skipped, as before.
+  Convert them on a PC instead, and they play: `python3 tools/smk2gwv.py FILM.SMK` makes
+  `FILM.gwv`, the same film at the panel's size with its sound; put the `.gwv` files in
+  `smackshi` beside the `.smk`. All nineteen take about 72 MB. Without them the cutscenes
+  are skipped, as before.
+  The script needs Python 3, **numpy** (`python -m pip install numpy`) and **ffmpeg**
+  (Windows: `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt
+  install ffmpeg`). Open a new terminal window after installing, or it is not found yet. On
+  Windows, run it as `python smk2gwv.py FILM.SMK`; to convert them all at once in
+  PowerShell: `Get-ChildItem *.smk | ForEach-Object { python smk2gwv.py $_.Name }`.
 - Add `language=` to the `.scummvm` file (`language=es`…), or the subtitles are in English.
 - The game is 150 MB and does not fit in the flash whole: the flash holds the common part
   and the **zones** (Paris 1, Paris 2, Ireland, Syria…) you have been in lately, as many as
@@ -612,9 +617,14 @@ carpeta del juego en el primer arranque. Todo va a la flash.
   ScummVM reconoce el juego por `smackshi/intro.smk`.
 - **Vídeos**: un vídeo Smacker no se puede reproducir en la consola (más de 1,5 MB para
   descodificarlo). Conviértelos en un PC y se ven: `python3 tools/smk2gwv.py VIDEO.SMK`
-  (necesita ffmpeg y numpy) crea `VIDEO.gwv`, el mismo vídeo al tamaño de la pantalla con su
-  sonido; pon los `.gwv` en `smackshi` junto a los `.smk`. Los diecinueve ocupan unos 72 MB.
-  Sin ellos los vídeos se saltan, como antes.
+  crea `VIDEO.gwv`, el mismo vídeo al tamaño de la pantalla con su sonido; pon los `.gwv` en
+  `smackshi` junto a los `.smk`. Los diecinueve ocupan unos 72 MB. Sin ellos los vídeos se
+  saltan, como antes.
+  El script necesita Python 3, **numpy** (`python -m pip install numpy`) y **ffmpeg**
+  (Windows: `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt
+  install ffmpeg`). Después de instalarlos abre una ventana de terminal nueva, o todavía no
+  los encuentra. En Windows se lanza como `python smk2gwv.py VIDEO.SMK`; para convertirlos
+  todos de una vez en PowerShell: `Get-ChildItem *.smk | ForEach-Object { python smk2gwv.py $_.Name }`.
 - Añade `language=` al fichero `.scummvm` (`language=es`…), o los subtítulos salen en inglés.
 - El juego ocupa 150 MB y no cabe entero en la flash: en ella van la parte común y una o dos
   **zonas** (París, Irlanda, Siria…). El primer arranque copia unos 44 MB: tarda un rato.
