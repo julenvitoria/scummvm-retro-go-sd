@@ -15130,28 +15130,10 @@ index 5cc7d430465..8b8ea11dbfb 100644
  	Common::Point _mouseCoord;
  	uint16 _mouseState;
 diff --git a/engines/touche/graphics.cpp b/engines/touche/graphics.cpp
-index 5a6652ef826..967847a0d35 100644
+index 5a6652ef826..91a1928fe68 100644
 --- a/engines/touche/graphics.cpp
 +++ b/engines/touche/graphics.cpp
-@@ -71,9 +71,17 @@ int Graphics::getStringWidth16(const char *str) {
- 	return w;
- }
- 
-+#ifdef GW_TOUCHE_HALF
-+int Graphics::_gwBig = 0;
-+#endif
-+
- int Graphics::getCharWidth16(uint8 chr) {
- 	assert(chr >= 32 && chr < 32 + _fontSize);
- 	const uint8 *chrData = _fontData + _fontOffs[chr - 32];
-+#ifdef GW_TOUCHE_HALF
-+	if (_gwBig)
-+		return chrData[2] * gwNum() / gwDen();
-+#endif
- 	return chrData[2];
- }
- 
-@@ -88,6 +96,96 @@ void Graphics::drawString16(uint8 *dst, int dstPitch, uint16 color, int x, int y
+@@ -88,6 +88,56 @@ void Graphics::drawString16(uint8 *dst, int dstPitch, uint16 color, int x, int y
  }
  
  int Graphics::drawChar16(uint8 *dst, int dstPitch, uint8 chr, int x, int y, uint16 color) {
@@ -15167,46 +15149,6 @@ index 5a6652ef826..967847a0d35 100644
 +		int chrHeight = chrData[1];
 +		int chrWidth = chrData[2];
 +		chrData += 3;
-+		if (_gwBig) {
-+			// 1.5x: glyph pixel (i, row) lands on half pixel (x/2 + i*3/4, y/2 + row*3/4); each
-+			// half pixel takes the strongest of what lands on it (body over outline)
-+			uint8 big[18][48];
-+			memset(big, 0, sizeof(big));
-+			// (glyph pixel i lands on i * scale / 2: x1.5 is i * 3 / 4, x1.25 i * 5 / 8)
-+			const int num = gwNum(), den = gwDen() * 2;
-+			const int bw = MIN(48, (chrWidth * num + den - 1) / den), bh = MIN(18, (chrHeight * num + den - 1) / den);
-+			for (int row = 0; row < chrHeight; ++row) {
-+				int shiftCount = 0;
-+				int mask = 0;
-+				for (int i = 0; i < chrWidth; ++i) {
-+					if (shiftCount == 0) {
-+						mask = READ_BE_UINT16(chrData); chrData += 2;
-+						shiftCount = 8;
-+					}
-+					const int b = (mask & 0xC000) >> 14;
-+					mask <<= 2;
-+					--shiftCount;
-+					if (b) {
-+						const int cx = i * num / den, cy = row * num / den;
-+						if (cx < 48 && cy < 18) {
-+							const uint8 v = (b & 2) ? 1 : 2;
-+							if (v > big[cy][cx])
-+								big[cy][cx] = v;
-+						}
-+					}
-+				}
-+			}
-+			for (int r = 0; r < bh; ++r) {
-+				uint8 *d = dst + ((y >> 1) + r) * hp + (x >> 1);
-+				for (int c = 0; c < bw; ++c) {
-+					if (big[r][c] == 2)
-+						d[c] = color1;
-+					else if (big[r][c] == 1)
-+						d[c] = color2;
-+				}
-+			}
-+			return chrWidth * gwNum() / gwDen();
-+		}
 +		uint8 cell[64];	// per half column of the current half row: 0 none, 1 outline, 2 body
 +		for (int row = 0; row < chrHeight; ++row) {
 +			const int yy = y + row;
@@ -15248,7 +15190,7 @@ index 5a6652ef826..967847a0d35 100644
  	dst += y * dstPitch + x;
  	uint8 color1 = color & 0xFF;
  	uint8 color2 = color >> 8;
-@@ -121,6 +219,19 @@ int Graphics::drawChar16(uint8 *dst, int dstPitch, uint8 chr, int x, int y, uint
+@@ -121,6 +171,19 @@ int Graphics::drawChar16(uint8 *dst, int dstPitch, uint8 chr, int x, int y, uint
  }
  
  void Graphics::fillRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, uint8 color) {
@@ -15268,7 +15210,7 @@ index 5a6652ef826..967847a0d35 100644
  	dst += y * dstPitch + x;
  	while (h--) {
  		memset(dst, color, w);
-@@ -129,6 +240,15 @@ void Graphics::fillRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, ui
+@@ -129,6 +192,15 @@ void Graphics::fillRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, ui
  }
  
  void Graphics::drawRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, uint8 color1, uint8 color2) {
@@ -15284,7 +15226,7 @@ index 5a6652ef826..967847a0d35 100644
  	::Graphics::Surface s;
  	s.init(x+w, y+h, dstPitch, dst, ::Graphics::PixelFormat::createFormatCLUT8());
  	const int x1 = x;
-@@ -143,6 +263,15 @@ void Graphics::drawRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, ui
+@@ -143,6 +215,15 @@ void Graphics::drawRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, ui
  
  void Graphics::drawLine(uint8 *dst, int dstPitch, int x1, int y1, int x2, int y2, uint8 color) {
  	assert(x1 >= 0 && y1 >= 0 && x2 >= 0 && y2 >= 0);
@@ -15300,7 +15242,7 @@ index 5a6652ef826..967847a0d35 100644
  
  	::Graphics::Surface s;
  	s.init(MAX(x1, x2) + 1, MAX(y1, y2) + 1, dstPitch, dst, ::Graphics::PixelFormat::createFormatCLUT8());
-@@ -165,6 +294,24 @@ void Graphics::copyRect(uint8 *dst, int dstPitch, int dstX, int dstY, const uint
+@@ -165,6 +246,24 @@ void Graphics::copyRect(uint8 *dst, int dstPitch, int dstX, int dstY, const uint
  	if (h <= 0) {
  		return;
  	}
@@ -15325,7 +15267,7 @@ index 5a6652ef826..967847a0d35 100644
  	dst += dstY * dstPitch + dstX;
  	src += srcY * srcPitch + srcX;
  	while (h--) {
-@@ -193,6 +340,23 @@ void Graphics::copyMask(uint8 *dst, int dstPitch, int dstX, int dstY, const uint
+@@ -193,6 +292,23 @@ void Graphics::copyMask(uint8 *dst, int dstPitch, int dstX, int dstY, const uint
  	if (h <= 0) {
  		return;
  	}
@@ -15350,7 +15292,7 @@ index 5a6652ef826..967847a0d35 100644
  	src += srcY * srcPitch + srcX;
  	while (h--) {
 diff --git a/engines/touche/graphics.h b/engines/touche/graphics.h
-index 2bb445a4de6..30a170b4f97 100644
+index 2bb445a4de6..b52247cb35c 100644
 --- a/engines/touche/graphics.h
 +++ b/engines/touche/graphics.h
 @@ -26,6 +26,17 @@
@@ -15371,57 +15313,11 @@ index 2bb445a4de6..30a170b4f97 100644
  class Graphics {
  public:
  
-@@ -36,6 +47,15 @@ public:
- 	static void setupFont(Common::Language language);
- 	static int getStringWidth16(const char *str);
- 	static int getCharWidth16(uint8 chr);
-+#ifdef GW_TOUCHE_HALF
-+	// set while the characters' talk is laid out and drawn: its letters half as big again (at
-+	// half size the 16-pixel font is 8 on the panel, too small to read in the intro)
-+	// (0: as drawn, 1: x1.5, 2: x1.25, 3: x1.125 -- buttons too narrow for the bigger ones)
-+	static int _gwBig;
-+	static int gwNum() { return _gwBig == 1 ? 3 : _gwBig == 2 ? 5 : _gwBig == 3 ? 9 : 1; }
-+	static int gwDen() { return _gwBig == 1 ? 2 : _gwBig == 2 ? 4 : _gwBig == 3 ? 8 : 1; }
-+	static int textHeight16() { return 16 * gwNum() / gwDen(); }
-+#endif
- 	static void drawString16(uint8 *dst, int dstPitch, uint16 color, int x, int y, const char *str, int xmax = 0);
- 	static int drawChar16(uint8 *dst, int dstPitch, uint8 chr, int x, int y, uint16 color);
- 	static void fillRect(uint8 *dst, int dstPitch, int x, int y, int w, int h, uint8 color);
 diff --git a/engines/touche/menu.cpp b/engines/touche/menu.cpp
-index 6811045b707..a4648f3fd40 100644
+index 6811045b707..50d74bdac42 100644
 --- a/engines/touche/menu.cpp
 +++ b/engines/touche/menu.cpp
-@@ -58,11 +58,29 @@ void ToucheEngine::drawButton(Button *button) {
- 	if (button->flags & kButtonText) {
- 		if (button->data != 0) {
- 			const char *str = getString(button->data);
-+#ifdef GW_TOUCHE_HALF
-+			// letters half as big again where they fit the button (as the talk; the panel shows
-+			// the 16-pixel font at 8)
-+			Graphics::_gwBig = 1;
-+			if (getStringWidth(button->data) > button->w - 4 || button->h < 20)
-+				Graphics::_gwBig = 2;
-+			if (getStringWidth(button->data) > button->w - 4 || button->h < 20)
-+				Graphics::_gwBig = 3;
-+			if (getStringWidth(button->data) > button->w || button->h < 20)	// (to the border)
-+				Graphics::_gwBig = 0;
-+			const int w = getStringWidth(button->data);
-+			const int h = Graphics::textHeight16();
-+			const int x = button->x + (button->w - w) / 2;
-+			const int y = button->y + MAX(0, (button->h - h) / 2);
-+			Graphics::drawString16(_offscreenBuffer, kScreenWidth, 0xFF, x, y, str);
-+			Graphics::_gwBig = 0;
-+#else
- 			const int w = getStringWidth(button->data);
- 			const int h = kTextHeight;
- 			const int x = button->x + (button->w - w) / 2;
- 			const int y = button->y + (button->h - h) / 2;
- 			Graphics::drawString16(_offscreenBuffer, kScreenWidth, 0xFF, x, y, str);
-+#endif
- 		}
- 	}
- 	if (button->flags & kButtonArrow) {
-@@ -319,7 +337,11 @@ void ToucheEngine::handleOptions(int forceDisplay) {
+@@ -319,7 +319,11 @@ void ToucheEngine::handleOptions(int forceDisplay) {
  					menuData.exit = true;
  					break;
  				case Common::EVENT_LBUTTONDOWN:
@@ -15735,23 +15631,10 @@ index 140bfcb5053..bb33f1aab10 100644
  void ToucheEngine::res_loadSound(int priority, int num) {
  	debugC(9, kDebugResource, "ToucheEngine::res_loadSound() num=%d", num);
 diff --git a/engines/touche/touche.cpp b/engines/touche/touche.cpp
-index 166c0872e7e..b02679e892c 100644
+index 166c0872e7e..ba918071ff1 100644
 --- a/engines/touche/touche.cpp
 +++ b/engines/touche/touche.cpp
-@@ -46,6 +46,12 @@
- 
- namespace Touche {
- 
-+#ifdef GW_TOUCHE_HALF
-+#define GW_TEXT_H Graphics::textHeight16()
-+#else
-+#define GW_TEXT_H kTextHeight
-+#endif
-+
- ToucheEngine::ToucheEngine(OSystem *system, Common::Language language)
- 	: Engine(system), _midiPlayer(nullptr), _language(language), _rnd("touche") {
- 	_saveLoadCurrentPage = 0;
-@@ -71,6 +77,10 @@ ToucheEngine::ToucheEngine(OSystem *system, Common::Language language)
+@@ -71,6 +71,10 @@ ToucheEngine::ToucheEngine(OSystem *system, Common::Language language)
  	_currentImageWidth = 0;
  	_currentImageHeight = 0;
  	_roomWidth = 0;
@@ -15762,7 +15645,7 @@ index 166c0872e7e..b02679e892c 100644
  	_programTextDataPtr = nullptr;
  	_offscreenBuffer = nullptr;
  
-@@ -190,7 +200,11 @@ ToucheEngine::~ToucheEngine() {
+@@ -190,7 +194,11 @@ ToucheEngine::~ToucheEngine() {
  }
  
  Common::Error ToucheEngine::run() {
@@ -15774,7 +15657,7 @@ index 166c0872e7e..b02679e892c 100644
  
  	Graphics::setupFont(_language);
  
-@@ -337,6 +351,10 @@ void ToucheEngine::writeConfigurationSettings() {
+@@ -337,6 +345,10 @@ void ToucheEngine::writeConfigurationSettings() {
  }
  
  Common::Point ToucheEngine::getMousePos() const {
@@ -15785,7 +15668,7 @@ index 166c0872e7e..b02679e892c 100644
  	return _eventMan->getMousePos();
  }
  
-@@ -975,6 +993,16 @@ void ToucheEngine::redrawRoom() {
+@@ -975,6 +987,16 @@ void ToucheEngine::redrawRoom() {
  	if (_flagsTable[615] < 0 || _flagsTable[615] > _currentBitmapHeight - h) {
  		error("Invalid room_y_offset = %d (h=%d, room_h=%d)", _flagsTable[615], h, _currentBitmapHeight);
  	}
@@ -15802,7 +15685,7 @@ index 166c0872e7e..b02679e892c 100644
  	uint8 *dst = _offscreenBuffer;
  	const uint8 *src = _backdropBuffer + _flagsTable[615] * _currentBitmapWidth + _flagsTable[614];
  	while (h--) {
-@@ -1154,6 +1182,25 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+@@ -1154,6 +1176,25 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
  				vflipped = !vflipped;
  			}
  
@@ -15828,7 +15711,7 @@ index 166c0872e7e..b02679e892c 100644
  			uint8 *dstCur = dst + copyRegion.r.top * dstPitch + copyRegion.r.left;
  			const uint8 *srcSpr = spr->ptr + (srcOffsY + copyRegion.srcY) * spr->bitmapWidth;
  			srcSpr += vflipped ? srcOffsX + spr->w - 1 - copyRegion.srcX : srcOffsX + copyRegion.srcX;
-@@ -1206,7 +1253,17 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+@@ -1206,7 +1247,17 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
  			assert(framesPerLine != 0);
  			const int srcOffsX = spr->w * (frameDir % framesPerLine);
  			const int srcOffsY = spr->h * (frameDir / framesPerLine);
@@ -15846,7 +15729,7 @@ index 166c0872e7e..b02679e892c 100644
  
  			assert(dstY >= -500 && dstY < 500);
  			int scalingIndex = _spriteScalingIndex[500 + dstY];
-@@ -1235,7 +1292,11 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+@@ -1235,7 +1286,11 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
  				}
  				sprStartY = sprCurY - sprStartY;
  				while (sprStartY != 0) {
@@ -15858,7 +15741,7 @@ index 166c0872e7e..b02679e892c 100644
  					--sprStartY;
  				}
  				sprStartY = sprCurY;
-@@ -1253,9 +1314,9 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+@@ -1253,9 +1308,9 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
  							break;
  						}
  						if (spr_x2 >= clippingRect_x1) {
@@ -15870,7 +15753,7 @@ index 166c0872e7e..b02679e892c 100644
  							}
  						}
  						++spr_x2;
-@@ -1269,9 +1330,9 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+@@ -1269,9 +1324,9 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
  							break;
  						}
  						if (spr_x2 < clippingRect_x2) {
@@ -15882,7 +15765,7 @@ index 166c0872e7e..b02679e892c 100644
  							}
  						}
  						--spr_x2;
-@@ -1284,6 +1345,8 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
+@@ -1284,6 +1339,8 @@ void ToucheEngine::moveKeyChar(uint8 *dst, int dstPitch, KeyChar *key) {
  			}
  		}
  	}
@@ -15891,19 +15774,7 @@ index 166c0872e7e..b02679e892c 100644
  	if (walkDataNum != -1) {
  		if (_flagsTable[604] == 0) {
  			int area1 = _programWalkTable[walkDataNum].area1;
-@@ -1391,7 +1454,11 @@ void ToucheEngine::drawGameString(uint16 color, int x1, int y, const char *str)
- 	while (*str) {
- 		char chr = *str++;
- 		if (chr == '\\') {
-+#ifdef GW_TOUCHE_HALF
-+			y += Graphics::textHeight16();
-+#else
- 			y += kTextHeight;
-+#endif
- 			w = Graphics::getStringWidth16(str);
- 			x = x1 - w / 2;
- 		} else {
-@@ -1663,7 +1730,11 @@ void ToucheEngine::setCursor(int num) {
+@@ -1663,7 +1720,11 @@ void ToucheEngine::setCursor(int num) {
  	debugC(9, kDebugEngine, "ToucheEngine::setCursor(%d)", num);
  	_currentCursorObject = num;
  	res_loadImage(num, _mouseData);
@@ -15915,7 +15786,7 @@ index 166c0872e7e..b02679e892c 100644
  }
  
  void ToucheEngine::setDefaultCursor(int num) {
-@@ -2323,7 +2394,11 @@ void ToucheEngine::drawInventory(int index, int flag) {
+@@ -2323,7 +2384,11 @@ void ToucheEngine::drawInventory(int index, int flag) {
  		_inventoryVar1 = _inventoryStateTable[index].itemsList;
  		_inventoryVar2 = &_inventoryStateTable[index].displayOffset;
  		_objectDescriptionNum = index;
@@ -15927,51 +15798,7 @@ index 166c0872e7e..b02679e892c 100644
  		res_loadSpriteImage(index + 12, dst);
  		res_loadImageHelper(dst, _currentImageWidth, _currentImageHeight);
  		int firstObjNum = _inventoryVar2[0];
-@@ -2459,6 +2534,10 @@ int ToucheEngine::updateKeyCharTalk(int skipFlag) {
- 	int y = key->yPos - _flagsTable[615] - (key->zPos / 2 + 16);
- 	int stringNum = _talkTable[_talkListCurrent].num;
- 	const char *stringData = getString(stringNum);
-+#ifdef GW_TOUCHE_HALF
-+	// the talk in letters half as big again (Graphics::_gwBig), laid out with them
-+	struct GwBig { GwBig() { Graphics::_gwBig = 1; } ~GwBig() { Graphics::_gwBig = 0; } } gwBig;
-+#endif
- 	int textWidth = getStringWidth(stringNum);
- 	if (!_talkTextInitialized && !_skipTalkText) {
- 		_keyCharTalkCounter = textWidth / 32 + 20;
-@@ -2479,8 +2558,8 @@ int ToucheEngine::updateKeyCharTalk(int skipFlag) {
- 	}
- 	if (_keyCharTalkCounter != 0) {
- 		_talkTextDisplayed = true;
--		int textHeight = kTextHeight;
--		y -= kTextHeight;
-+		int textHeight = GW_TEXT_H;
-+		y -= GW_TEXT_H;
- 		if (y < 0) {
- 			y = 1;
- 		} else if (y > kRoomHeight) {
-@@ -2541,8 +2620,8 @@ const char *ToucheEngine::formatTalkText(int *y, int *h, const char *text) {
- 			if (lineWidth + newLineWidth >= 200) {
- 				*textLine = '\\';
- 				newLineWidth = lineWidth - chrWidth;
--				*y -= kTextHeight;
--				*h += kTextHeight;
-+				*y -= GW_TEXT_H;
-+				*h += GW_TEXT_H;
- 				lineWidth = chrWidth;
- 			} else {
- 				newLineWidth += lineWidth;
-@@ -2557,8 +2636,8 @@ const char *ToucheEngine::formatTalkText(int *y, int *h, const char *text) {
- 	}
- 	if (newLineWidth + lineWidth >= 200) {
- 		*textLine = '\\';
--		*y -= kTextHeight;
--		*h += kTextHeight;
-+		*y -= GW_TEXT_H;
-+		*h += GW_TEXT_H;
- 	}
- 	*textBuffer = '\0';
- 	if (*y < 0) {
-@@ -3553,12 +3632,30 @@ void ToucheEngine::setPalette(int firstColor, int colorCount, int rScale, int gS
+@@ -3553,12 +3618,30 @@ void ToucheEngine::setPalette(int firstColor, int colorCount, int rScale, int gS
  	_system->getPaletteManager()->setPalette(&pal[firstColor * 3], firstColor, colorCount);
  }
  
@@ -16002,7 +15829,7 @@ index 166c0872e7e..b02679e892c 100644
  	_system->copyRectToScreen(_offscreenBuffer, kScreenWidth, 0, 0, kScreenWidth, h);
  }
  
-@@ -3574,11 +3671,19 @@ void ToucheEngine::updateDirtyScreenAreas() {
+@@ -3574,11 +3657,19 @@ void ToucheEngine::updateDirtyScreenAreas() {
  #if 0
  			Graphics::drawRect(_offscreenBuffer, kScreenWidth, r.left, r.top, r.width(), r.height(), 0xFF, 0xFF);
  #endif
