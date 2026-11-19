@@ -29,6 +29,7 @@
 #include "engines/engine.h"
 #include "common/savefile.h"
 #include "common/config-manager.h"
+#include "common/file.h"
 #include "platform.h"
 #include "osk.h"
 #include "pack.h"
@@ -679,13 +680,24 @@ public:
 				vm = 140;                        // (scaled twice too: about as loud as Simon's)
 				v = GW_ENGINE_VOLUME / 10;
 			}
+			// Touché without its CD tracks plays its MIDI music on the AdLib, at 6% of full scale
+			// beside its effects at 30%: the AdLib (a plain stream) and the music at full volume,
+			// twice the output gain, the effects and voices at half -- as loud as each other
+			int vp = v;
+			if (ConfMan.get("engineid").equalsIgnoreCase("touche") &&
+			    !Common::File::exists("track01.mp3") && !Common::File::exists("track01.ogg") &&
+			    !Common::File::exists("track01.flac")) {
+				g_gwGain = 10;
+				vm = vp = 255;
+				v = GW_ENGINE_VOLUME / 2;
+			}
 			static const char *const vol[] = { "music_volume", "sfx_volume", "speech_volume" };
 			for (const char *k : vol) ConfMan.setInt(k, k[0] == 'm' ? vm : v, Common::ConfigManager::kTransientDomain);
 			Audio::Mixer *m = g_system->getMixer();
 			m->setVolumeForSoundType(Audio::Mixer::kMusicSoundType, vm);
 			m->setVolumeForSoundType(Audio::Mixer::kSFXSoundType, v);
 			m->setVolumeForSoundType(Audio::Mixer::kSpeechSoundType, v);
-			m->setVolumeForSoundType(Audio::Mixer::kPlainSoundType, v);
+			m->setVolumeForSoundType(Audio::Mixer::kPlainSoundType, vp);
 		}
 		if (!_mouseSet) {
 			_mouseSet = _mouseTell = true;       // pollEvent() tells the game where it is

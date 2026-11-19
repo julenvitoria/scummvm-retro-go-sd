@@ -17,7 +17,7 @@ No games are included, nor will they be: bring your own.
 | File | Engine | Version / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/agos.svm` | agos | `998349CB` |
+| `/cores/scummvm/agos.svm` | agos | `004BDB2D` |
 | `/cores/scummvm/cge.svm` | cge | `10CD749B` |
 | `/cores/scummvm/cine.svm` | cine | `5384CF1E` |
 | `/cores/scummvm/cruise.svm` | cruise | `FEA583E9` |
@@ -31,9 +31,9 @@ No games are included, nor will they be: bring your own.
 | `/cores/scummvm/sci.svm` | sci | `5B05E74F` |
 | `/cores/scummvm/scumm.svm` | scumm | `1F1A9548` |
 | `/cores/scummvm/sky.svm` | sky | `B6CED35A` |
-| `/cores/scummvm/sword1.svm` | sword1 | `5E9E9DAA` |
+| `/cores/scummvm/sword1.svm` | sword1 | `C1393092` |
 | `/cores/scummvm/teenagent.svm` | teenagent | `503E03D6` |
-| `/cores/scummvm/touche.svm` | touche | `4D18E019` |
+| `/cores/scummvm/touche.svm` | touche | `906D62FE` |
 | `/cores/scummvm/drascula.dat` | ScummVM data | `-` |
 | `/cores/scummvm/kyra.dat` | ScummVM data | `-` |
 | `/cores/scummvm/lure.dat` | ScummVM data | `-` |
@@ -170,10 +170,15 @@ game's folder on the first launch. Everything goes to the flash.
 - Copy the CD's `clusters`, `music`, `speech` and `smackshi` folders into the game's folder.
   ScummVM recognises the game by `smackshi/intro.smk`.
 - **Cutscenes**: a Smacker film cannot be played on the console (over 1.5 MB to decode it).
-  Convert them on a PC instead, and they play: `python3 tools/smk2gwv.py FILM.SMK` (needs
-  ffmpeg and numpy) makes `FILM.gwv`, the same film at the panel's size with its sound; put
-  the `.gwv` files in `smackshi` beside the `.smk`. All nineteen take about 72 MB. Without
-  them the cutscenes are skipped, as before.
+  Convert them on a PC instead, and they play: `python3 tools/smk2gwv.py FILM.SMK` makes
+  `FILM.gwv`, the same film at the panel's size with its sound; put the `.gwv` files in
+  `smackshi` beside the `.smk`. All nineteen take about 72 MB. Without them the cutscenes
+  are skipped, as before.
+  The script needs Python 3, **numpy** (`python -m pip install numpy`) and **ffmpeg**
+  (Windows: `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt
+  install ffmpeg`). Open a new terminal window after installing, or it is not found yet. On
+  Windows, run it as `python smk2gwv.py FILM.SMK`; to convert them all at once in
+  PowerShell: `Get-ChildItem *.smk | ForEach-Object { python smk2gwv.py $_.Name }`.
 - Add `language=` to the `.scummvm` file (`language=es`…), or the subtitles are in English.
 - The game is 150 MB and does not fit in the flash whole: the flash holds the common part
   and the **zones** (Paris 1, Paris 2, Ireland, Syria…) you have been in lately, as many as
@@ -259,8 +264,11 @@ verbs, options, puzzle) in Spanish too; other versions are not affected.
 size, 320x200, the panel's own -- nothing it shows is lost, at a quarter of the memory. The
 talk and the menu are drawn in letters half as big again, to be read at that size.
 
+- Copy the CD's files as they are: `TOUCHE.DAT` may be in the game folder or, as on the CD,
+  in its `DATABASE` folder; the `OBJ` and `V…` files go in the game folder.
 - **Its CD music must be MP3**, `track02.mp3`…: the Ogg Vorbis decoder needs 95 KB that the
   biggest rooms do not leave. Convert `.ogg` tracks with e.g. `ffmpeg -i track02.ogg track02.mp3`.
+  Without the tracks the game plays its own MIDI music.
 
 **Sierra games (SCI)**: King's Quest V and VI, Space Quest IV, Leisure Suit Larry 5, Freddy
 Pharkas…
@@ -458,7 +466,7 @@ No incluye juegos ni los incluirá: usa los tuyos.
 | Fichero | Motor | Versión / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/agos.svm` | agos | `998349CB` |
+| `/cores/scummvm/agos.svm` | agos | `004BDB2D` |
 | `/cores/scummvm/cge.svm` | cge | `10CD749B` |
 | `/cores/scummvm/cine.svm` | cine | `5384CF1E` |
 | `/cores/scummvm/cruise.svm` | cruise | `FEA583E9` |
@@ -472,9 +480,9 @@ No incluye juegos ni los incluirá: usa los tuyos.
 | `/cores/scummvm/sci.svm` | sci | `5B05E74F` |
 | `/cores/scummvm/scumm.svm` | scumm | `1F1A9548` |
 | `/cores/scummvm/sky.svm` | sky | `B6CED35A` |
-| `/cores/scummvm/sword1.svm` | sword1 | `5E9E9DAA` |
+| `/cores/scummvm/sword1.svm` | sword1 | `C1393092` |
 | `/cores/scummvm/teenagent.svm` | teenagent | `503E03D6` |
-| `/cores/scummvm/touche.svm` | touche | `4D18E019` |
+| `/cores/scummvm/touche.svm` | touche | `906D62FE` |
 | `/cores/scummvm/drascula.dat` | datos de ScummVM | `-` |
 | `/cores/scummvm/kyra.dat` | datos de ScummVM | `-` |
 | `/cores/scummvm/lure.dat` | datos de ScummVM | `-` |
@@ -612,9 +620,14 @@ carpeta del juego en el primer arranque. Todo va a la flash.
   ScummVM reconoce el juego por `smackshi/intro.smk`.
 - **Vídeos**: un vídeo Smacker no se puede reproducir en la consola (más de 1,5 MB para
   descodificarlo). Conviértelos en un PC y se ven: `python3 tools/smk2gwv.py VIDEO.SMK`
-  (necesita ffmpeg y numpy) crea `VIDEO.gwv`, el mismo vídeo al tamaño de la pantalla con su
-  sonido; pon los `.gwv` en `smackshi` junto a los `.smk`. Los diecinueve ocupan unos 72 MB.
-  Sin ellos los vídeos se saltan, como antes.
+  crea `VIDEO.gwv`, el mismo vídeo al tamaño de la pantalla con su sonido; pon los `.gwv` en
+  `smackshi` junto a los `.smk`. Los diecinueve ocupan unos 72 MB. Sin ellos los vídeos se
+  saltan, como antes.
+  El script necesita Python 3, **numpy** (`python -m pip install numpy`) y **ffmpeg**
+  (Windows: `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt
+  install ffmpeg`). Después de instalarlos abre una ventana de terminal nueva, o todavía no
+  los encuentra. En Windows se lanza como `python smk2gwv.py VIDEO.SMK`; para convertirlos
+  todos de una vez en PowerShell: `Get-ChildItem *.smk | ForEach-Object { python smk2gwv.py $_.Name }`.
 - Añade `language=` al fichero `.scummvm` (`language=es`…), o los subtítulos salen en inglés.
 - El juego ocupa 150 MB y no cabe entero en la flash: en ella van la parte común y una o dos
   **zonas** (París, Irlanda, Siria…). El primer arranque copia unos 44 MB: tarda un rato.
@@ -695,7 +708,10 @@ se lean a ese tamaño.
 
 - **Su música de CD tiene que estar en MP3**, `track02.mp3`…: el descodificador de Ogg Vorbis
   necesita 95 KB que las salas más grandes no dejan. Convierte las pistas `.ogg` con, por
-  ejemplo, `ffmpeg -i track02.ogg track02.mp3`.
+  ejemplo, `ffmpeg -i track02.ogg track02.mp3`. Sin las pistas, el juego toca su propia música
+  MIDI.
+- Copia los ficheros del CD tal cual: `TOUCHE.DAT` puede estar en la carpeta del juego o, como
+  en el CD, en su carpeta `DATABASE`; los ficheros `OBJ` y `V…` van en la carpeta del juego.
 
 **Juegos de Sierra (SCI)**: King's Quest V y VI, Space Quest IV, Leisure Suit Larry 5, Freddy
 Pharkas…
