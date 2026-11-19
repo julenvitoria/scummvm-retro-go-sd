@@ -12,12 +12,12 @@ Version 1.4.1 and earlier cannot load cores from `/cores/`.
 
 No games are included, nor will they be: bring your own.
 
-### Current version: v0.5.1
+### Current version: v0.6.0
 
 | File | Engine | Version / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/agos.svm` | agos | `004BDB2D` |
+| `/cores/scummvm/agos.svm` | agos | `998349CB` |
 | `/cores/scummvm/cge.svm` | cge | `10CD749B` |
 | `/cores/scummvm/cine.svm` | cine | `5384CF1E` |
 | `/cores/scummvm/cruise.svm` | cruise | `FEA583E9` |
@@ -33,6 +33,7 @@ No games are included, nor will they be: bring your own.
 | `/cores/scummvm/sky.svm` | sky | `B6CED35A` |
 | `/cores/scummvm/sword1.svm` | sword1 | `5E9E9DAA` |
 | `/cores/scummvm/teenagent.svm` | teenagent | `503E03D6` |
+| `/cores/scummvm/touche.svm` | touche | `4D18E019` |
 | `/cores/scummvm/drascula.dat` | ScummVM data | `-` |
 | `/cores/scummvm/kyra.dat` | ScummVM data | `-` |
 | `/cores/scummvm/lure.dat` | ScummVM data | `-` |
@@ -63,7 +64,7 @@ its own in its notes.
 | Beneath a Steel Sky | Sky | ✅ | first launch prepares the game (a few minutes) |
 | Sołtys | CGE | ✅ | |
 | Lure of the Temptress | Lure | ✅ | |
-| Broken Sword: The Shadow of the Templars | Sword1 | ✅ | no cutscene videos; see the notes |
+| Broken Sword: The Shadow of the Templars | Sword1 | ✅ | cutscenes once converted; see the notes |
 | Gobliiins | Gob | ✅ | no saving: the game uses level codes |
 | Ween: The Prophecy | Gob | ✅ | saves from its own menu, not from Retro-Go's |
 | Cruise for a Corpse | Cruise | ✅ | its menu keeps one game; more with Retro-Go's save states |
@@ -81,6 +82,7 @@ its own in its notes.
 | Space Quest IV (CD) | SCI | ✅ | the same; also the Spanish fan translation |
 | Leisure Suit Larry 5 | SCI | ✅ | the same |
 | Freddy Pharkas: Frontier Pharmacist (CD) | SCI | ✅ | the same |
+| Touché: The Adventures of the Fifth Musketeer (CD) | Touché | ✅ | half resolution; its CD music as MP3; see the notes |
 | The Dig | SCUMM | ❌ | too big for the flash |
 | The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
 | Macintosh versions | — | ❌ | |
@@ -166,8 +168,12 @@ game's folder on the first launch. Everything goes to the flash.
 **Broken Sword: The Shadow of the Templars** (PC CD)
 
 - Copy the CD's `clusters`, `music`, `speech` and `smackshi` folders into the game's folder.
-  **The cutscene videos are skipped** (each needs over 1.5 MB of memory), but ScummVM
-  recognises the game by `smackshi/intro.smk`: that one file is enough.
+  ScummVM recognises the game by `smackshi/intro.smk`.
+- **Cutscenes**: a Smacker film cannot be played on the console (over 1.5 MB to decode it).
+  Convert them on a PC instead, and they play: `python3 tools/smk2gwv.py FILM.SMK` (needs
+  ffmpeg and numpy) makes `FILM.gwv`, the same film at the panel's size with its sound; put
+  the `.gwv` files in `smackshi` beside the `.smk`. All nineteen take about 72 MB. Without
+  them the cutscenes are skipped, as before.
 - Add `language=` to the `.scummvm` file (`language=es`…), or the subtitles are in English.
 - The game is 150 MB and does not fit in the flash whole: the flash holds the common part
   and the **zones** (Paris 1, Paris 2, Ireland, Syria…) you have been in lately, as many as
@@ -248,6 +254,13 @@ or changed with the GAME keyboard. Animations, voices and sprites are read from 
 they are used (the game wants more memory than the console has). With the Spanish fan
 translation, the core shows its accents right and puts ScummVM's own texts (intro captions,
 verbs, options, puzzle) in Spanish too; other versions are not affected.
+
+**Touché: The Adventures of the Fifth Musketeer**: the game is 640x400 and is kept at half
+size, 320x200, the panel's own -- nothing it shows is lost, at a quarter of the memory. The
+talk and the menu are drawn in letters half as big again, to be read at that size.
+
+- **Its CD music must be MP3**, `track02.mp3`…: the Ogg Vorbis decoder needs 95 KB that the
+  biggest rooms do not leave. Convert `.ogg` tracks with e.g. `ffmpeg -i track02.ogg track02.mp3`.
 
 **Sierra games (SCI)**: King's Quest V and VI, Space Quest IV, Leisure Suit Larry 5, Freddy
 Pharkas…
@@ -440,12 +453,12 @@ La 1.4.1 y anteriores no pueden cargar cores desde `/cores/`.
 
 No incluye juegos ni los incluirá: usa los tuyos.
 
-### Versión actual: v0.5.1
+### Versión actual: v0.6.0
 
 | Fichero | Motor | Versión / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/agos.svm` | agos | `004BDB2D` |
+| `/cores/scummvm/agos.svm` | agos | `998349CB` |
 | `/cores/scummvm/cge.svm` | cge | `10CD749B` |
 | `/cores/scummvm/cine.svm` | cine | `5384CF1E` |
 | `/cores/scummvm/cruise.svm` | cruise | `FEA583E9` |
@@ -461,6 +474,7 @@ No incluye juegos ni los incluirá: usa los tuyos.
 | `/cores/scummvm/sky.svm` | sky | `B6CED35A` |
 | `/cores/scummvm/sword1.svm` | sword1 | `5E9E9DAA` |
 | `/cores/scummvm/teenagent.svm` | teenagent | `503E03D6` |
+| `/cores/scummvm/touche.svm` | touche | `4D18E019` |
 | `/cores/scummvm/drascula.dat` | datos de ScummVM | `-` |
 | `/cores/scummvm/kyra.dat` | datos de ScummVM | `-` |
 | `/cores/scummvm/lure.dat` | datos de ScummVM | `-` |
@@ -491,7 +505,7 @@ los ficheros con identificador nuevo. Cada versión publica los suyos en sus not
 | Beneath a Steel Sky | Sky | ✅ | el primer arranque prepara el juego (unos minutos) |
 | Sołtys | CGE | ✅ | |
 | Lure of the Temptress | Lure | ✅ | |
-| Broken Sword: La leyenda de los templarios | Sword1 | ✅ | sin vídeos; mira las notas |
+| Broken Sword: La leyenda de los templarios | Sword1 | ✅ | vídeos una vez convertidos; mira las notas |
 | Gobliiins | Gob | ✅ | no guarda partidas: el juego usa códigos de nivel |
 | Ween: The Prophecy | Gob | ✅ | se guarda desde su propio menú, no desde el de Retro-Go |
 | Cruise for a Corpse | Cruise | ✅ | su menú guarda una partida; más, con los save states de Retro-Go |
@@ -509,6 +523,7 @@ los ficheros con identificador nuevo. Cada versión publica los suyos en sus not
 | Space Quest IV (CD) | SCI | ✅ | igual; también la traducción de fans al español |
 | Leisure Suit Larry 5 | SCI | ✅ | igual |
 | Freddy Pharkas: Frontier Pharmacist (CD) | SCI | ✅ | igual |
+| Touché: The Adventures of the Fifth Musketeer (CD) | Touché | ✅ | a media resolución; su música de CD en MP3; ver las notas |
 | The Dig | SCUMM | ❌ | no cabe en la flash |
 | The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
 | Versiones de Macintosh | — | ❌ | |
@@ -594,8 +609,12 @@ carpeta del juego en el primer arranque. Todo va a la flash.
 **Broken Sword: La leyenda de los templarios** (PC CD)
 
 - Copia las carpetas `clusters`, `music`, `speech` y `smackshi` del CD en la carpeta del juego.
-  **Los vídeos se saltan** (cada uno necesita más de 1,5 MB de memoria), pero ScummVM
-  reconoce el juego por `smackshi/intro.smk`: basta con ese archivo.
+  ScummVM reconoce el juego por `smackshi/intro.smk`.
+- **Vídeos**: un vídeo Smacker no se puede reproducir en la consola (más de 1,5 MB para
+  descodificarlo). Conviértelos en un PC y se ven: `python3 tools/smk2gwv.py VIDEO.SMK`
+  (necesita ffmpeg y numpy) crea `VIDEO.gwv`, el mismo vídeo al tamaño de la pantalla con su
+  sonido; pon los `.gwv` en `smackshi` junto a los `.smk`. Los diecinueve ocupan unos 72 MB.
+  Sin ellos los vídeos se saltan, como antes.
 - Añade `language=` al fichero `.scummvm` (`language=es`…), o los subtítulos salen en inglés.
 - El juego ocupa 150 MB y no cabe entero en la flash: en ella van la parte común y una o dos
   **zonas** (París, Irlanda, Siria…). El primer arranque copia unos 44 MB: tarda un rato.
@@ -668,6 +687,15 @@ o cambiar con el teclado de GAME. Las animaciones, voces y sprites se leen de la
 usan (el juego pide más memoria de la que tiene la consola). Con la traducción de fans al español,
 el core muestra bien sus tildes y pone también en español los textos propios de ScummVM (subtítulos
 de la intro, verbos, opciones, puzle); las demás versiones no cambian.
+
+**Touché: The Adventures of the Fifth Musketeer**: el juego es de 640x400 y se guarda a media
+resolución, 320x200, la de la pantalla: no se pierde nada de lo que se ve, con la cuarta parte
+de memoria. Los diálogos y el menú se dibujan con letras una vez y media más grandes, para que
+se lean a ese tamaño.
+
+- **Su música de CD tiene que estar en MP3**, `track02.mp3`…: el descodificador de Ogg Vorbis
+  necesita 95 KB que las salas más grandes no dejan. Convierte las pistas `.ogg` con, por
+  ejemplo, `ffmpeg -i track02.ogg track02.mp3`.
 
 **Juegos de Sierra (SCI)**: King's Quest V y VI, Space Quest IV, Leisure Suit Larry 5, Freddy
 Pharkas…

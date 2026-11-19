@@ -30,6 +30,7 @@ gemcut.emc   = kyra
 resource.map = sci
 resource.000 = sci
 resmap.000   = sci
+touche.dat   = touche
 hd.blb       = neverhood
 nevdemo.blb  = neverhood
 
@@ -41,7 +42,6 @@ comi.la0     = comi
 logdir       = agi
 *vol.0       = agi
 general.clu  = sword2
-touche.dat   = touche
 dw.scn       = tinsel
 
 # SCUMM last: its files are named after each game
