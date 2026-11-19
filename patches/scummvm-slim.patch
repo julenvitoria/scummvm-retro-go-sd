@@ -5493,7 +5493,7 @@ index 4b830e8c9bc..520e24421df 100644
  	Common::File _fd;
  	Common::Mutex _mutex;
 diff --git a/engines/neverhood/graphics.cpp b/engines/neverhood/graphics.cpp
-index cdf91b8dddf..1f00e306393 100644
+index cdf91b8dddf..f604dd2c794 100644
 --- a/engines/neverhood/graphics.cpp
 +++ b/engines/neverhood/graphics.cpp
 @@ -22,6 +22,7 @@
@@ -5504,7 +5504,83 @@ index cdf91b8dddf..1f00e306393 100644
  
  namespace Neverhood {
  
-@@ -355,4 +356,107 @@ int calcDistance(int16 x1, int16 y1, int16 x2, int16 y2) {
+@@ -42,7 +43,11 @@ BaseSurface::BaseSurface(NeverhoodEngine *vm, int priority, int16 width, int16 h
+ 	_clipRect.x2 = 640;
+ 	_clipRect.y2 = 480;
+ 	_surface = new Graphics::Surface();
++#ifdef GW_NEVERHOOD_SLIM
++	_surface->create(gwHalf(_sysRect.width), gwHalf(_sysRect.height), Graphics::PixelFormat::createFormatCLUT8());
++#else
+ 	_surface->create(_sysRect.width, _sysRect.height, Graphics::PixelFormat::createFormatCLUT8());
++#endif
+ }
+ 
+ BaseSurface::~BaseSurface() {
+@@ -115,6 +120,27 @@ void BaseSurface::drawMouseCursorResource(MouseCursorResource &mouseCursorResour
+ void BaseSurface::copyFrom(Graphics::Surface *sourceSurface, int16 x, int16 y, NDrawRect &sourceRect) {
+ 	// Copy a rectangle from sourceSurface, 0 is the transparent color
+ 	// Clipping is performed against the right/bottom border since x, y will always be >= 0
++#ifdef GW_NEVERHOOD_SLIM
++	{
++		// both at half size: the even destination pixels, each from the source pixel at its place
++		const int W = _surface->w * 2, H = _surface->h * 2;
++		if (x + sourceRect.width > W)
++			sourceRect.width = W - x - 1;
++		if (y + sourceRect.height > H)
++			sourceRect.height = H - y - 1;
++		for (int yy = (y + 1) & ~1; yy < y + sourceRect.height; yy += 2) {
++			const byte *srow = (const byte *)sourceSurface->getBasePtr(0, (sourceRect.y + yy - y) >> 1);
++			byte *drow = (byte *)_surface->getBasePtr(0, yy >> 1);
++			for (int xx = (x + 1) & ~1; xx < x + sourceRect.width; xx += 2) {
++				const byte c = srow[(sourceRect.x + xx - x) >> 1];
++				if (c != 0)
++					drow[xx >> 1] = c;
++			}
++		}
++		++_version;
++		return;
++	}
++#endif
+ 
+ 	if (x + sourceRect.width > _surface->w)
+ 		sourceRect.width = _surface->w - x - 1;
+@@ -273,6 +299,17 @@ void parseBitmapResource(const byte *sprite, bool *rle, NDimensions *dimensions,
+ }
+ 
+ void unpackSpriteRle(const byte *source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY, byte oldColor, byte newColor) {
++#ifdef GW_NEVERHOOD_SLIM
++	{
++		// (a sprite already in memory: the same half-size drawing as from the card)
++		GWRes res;
++		res.mem = source;
++		res.size = 0x7FFFFFFF;
++		GWReader r(res, 0);
++		unpackSpriteRle(r, width, height, dest, destPitch, flipX, flipY, oldColor, newColor);
++		return;
++	}
++#endif
+ 
+ 	const bool replaceColors = oldColor != newColor;
+ 
+@@ -323,6 +360,17 @@ void unpackSpriteRle(const byte *source, int width, int height, byte *dest, int
+ }
+ 
+ void unpackSpriteNormal(const byte *source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY) {
++#ifdef GW_NEVERHOOD_SLIM
++	{
++		// (a sprite already in memory: the same half-size drawing as from the card)
++		GWRes res;
++		res.mem = source;
++		res.size = 0x7FFFFFFF;
++		GWReader r(res, 0);
++		unpackSpriteNormal(r, width, height, dest, destPitch, flipX, flipY);
++		return;
++	}
++#endif
+ 
+ 	const int sourcePitch = (width + 3) & 0xFFFC;
+ 
+@@ -355,4 +403,110 @@ int calcDistance(int16 x1, int16 y1, int16 x2, int16 y2) {
  	return (int)sqrt((double)(deltaX * deltaX + deltaY * deltaY));
  }
  
@@ -5547,80 +5623,89 @@ index cdf91b8dddf..1f00e306393 100644
 +	return flags & BF_HAS_IMAGE;
 +}
 +
++// (into a half-size surface: dest/destPitch are the surface's own; width, height full size)
 +void unpackSpriteRle(GWReader &source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY, byte oldColor, byte newColor) {
 +	const bool replaceColors = oldColor != newColor;
-+	if (flipY) {
-+		dest += destPitch * (height - 1);
-+		destPitch = -destPitch;
-+	}
 +	byte row[2048];
++	width = MIN<int>(width, sizeof(row));
++	const int hw = gwHalf(width);
++	int y = 0;	// the full-size row being decoded
++	auto put = [&](bool any) {
++		// the even rows are kept, their even pixels; a row the RLE skips stays as it is
++		const int ty = flipY ? height - 1 - y : y;
++		if (any && (ty & 1) == 0) {
++			byte *d = dest + (ty >> 1) * destPitch;
++			for (int x = 0; x < hw; x++) {
++				const int sx = x << 1;
++				const byte c = row[flipX ? width - 1 - sx : sx];
++				if (c)
++					d[x] = (replaceColors && c == oldColor) ? newColor : c;
++			}
++		}
++		y++;
++	};
 +	int16 rows = source.u16();
 +	int16 chunks = source.u16();
 +	do {
 +		if (chunks == 0) {
-+			dest += rows * destPitch;
++			y += rows;
 +		} else {
 +			while (rows-- > 0) {
++				memset(row, 0, width);
 +				uint16 rowChunks = chunks;
 +				while (rowChunks-- > 0) {
 +					const int16 skip = source.u16();
 +					const int16 copy = source.u16();
-+					if (!flipX) {
-+						source.read(dest + skip, copy);
-+					} else {
-+						const int16 c = MIN<int16>(copy, sizeof(row));
-+						source.read(row, c);
-+						source.skip(copy - c);
-+						byte *flipDest = dest + width - skip - 1;
-+						for (int xc = 0; xc < c; xc++)
-+							*flipDest-- = row[xc];
-+					}
++					const int16 c = MAX<int16>(0, MIN<int16>(copy, width - skip));
++					source.read(row + skip, c);
++					source.skip(copy - c);
 +				}
-+				if (replaceColors)
-+					for (int xc = 0; xc < width; xc++)
-+						if (dest[xc] == oldColor)
-+							dest[xc] = newColor;
-+				dest += destPitch;
++				put(true);
 +			}
 +		}
 +		rows = source.u16();
 +		chunks = source.u16();
-+	} while (rows > 0);
++	} while (rows > 0 && y < height);
 +}
 +
 +void unpackSpriteNormal(GWReader &source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY) {
 +	const int sourcePitch = (width + 3) & 0xFFFC;
-+	if (flipY) {
-+		dest += destPitch * (height - 1);
-+		destPitch = -destPitch;
-+	}
 +	byte row[2048];
-+	while (height-- > 0) {
-+		if (!flipX) {
-+			source.read(dest, width);
-+			source.skip(sourcePitch - width);
-+		} else {
-+			const int c = MIN<int>(width, sizeof(row));
-+			source.read(row, c);
-+			source.skip(sourcePitch - c);
-+			for (int xc = 0; xc < c; xc++)
-+				dest[width - 1 - xc] = row[xc];
++	const int w = MIN<int>(width, sizeof(row));
++	const int hw = gwHalf(w);
++	for (int y = 0; y < height; y++) {
++		const int ty = flipY ? height - 1 - y : y;
++		if (ty & 1) {
++			source.skip(sourcePitch);
++			continue;
 +		}
-+		dest += destPitch;
++		source.read(row, w);
++		source.skip(sourcePitch - w);
++		byte *d = dest + (ty >> 1) * destPitch;
++		for (int x = 0; x < hw; x++) {
++			const int sx = x << 1;
++			d[x] = row[flipX ? w - 1 - sx : sx];
++		}
 +	}
 +}
 +#endif
 +
  } // End of namespace Neverhood
 diff --git a/engines/neverhood/graphics.h b/engines/neverhood/graphics.h
-index 759ae929059..4e5f08b2722 100644
+index 759ae929059..1fc2e8a18e8 100644
 --- a/engines/neverhood/graphics.h
 +++ b/engines/neverhood/graphics.h
-@@ -155,6 +155,14 @@ protected:
+@@ -155,6 +155,20 @@ protected:
  void parseBitmapResource(const byte *sprite, bool *rle, NDimensions *dimensions, NPoint *position, const byte **palette, const byte **pixels);
  void unpackSpriteRle(const byte *source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY, byte oldColor = 0, byte newColor = 0);
  void unpackSpriteNormal(const byte *source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY);
 +#ifdef GW_NEVERHOOD_SLIM
++// Game & Watch: every picture -- the screen, the scenes' backgrounds, the sprites -- is kept at
++// HALF resolution, which is all the 320x240 panel shows of the game's 640x480. The engine still
++// works in its own coordinates: a surface of w x h is stored (w + 1) / 2 x (h + 1) / 2, the
++// full-size pixel (x, y) lives at (x / 2, y / 2), and only pixels at even (x, y) are kept -- what
++// nearest-neighbour scaling of the original screen would show, at a quarter of the memory.
++static inline int gwHalf(int v) { return (v + 1) >> 1; }
 +class GWReader;
 +// the same, reading the sprite from the card as they go (resourceman.h)
 +void unpackSpriteRle(GWReader &source, int width, int height, byte *dest, int destPitch, bool flipX, bool flipY, byte oldColor = 0, byte newColor = 0);
@@ -5632,10 +5717,22 @@ index 759ae929059..4e5f08b2722 100644
  
  } // End of namespace Neverhood
 diff --git a/engines/neverhood/neverhood.cpp b/engines/neverhood/neverhood.cpp
-index 787e50e354b..e3b2b325c4c 100644
+index 787e50e354b..8c6b6ef01ed 100644
 --- a/engines/neverhood/neverhood.cpp
 +++ b/engines/neverhood/neverhood.cpp
-@@ -107,6 +107,9 @@ Common::Error NeverhoodEngine::run() {
+@@ -65,7 +65,11 @@ NeverhoodEngine::~NeverhoodEngine() {
+ }
+ 
+ Common::Error NeverhoodEngine::run() {
++#ifdef GW_NEVERHOOD_SLIM
++	initGraphics(320, 240);	// (the screen at half size: graphics.h)
++#else
+ 	initGraphics(640, 480);
++#endif
+ 
+ 	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
+ 	const Common::Path extraPath(ConfMan.getPath("extrapath"));
+@@ -107,6 +111,9 @@ Common::Error NeverhoodEngine::run() {
  		_res->addArchive("s.blb");
  		_res->addArchive("t.blb");
  	}
@@ -5645,8 +5742,37 @@ index 787e50e354b..e3b2b325c4c 100644
  
  	Common::String nhcFile = ConfMan.get("nhc_file");
  	if (!nhcFile.empty() && _res->addNhcArchive(Common::Path(nhcFile + ".nhc"))) {
+@@ -203,16 +210,28 @@ void NeverhoodEngine::mainLoop() {
+ 			case Common::EVENT_KEYUP:
+ 				break;
+ 			case Common::EVENT_MOUSEMOVE:
++#ifdef GW_NEVERHOOD_SLIM
++				event.mouse.x *= 2;	// (the screen at half size)
++				event.mouse.y *= 2;
++#endif
+ 				_mouseX = event.mouse.x;
+ 				_mouseY = event.mouse.y;
+ 				_gameModule->handleMouseMove(event.mouse.x, event.mouse.y);
+ 				break;
+ 			case Common::EVENT_LBUTTONDOWN:
+ 			case Common::EVENT_RBUTTONDOWN:
++#ifdef GW_NEVERHOOD_SLIM
++				event.mouse.x *= 2;
++				event.mouse.y *= 2;
++#endif
+ 				_gameModule->handleMouseDown(event.mouse.x, event.mouse.y);
+ 				break;
+ 			case Common::EVENT_LBUTTONUP:
+ 			case Common::EVENT_RBUTTONUP:
++#ifdef GW_NEVERHOOD_SLIM
++				event.mouse.x *= 2;
++				event.mouse.y *= 2;
++#endif
+ 				_gameModule->handleMouseUp(event.mouse.x, event.mouse.y);
+ 				break;
+ 			case Common::EVENT_WHEELUP:
 diff --git a/engines/neverhood/resource.cpp b/engines/neverhood/resource.cpp
-index be76adfba7b..2f4050d4f14 100644
+index be76adfba7b..c81cde76a9a 100644
 --- a/engines/neverhood/resource.cpp
 +++ b/engines/neverhood/resource.cpp
 @@ -28,8 +28,16 @@ namespace Neverhood {
@@ -5671,7 +5797,7 @@ index be76adfba7b..2f4050d4f14 100644
  
  void SpriteResource::draw(Graphics::Surface *destSurface, bool flipX, bool flipY) {
 +#ifdef GW_NEVERHOOD_SLIM
-+	if (_pixels == &gwStreamed) {
++	if (_gwRes.valid()) {
 +		GWReader r(_gwRes, _gwPixOfs);
 +		byte *dest = (byte*)destSurface->getPixels();
 +		if (_rle)
@@ -5844,6 +5970,19 @@ index be76adfba7b..2f4050d4f14 100644
  	_replEnabled = true;
  	_replOldColor = 0;
  	_replNewColor = 0;
+@@ -298,6 +428,12 @@ void MouseCursorResource::draw(int frameNum, Graphics::Surface *destSurface) {
+ 		const int destPitch = destSurface->pitch;
+ 		const byte *source = _cursorSprite.getPixels() + _cursorNum * (sourcePitch * 32) + frameNum * 32;
+ 		byte *dest = (byte*)destSurface->getPixels();
++#ifdef GW_NEVERHOOD_SLIM
++		for (int16 yc = 0; yc < 32; yc += 2, source += 2 * sourcePitch, dest += destPitch)
++			for (int16 xc = 0; xc < 32; xc += 2)
++				dest[xc >> 1] = source[xc];
++		return;
++#endif
+ 		for (int16 yc = 0; yc < 32; yc++) {
+ 			memcpy(dest, source, 32);
+ 			source += sourcePitch;
 diff --git a/engines/neverhood/resource.h b/engines/neverhood/resource.h
 index ad471deedb1..4b240653a7f 100644
 --- a/engines/neverhood/resource.h
@@ -5883,7 +6022,7 @@ index ad471deedb1..4b240653a7f 100644
  	byte _replOldColor;
  	byte _replNewColor;
 diff --git a/engines/neverhood/resourceman.cpp b/engines/neverhood/resourceman.cpp
-index 726c1700d63..6e27ec31ed0 100644
+index 726c1700d63..d0970ae0a95 100644
 --- a/engines/neverhood/resourceman.cpp
 +++ b/engines/neverhood/resourceman.cpp
 @@ -20,6 +20,24 @@
@@ -5911,7 +6050,7 @@ index 726c1700d63..6e27ec31ed0 100644
  
  namespace Neverhood {
  
-@@ -34,7 +52,206 @@ ResourceMan::ResourceMan() {
+@@ -34,7 +52,209 @@ ResourceMan::ResourceMan() {
  }
  
  ResourceMan::~ResourceMan() {
@@ -5928,7 +6067,10 @@ index 726c1700d63..6e27ec31ed0 100644
 +	else if (n > size - offs)
 +		n = size - offs;
 +	uint32 got = 0;
-+	if (gwp) {
++	if (mem) {
++		memcpy(buf, mem + base + offs, n);
++		got = n;
++	} else if (gwp) {
 +		if (plat_fseek(gwp, base + offs, SEEK_SET))
 +			got = plat_fread(buf, n, gwp);
 +	} else if (blb) {
@@ -6118,7 +6260,7 @@ index 726c1700d63..6e27ec31ed0 100644
  
  void ResourceMan::addArchive(const Common::Path &filename, bool isOptional) {
  	BlbArchive *archive = new BlbArchive();
-@@ -232,7 +449,14 @@ void ResourceMan::loadResource(ResourceHandle &resourceHandle, bool applyResourc
+@@ -232,7 +452,14 @@ void ResourceMan::loadResource(ResourceHandle &resourceHandle, bool applyResourc
  
  void ResourceMan::unloadResource(ResourceHandle &resourceHandle) {
  	if (resourceHandle.isValid()) {
@@ -6133,7 +6275,7 @@ index 726c1700d63..6e27ec31ed0 100644
  		if (resourceData && resourceData->dataRefCount > 0)
  			--resourceData->dataRefCount;
  		resourceHandle._resourceFileEntry = nullptr;
-@@ -243,7 +467,7 @@ void ResourceMan::unloadResource(ResourceHandle &resourceHandle) {
+@@ -243,7 +470,7 @@ void ResourceMan::unloadResource(ResourceHandle &resourceHandle) {
  void ResourceMan::purgeResources() {
  	for (Common::HashMap<uint32, ResourceData*>::iterator it = _data.begin(); it != _data.end(); ++it) {
  		ResourceData *resourceData = it->_value;
@@ -6143,10 +6285,10 @@ index 726c1700d63..6e27ec31ed0 100644
  			resourceData->data = nullptr;
  		}
 diff --git a/engines/neverhood/resourceman.h b/engines/neverhood/resourceman.h
-index 2decc59663c..45952911aaf 100644
+index 2decc59663c..1c1d258ae85 100644
 --- a/engines/neverhood/resourceman.h
 +++ b/engines/neverhood/resourceman.h
-@@ -104,6 +104,36 @@ protected:
+@@ -104,6 +104,37 @@ protected:
  	const byte *_data;
  };
  
@@ -6157,10 +6299,11 @@ index 2decc59663c..45952911aaf 100644
 +// on the first start; one stored as is, from its archive.
 +struct GWRes {
 +	Common::File *blb;	// the archive, or
-+	void *gwp;		// neverhood.gwp (plat_fopen)
++	void *gwp;		// neverhood.gwp (plat_fopen), or
++	const byte *mem;	// bytes already in memory
 +	uint32 base, size;
-+	GWRes() : blb(nullptr), gwp(nullptr), base(0), size(0) {}
-+	bool valid() const { return blb || gwp; }
++	GWRes() : blb(nullptr), gwp(nullptr), mem(nullptr), base(0), size(0) {}
++	bool valid() const { return blb || gwp || mem; }
 +	void read(uint32 offs, void *buf, uint32 n) const;
 +};
 +
@@ -6183,7 +6326,7 @@ index 2decc59663c..45952911aaf 100644
  class ResourceMan {
  public:
  	ResourceMan();
-@@ -122,6 +152,11 @@ public:
+@@ -122,6 +153,11 @@ public:
  	void loadResource(ResourceHandle &resourceHandle, bool applyResourceFixes);
  	void unloadResource(ResourceHandle &resourceHandle);
  	void purgeResources();
@@ -6195,6 +6338,205 @@ index 2decc59663c..45952911aaf 100644
  protected:
  	typedef Common::HashMap<uint32, ResourceFileEntry> EntriesMap;
  	Common::Array<BlbArchive*> _archives;
+diff --git a/engines/neverhood/screen.cpp b/engines/neverhood/screen.cpp
+index 11e8c6324de..9f2f050b99a 100644
+--- a/engines/neverhood/screen.cpp
++++ b/engines/neverhood/screen.cpp
+@@ -23,6 +23,10 @@
+ #include "video/smk_decoder.h"
+ #include "neverhood/screen.h"
+ 
++#ifdef GW_NEVERHOOD_SLIM
++void gwAdoptable(const byte *lo, const byte *hi);	// src/gw_system.cpp
++#endif
++
+ namespace Neverhood {
+ 
+ Screen::Screen(NeverhoodEngine *vm)
+@@ -33,7 +37,12 @@ Screen::Screen(NeverhoodEngine *vm)
+ 	_ticks = _vm->_system->getMillis();
+ 
+ 	_backScreen = new Graphics::Surface();
++#ifdef GW_NEVERHOOD_SLIM
++	_backScreen->create(320, 240, Graphics::PixelFormat::createFormatCLUT8());	// (half size: graphics.h)
++	gwAdoptable((const byte *)_backScreen->getPixels(), (const byte *)_backScreen->getPixels() + 320 * 240);
++#else
+ 	_backScreen->create(640, 480, Graphics::PixelFormat::createFormatCLUT8());
++#endif
+ 
+ 	_renderQueue = new RenderQueue();
+ 	_prevRenderQueue = new RenderQueue();
+@@ -42,6 +51,9 @@ Screen::Screen(NeverhoodEngine *vm)
+ }
+ 
+ Screen::~Screen() {
++#ifdef GW_NEVERHOOD_SLIM
++	gwAdoptable(nullptr, nullptr);
++#endif
+ 	delete _microTiles;
+ 	delete _renderQueue;
+ 	delete _prevRenderQueue;
+@@ -55,7 +67,7 @@ void Screen::update() {
+ 
+ 	if (_fullRefresh) {
+ 		// NOTE When playing a fullscreen/doubled Smacker video usually a full screen refresh is needed
+-		_vm->_system->copyRectToScreen((const byte*)_backScreen->getPixels(), _backScreen->pitch, 0, 0, 640, 480);
++		_vm->_system->copyRectToScreen((const byte*)_backScreen->getPixels(), _backScreen->pitch, 0, 0, _backScreen->w, _backScreen->h);
+ 		_fullRefresh = false;
+ 		return;
+ 	}
+@@ -100,6 +112,13 @@ void Screen::update() {
+ 
+ 	for (RectangleList::iterator ri = updateRects->begin(); ri != updateRects->end(); ++ri) {
+ 		Common::Rect &r = *ri;
++#ifdef GW_NEVERHOOD_SLIM
++		const int x0 = r.left >> 1, y0 = r.top >> 1;
++		const int x1 = MIN<int>(_backScreen->w, (r.right + 1) >> 1), y1 = MIN<int>(_backScreen->h, (r.bottom + 1) >> 1);
++		if (x1 > x0 && y1 > y0)
++			_vm->_system->copyRectToScreen((const byte*)_backScreen->getBasePtr(x0, y0), _backScreen->pitch, x0, y0, x1 - x0, y1 - y0);
++		continue;
++#endif
+ 		_vm->_system->copyRectToScreen((const byte*)_backScreen->getBasePtr(r.left, r.top), _backScreen->pitch, r.left, r.top, r.width(), r.height());
+ 	}
+ 
+@@ -257,6 +276,14 @@ void Screen::drawSurface3(const Graphics::Surface *surface, int16 x, int16 y, ND
+ }
+ 
+ void Screen::drawDoubleSurface2(const Graphics::Surface *surface, NDrawRect &drawRect) {
++#ifdef GW_NEVERHOOD_SLIM
++	// (a film at half size shown doubled: at half size, as it is)
++	for (int16 yc = 0; yc < surface->h && (drawRect.y >> 1) + yc < _backScreen->h; yc++)
++		memcpy(_backScreen->getBasePtr(drawRect.x >> 1, (drawRect.y >> 1) + yc), surface->getBasePtr(0, yc),
++		       MIN<int>(surface->w, _backScreen->w - (drawRect.x >> 1)));
++	_fullRefresh = true;
++	return;
++#endif
+ 
+ 	const byte *source = (const byte*)surface->getPixels();
+ 	byte *dest = (byte*)_backScreen->getBasePtr(drawRect.x, drawRect.y);
+@@ -277,6 +304,17 @@ void Screen::drawDoubleSurface2(const Graphics::Surface *surface, NDrawRect &dra
+ }
+ 
+ void Screen::drawDoubleSurface2Alpha(const Graphics::Surface *surface, NDrawRect &drawRect, byte alphaColor) {
++#ifdef GW_NEVERHOOD_SLIM
++	for (int16 yc = 0; yc < surface->h && (drawRect.y >> 1) + yc < _backScreen->h; yc++) {
++		const byte *s = (const byte *)surface->getBasePtr(0, yc);
++		byte *d = (byte *)_backScreen->getBasePtr(drawRect.x >> 1, (drawRect.y >> 1) + yc);
++		for (int16 xc = 0; xc < surface->w && (drawRect.x >> 1) + xc < _backScreen->w; xc++)
++			if (s[xc] != alphaColor)
++				d[xc] = s[xc];
++	}
++	_fullRefresh = true;
++	return;
++#endif
+ 
+ 	const byte *source = (const byte*)surface->getPixels();
+ 	byte *dest = (byte*)_backScreen->getBasePtr(drawRect.x, drawRect.y);
+@@ -413,6 +451,33 @@ void Screen::blitRenderItem(const RenderItem &renderItem, const Common::Rect &cl
+ 	if (width < 0 || height < 0)
+ 		return;
+ 
++#ifdef GW_NEVERHOOD_SLIM
++	{
++		// all at half size: the screen's even pixels, each from the surface pixel at its place
++		const int sx = renderItem._srcX - renderItem._destX, sy = renderItem._srcY - renderItem._destY;
++		for (int y = (y0 + 1) & ~1; y < y1; y += 2) {
++			if ((y >> 1) >= _backScreen->h || ((sy + y) >> 1) >= surface->h)
++				break;
++			const byte *srow = (const byte *)surface->getBasePtr(0, (sy + y) >> 1);
++			const byte *shrow = shadowSurface ? (const byte *)shadowSurface->getBasePtr(0, y >> 1) : nullptr;
++			byte *drow = (byte *)_backScreen->getBasePtr(0, y >> 1);
++			const int xa = (x0 + 1) & ~1;
++			for (int x = xa; x < x1; x += 2) {
++				const int s = (sx + x) >> 1;
++				if (s >= surface->w || (x >> 1) >= _backScreen->w)
++					break;
++				const byte c = srow[s];
++				if (shrow) {
++					if (c != 0)
++						drow[x >> 1] = shrow[x >> 1];
++				} else if (!renderItem._transparent || c != renderItem._alphaColor) {
++					drow[x >> 1] = c;
++				}
++			}
++		}
++		return;
++	}
++#endif
+ 	const byte *source = (const byte*)surface->getBasePtr(renderItem._srcX + x0 - renderItem._destX, renderItem._srcY + y0 - renderItem._destY);
+ 	byte *dest = (byte*)_backScreen->getBasePtr(x0, y0);
+ 
+diff --git a/engines/neverhood/smackerplayer.cpp b/engines/neverhood/smackerplayer.cpp
+index 79812aa97a0..b84f061d315 100644
+--- a/engines/neverhood/smackerplayer.cpp
++++ b/engines/neverhood/smackerplayer.cpp
+@@ -176,7 +176,9 @@ void SmackerPlayer::open(uint32 fileHash, bool keepLastFrame) {
+ 
+ 	_stream = _vm->_res->createStream(fileHash);
+ 
++#ifndef GW_NEVERHOOD_SLIM
+ 	_smackerSurface->_subtitles.reset(new SubtitlePlayer(_vm, fileHash, 320));
++#endif
+ 
+ 	_smackerDecoder = new NeverhoodSmackerDecoder();
+ 	_smackerDecoder->loadStream(_stream);
+@@ -199,6 +201,9 @@ void SmackerPlayer::close() {
+ 	_palette = nullptr;
+ 	_stream = nullptr;
+ 	_smackerSurface->unsetSmackerFrame();
++#ifdef GW_NEVERHOOD_SLIM
++	_gwHalfFrame.free();
++#endif
+ }
+ 
+ void SmackerPlayer::gotoFrame(int frameNumber) {
+@@ -265,11 +270,32 @@ void SmackerPlayer::updateFrame() {
+ 		return;
+ 
+ 	const Graphics::Surface *smackerFrame = _smackerDecoder->decodeNextFrame();
++#ifdef GW_NEVERHOOD_SLIM
++	if (smackerFrame && !_doubleSurface) {
++		// the screen is at half size: keep the even pixels (a doubled film is shown 1:1 instead)
++		const int hw = (smackerFrame->w + 1) / 2, hh = (smackerFrame->h + 1) / 2;
++		if (_gwHalfFrame.w != hw || _gwHalfFrame.h != hh) {
++			_gwHalfFrame.free();
++			_gwHalfFrame.create(hw, hh, Graphics::PixelFormat::createFormatCLUT8());
++		}
++		for (int y = 0; y < hh; y++) {
++			const byte *s = (const byte *)smackerFrame->getBasePtr(0, y * 2);
++			byte *d = (byte *)_gwHalfFrame.getBasePtr(0, y);
++			for (int x = 0; x < hw; x++)
++				d[x] = s[x * 2];
++		}
++	}
++#endif
+ 
+ 	_smackerSurface->frameNumber = _smackerDecoder->getCurFrame();
+ 
+ 	if (_smackerFirst) {
+ 		_smackerSurface->setSmackerFrame(smackerFrame);
++#ifdef GW_NEVERHOOD_SLIM
++		if (!_doubleSurface && smackerFrame) {
++			_smackerSurface->_smackerFrame = &_gwHalfFrame;	// (the draw rect stays in full coordinates)
++		}
++#endif
+ 		if (_drawX < 0 || _drawY < 0) {
+ 			if (_doubleSurface) {
+ 				_drawX = 320 - _smackerDecoder->getWidth();
+diff --git a/engines/neverhood/smackerplayer.h b/engines/neverhood/smackerplayer.h
+index 8eaf854bfa4..2a261f9b39c 100644
+--- a/engines/neverhood/smackerplayer.h
++++ b/engines/neverhood/smackerplayer.h
+@@ -82,6 +82,9 @@ protected:
+ 	bool _smackerFirst;
+ 	bool _doubleSurface;
+ 	Common::SeekableReadStream *_stream;
++#ifdef GW_NEVERHOOD_SLIM
++	Graphics::Surface _gwHalfFrame;	// (a 640x480-screen film at half size: graphics.h)
++#endif
+ 	bool _keepLastFrame;
+ 	bool _videoDone;
+ 	bool _paused;
 diff --git a/engines/queen/bankman.cpp b/engines/queen/bankman.cpp
 index 30ea16e0998..3be045075ae 100644
 --- a/engines/queen/bankman.cpp
