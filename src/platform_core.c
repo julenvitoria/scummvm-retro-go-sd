@@ -1189,6 +1189,7 @@ static void cache_game(void)
 	provide_dat("packet.001", "drascula.dat");
 	provide_dat("lan_000.res", "teenagent.dat");
 	provide_dat("gemcut.pak", "kyra.dat");
+	provide_dat("hd.blb", "neverhood.dat");
 	{
 		char p[340];
 		snprintf(p, sizeof p, "%s/packet.001", g_game);
