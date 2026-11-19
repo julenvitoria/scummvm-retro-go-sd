@@ -5,6 +5,7 @@
 # Adding an engine: its .svm and its lines here; the loader stays as it is.
 
 clusters/swordres.rif = sword1
+database/touche.dat = touche
 swordres.rif = sword1
 sky.dnr      = sky
 vol.cat      = cge

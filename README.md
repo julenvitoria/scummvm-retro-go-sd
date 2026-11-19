@@ -264,8 +264,11 @@ verbs, options, puzzle) in Spanish too; other versions are not affected.
 size, 320x200, the panel's own -- nothing it shows is lost, at a quarter of the memory. The
 talk and the menu are drawn in letters half as big again, to be read at that size.
 
+- Copy the CD's files as they are: `TOUCHE.DAT` may be in the game folder or, as on the CD,
+  in its `DATABASE` folder; the `OBJ` and `V…` files go in the game folder.
 - **Its CD music must be MP3**, `track02.mp3`…: the Ogg Vorbis decoder needs 95 KB that the
   biggest rooms do not leave. Convert `.ogg` tracks with e.g. `ffmpeg -i track02.ogg track02.mp3`.
+  Without the tracks the game plays its own MIDI music.
 
 **Sierra games (SCI)**: King's Quest V and VI, Space Quest IV, Leisure Suit Larry 5, Freddy
 Pharkas…
@@ -705,7 +708,10 @@ se lean a ese tamaño.
 
 - **Su música de CD tiene que estar en MP3**, `track02.mp3`…: el descodificador de Ogg Vorbis
   necesita 95 KB que las salas más grandes no dejan. Convierte las pistas `.ogg` con, por
-  ejemplo, `ffmpeg -i track02.ogg track02.mp3`.
+  ejemplo, `ffmpeg -i track02.ogg track02.mp3`. Sin las pistas, el juego toca su propia música
+  MIDI.
+- Copia los ficheros del CD tal cual: `TOUCHE.DAT` puede estar en la carpeta del juego o, como
+  en el CD, en su carpeta `DATABASE`; los ficheros `OBJ` y `V…` van en la carpeta del juego.
 
 **Juegos de Sierra (SCI)**: King's Quest V y VI, Space Quest IV, Leisure Suit Larry 5, Freddy
 Pharkas…
