@@ -30,6 +30,7 @@ gemcut.emc   = kyra
 resource.map = sci
 resource.000 = sci
 resmap.000   = sci
+touche.dat   = touche
 
 # engines there is no file for yet (the loader says so instead of starting the game). The Dig
 # and The Curse of Monkey Island are SCUMM games this core does not run (too big for the flash):
@@ -39,7 +40,6 @@ comi.la0     = comi
 logdir       = agi
 *vol.0       = agi
 general.clu  = sword2
-touche.dat   = touche
 dw.scn       = tinsel
 
 # SCUMM last: its files are named after each game
