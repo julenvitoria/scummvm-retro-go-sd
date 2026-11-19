@@ -41,6 +41,10 @@ enum { HEAP_BIG, HEAP_SMALL, HEAP_SCREEN, HEAPS };
    with the console's heap size: a 64 KB screen failing with 240 KB free). */
 int heap_screen_hint;
 int heap_screen_spill;
+/* Set around a big allocation that lives as long as the game (AGOS: the engine object, 70 KB):
+   the small heap first, so the big one keeps its room in one piece for what comes and goes --
+   Simon 1 in French failed a 178 KB VGA file with 268 KB free, in two pieces. */
+int heap_small_hint;
 #define MAX_POOLS 7
 
 static tlsf_t g_tlsf[HEAPS];
@@ -166,6 +170,7 @@ static void *alloc(size_t align, size_t n, void *caller)
 	   (heap_screen_spill), whose screens are made once */
 	int order[3] = { first, !first, heap_screen_spill ? HEAP_SCREEN : -1 };
 	if (heap_screen_hint) { order[0] = HEAP_SCREEN; order[1] = first; order[2] = !first; }
+	else if (heap_small_hint) { order[0] = HEAP_SMALL; order[1] = HEAP_BIG; }
 	void *p = NULL;
 	static int in_hook;
 	for (;;) {
