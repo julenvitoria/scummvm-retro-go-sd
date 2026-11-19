@@ -635,7 +635,24 @@ void *plat_fopen(const char *path, const char *mode)
 }
 uint32_t plat_fread(void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fread(buf, 1, n, (FILE *)f); }
 uint32_t plat_fwrite(const void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fwrite(buf, 1, n, (FILE *)f); }
-bool plat_fseek(void *f, int32_t off, int whence) { wdog_refresh(); return fseek((FILE *)f, off, whence) == 0; }
+/* A seek far into a big file walks its cluster chain link by link (FatFs, no fast seek): to
+   300 MB into Freddy Pharkas's 600 MB RESOURCE.AUD that outlasted the watchdog. So it goes in
+   steps, forward from where the file is (FatFs then walks on from there), fed between them. */
+#define SEEK_STEP (4u << 20)
+bool plat_fseek(void *f, int32_t off, int whence)
+{
+	wdog_refresh();
+	if (whence == SEEK_SET && off > (int32_t)SEEK_STEP) {
+		long cur = ftell((FILE *)f);
+		if (cur < 0 || cur > off) cur = 0;          /* (backwards: from the start in any case) */
+		while (off - cur > (long)SEEK_STEP) {
+			cur += SEEK_STEP;
+			if (fseek((FILE *)f, cur, SEEK_SET)) return false;
+			wdog_refresh();
+		}
+	}
+	return fseek((FILE *)f, off, whence) == 0;
+}
 int32_t plat_ftell(void *f) { return (int32_t)ftell((FILE *)f); }
 void plat_fclose(void *f) { wdog_refresh(); fclose((FILE *)f); wdog_refresh(); }
 
@@ -645,6 +662,7 @@ void plat_fclose(void *f) { wdog_refresh(); fclose((FILE *)f); wdog_refresh(); }
 #define MAX_CACHED_FILE (24u << 20)
 static struct { char name[28]; const uint8_t *data; uint32_t size; uint8_t key, fixed; } g_map[MAX_MAPPED];
 static int g_mapped, g_files;
+static bool g_sci;                       /* an SCI game: none of its files cached (cache_game) */
 
 /* Called by the firmware with each 16 KB of a file on its way into flash (OSPI is unmapped
    then: this must stay resident, and it is -- platform_core.o is in the RAM image). SCUMM
@@ -822,6 +840,62 @@ static void cache_pack(const char *name, uint32_t size)
 	      (unsigned long)h.count, (unsigned long)(h.total / 1024), P->pieces);
 }
 
+const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int force)
+{
+	uint32_t got = 0;
+	const uint8_t *p = lookup_data_in_flash(key, &got);
+	plat_stat_t st = { 0 };
+	if (path) st = plat_stat(path);
+	if (p && !force && (!st.exists || got == st.size)) { *size = got; return p; }
+	if (!st.exists || st.is_dir || !st.size) return NULL;
+	void *f = plat_fopen(path, "rb");
+	uint8_t *buf = f ? (uint8_t *)malloc(16384) : NULL;
+	static flash_stream_t fs;                 /* (the firmware's: the caller owns it) */
+	logf_("ScummVM: copying %s to the flash (%lu KB)\n", path, (unsigned long)(st.size / 1024));
+	log_save();
+	if (!buf || !store_data_begin(&fs, key, st.size)) {
+		free(buf);
+		if (f) plat_fclose(f);
+		logf_("ScummVM: no room in external flash for %s (%lu KB)\n", path, (unsigned long)(st.size / 1024));
+		return NULL;
+	}
+	ui_clut();
+	uint8_t last = 0xff;
+	uint32_t done = 0;
+	for (uint32_t left = st.size; left;) {
+		uint32_t n = left < 16384 ? left : 16384;
+		if (plat_fread(buf, n, f) != n || !store_data_append(&fs, buf, n)) {
+			store_data_abort(&fs);
+			p = NULL;
+			goto out;
+		}
+		left -= n;
+		done += n;
+		uint8_t pct = (uint8_t)((uint64_t)done * 100 / st.size);
+		if (pct != last) {
+			show_bar(gw_i18n(i18n_copying), pct);
+			if (pct / 10 != last / 10 || last == 0xff) {      /* (to the screen of a reset too) */
+				logf_("ScummVM: copied %u%%\n", pct);
+				if (pct % 25 < 10) log_save();
+			}
+			last = pct;
+		}
+	}
+	logf_("ScummVM: copy written, closing it\n");
+	log_save();
+	p = store_data_finish(&fs);
+	logf_("ScummVM: copy closed: %s\n", p ? "ok" : "FAILED");
+	log_save();
+out:
+	free(buf);
+	plat_fclose(f);
+	lcd_sleep_while_swap_pending();
+	lcd_set_clut(g_hw, 256);
+	if (p) *size = st.size;
+	logf_("ScummVM: %s %s external flash\n", path, p ? "copied into" : "could not be copied into");
+	return p;
+}
+
 const void *plat_map_pack(const char *path)
 {
 	size_t gl = strlen(g_game);
@@ -884,6 +958,7 @@ static void cache_rel(const char *name, uint32_t size)
 	   there) and the CD music is 280 MB of FLAC tracks -- none of it for the flash */
 	if (g_drascula && (!strncasecmp(name, "packet.", 7) || !strncasecmp(name, "track", 5))) return;
 	g_files++;
+	if (g_sci) return;                       /* (cache_game) */
 	/* bigger than this stays on the SD card (a talkie's speech file is ~200 MB, the flash 64) */
 	if (size > MAX_CACHED_FILE) {
 		logf_("ScummVM: %s (%lu KB) is read from the SD card\n", name, (unsigned long)(size / 1024));
@@ -1118,6 +1193,23 @@ static void cache_game(void)
 		char p[340];
 		snprintf(p, sizeof p, "%s/packet.001", g_game);
 		g_drascula = plat_stat(p).exists;
+	}
+	{
+		/* SCI: not every file of the folder (cache_rel). The engine makes its resources into
+		   one file (sci.gwpack) and puts that in the flash itself (plat_blob); King's Quest
+		   V's 155 files and the pack were past the firmware's count, which then erased files
+		   still in use -- the pack's among them: a garbage room and a view read past its end. */
+		char p[340];
+		snprintf(p, sizeof p, "%s/resource.map", g_game);
+		bool sci = plat_stat(p).exists;
+		snprintf(p, sizeof p, "%s/resmap.000", g_game);
+		sci = sci || plat_stat(p).exists;
+		if (sci) {
+			logf_("ScummVM: SCI game: its files are read from the card, its resources from sci.gwpack\n");
+			g_sci = true;	/* (counted, not cached: cache_rel) */
+			plat_list_dir(g_game, cache_one, NULL);
+			return;
+		}
 	}
 	plat_list_dir(g_game, cache_one, NULL);
 	for (int i = 0; i < g_nsubdirs; i++) {

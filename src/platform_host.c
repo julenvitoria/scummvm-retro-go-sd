@@ -78,6 +78,7 @@ static void wdog_refresh(void)
 }
 
 void gw_wdog_kick(void) { wdog_refresh(); }
+void plat_log_flush(void) { fflush(stderr); }
 
 uint32_t plat_millis(void)
 {
@@ -486,6 +487,30 @@ static const uint8_t *map_piece(FILE *f, uint32_t start, uint32_t len)
 	mprotect(m, span - pg, PROT_READ);       /* resources used in place are read-only, as in flash */
 	mprotect(m + span - pg, pg, PROT_NONE);
 	return m;
+}
+
+/* the flash's blob store: the file, read-only (a key once found stays, as in the flash).
+   GW_NO_BLOB=1: no room in the flash. */
+const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int force)
+{
+	(void)force;	/* (the file itself: never stale here) */
+	static struct { char key[128]; const uint8_t *p; uint32_t n; } blobs[4];
+	for (int i = 0; i < 4; i++)
+		if (blobs[i].p && !strcmp(blobs[i].key, key)) { *size = blobs[i].n; return blobs[i].p; }
+	if (!path || getenv("GW_NO_BLOB")) return NULL;
+	char own[1024];
+	snprintf(own, sizeof own, "%s", ci(path));
+	plat_stat_t st = plat_stat(own);
+	FILE *f = st.exists && st.size ? fopen(own, "rb") : NULL;
+	if (!f) return NULL;
+	const uint8_t *p = map_piece(f, 0, st.size);
+	fclose(f);
+	if (!p) return NULL;
+	for (int i = 0; i < 4; i++)
+		if (!blobs[i].p) { snprintf(blobs[i].key, sizeof blobs[i].key, "%s", key); blobs[i].p = p; blobs[i].n = st.size; break; }
+	fprintf(stderr, "blob: %s -> %s (%lu KB)\n", key, own, (unsigned long)(st.size / 1024));
+	*size = st.size;
+	return p;
 }
 
 const void *plat_map_pack(const char *path)

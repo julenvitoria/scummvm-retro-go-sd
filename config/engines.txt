@@ -27,6 +27,9 @@ gamepc       = agos
 *.gme        = agos
 gemcut.pak   = kyra
 gemcut.emc   = kyra
+resource.map = sci
+resource.000 = sci
+resmap.000   = sci
 touche.dat   = touche
 
 # engines there is no file for yet (the loader says so instead of starting the game). The Dig
@@ -34,9 +37,6 @@ touche.dat   = touche
 # here, before SCUMM's own lines, so they are told so too.
 dig.la0      = dig
 comi.la0     = comi
-resource.map = sci
-resource.000 = sci
-resmap.000   = sci
 logdir       = agi
 *vol.0       = agi
 general.clu  = sword2

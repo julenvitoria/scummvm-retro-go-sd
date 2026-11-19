@@ -10,7 +10,7 @@
 
 OUT is the build's out/ directory. The zip is the same for the same files (fixed dates, sorted).
 """
-import glob, os, re, struct, sys, zipfile
+import time, glob, os, re, struct, sys, zipfile
 
 def main():
     out = sys.argv[1]
@@ -42,7 +42,10 @@ def main():
         dest = sys.argv[sys.argv.index('--zip') + 1]
         with zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
             for path, arc in files:
-                info = zipfile.ZipInfo(arc, (2026, 1, 1, 0, 0, 0))
+                # the file's own time, not a fixed one: the firmware knows a file it has cached
+                # in the flash by its path, time and size, so a new build of the same size with
+                # the same time ran the OLD copy (sci.svm, v12 -> v13)
+                info = zipfile.ZipInfo(arc, time.localtime(os.path.getmtime(path))[:6])
                 info.compress_type = zipfile.ZIP_DEFLATED
                 info.external_attr = 0o644 << 16
                 z.writestr(info, open(path, 'rb').read())
