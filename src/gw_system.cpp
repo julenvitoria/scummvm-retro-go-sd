@@ -660,7 +660,10 @@ public:
 			// the volume twice (driver and mixer), peaks at 2% of full scale. Full volume and
 			// eight times the output gain for it (the loudest passage then peaks at 80%).
 			bool lure = ConfMan.get("engineid").equalsIgnoreCase("lure");
-			int v = lure ? 255 : GW_ENGINE_VOLUME, vm = v;
+			// The Neverhood's music, films and effects together peak at 38% of full scale at
+			// GW_ENGINE_VOLUME: full volume for it too (about 60%)
+			bool full = lure || ConfMan.get("engineid").equalsIgnoreCase("neverhood");
+			int v = full ? 255 : GW_ENGINE_VOLUME, vm = v;
 			if (lure) g_gwGain = 40;
 			// Simon the Sorcerer's AdLib music is as quiet as Lure's (peaks at 2% of full scale
 			// beside its voices at 100%): the same gain, and its voices and effects turned down
