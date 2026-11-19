@@ -100,6 +100,186 @@ index d8ee41aca0c..73bdddd1ae0 100644
  
  class MidiDriver_BASE;
  
+diff --git a/audio/midiparser_smf.cpp b/audio/midiparser_smf.cpp
+index 2bf7e1f0932..708015c7680 100644
+--- a/audio/midiparser_smf.cpp
++++ b/audio/midiparser_smf.cpp
+@@ -122,12 +122,120 @@ void MidiParser_SMF::parseNextEvent(EventInfo &info) {
+ 	_position._subtracks[subtrack]._playPos = playPos;
+ }
+ 
++#ifdef GW_SCUMM_SLIM
++MidiParser_SMF::~MidiParser_SMF() {
++	free(_gwMerged);
++}
++
++static uint32 gwVLQ(const byte *&p, const byte *end) {
++	uint32 v = 0;
++	for (int i = 0; i < 4 && p < end; i++) {
++		const byte b = *p++;
++		v = v << 7 | (b & 0x7F);
++		if (!(b & 0x80))
++			break;
++	}
++	return v;
++}
++
++static byte *gwPutVLQ(byte *o, uint32 v) {
++	byte t[4];
++	int n = 0;
++	do {
++		t[n++] = v & 0x7F;
++		v >>= 7;
++	} while (v && n < 4);
++	while (n--)
++		*o++ = t[n] | (n ? 0x80 : 0);
++	return o;
++}
++
++const byte *MidiParser_SMF::gwMerge(const byte *const *starts, const byte *const *ends, int n) {
++	uint32 total = 0;
++	for (int i = 0; i < n; i++)
++		total += ends[i] - starts[i];
++	// (each event at most 4 bytes longer: an explicit status, a longer delta)
++	byte *out = (byte *)malloc(total * 5 + 8);
++	const byte **pos = (const byte **)malloc(n * sizeof(const byte *));
++	uint32 *when = (uint32 *)malloc(n * sizeof(uint32));
++	byte *running = (byte *)malloc(n);
++	if (!out || !pos || !when || !running) {
++		free(out); free(pos); free(when); free(running);
++		return nullptr;
++	}
++	for (int i = 0; i < n; i++) {
++		pos[i] = starts[i];
++		running[i] = 0;
++		when[i] = pos[i] < ends[i] ? gwVLQ(pos[i], ends[i]) : 0;
++	}
++	byte *o = out;
++	uint32 now = 0;
++	for (;;) {
++		int t = -1;	// the track with the earliest next event (of equal times, the first)
++		for (int i = 0; i < n; i++)
++			if (pos[i] < ends[i] && (t < 0 || when[i] < when[t]))
++				t = i;
++		if (t < 0)
++			break;
++		const byte *p = pos[t], *e = ends[t];
++		byte status = running[t];
++		if (*p & 0x80)
++			status = *p++;
++		if (!(status & 0x80)) {	// (no status to run on: the track is broken, dropped)
++			pos[t] = e;
++			continue;
++		}
++		const byte *data = p;
++		bool emit = true;
++		if (status == 0xFF) {
++			const byte type = p < e ? *p++ : 0x2F;
++			const uint32 len = gwVLQ(p, e);
++			p += len;
++			if (type == 0x2F) {	// (one end of track, at the end of all)
++				emit = false;
++				p = e;
++			}
++		} else if (status == 0xF0 || status == 0xF7) {
++			const uint32 len = gwVLQ(p, e);
++			p += len;
++		} else {
++			running[t] = status;
++			p += ((status & 0xF0) == 0xC0 || (status & 0xF0) == 0xD0) ? 1 : 2;
++		}
++		if (p > e)
++			p = e;
++		if (emit) {
++			o = gwPutVLQ(o, when[t] - now);
++			now = when[t];
++			*o++ = status;
++			memcpy(o, data, p - data);
++			o += p - data;
++		}
++		pos[t] = p;
++		if (p < e)
++			when[t] += gwVLQ(pos[t], e);
++	}
++	*o++ = 0;
++	*o++ = 0xFF;
++	*o++ = 0x2F;
++	*o++ = 0;
++	free(pos); free(when); free(running);
++	byte *fit = (byte *)realloc(out, o - out);
++	_gwMerged = fit ? fit : out;
++	return _gwMerged;
++}
++#endif
++
+ bool MidiParser_SMF::loadMusic(const byte *data, uint32 size) {
+ 	uint32 len;
+ 	byte midiType;
+ 	byte numTrackChunks;
+ 
+ 	unloadMusic();
++#ifdef GW_SCUMM_SLIM
++	free(_gwMerged);
++	_gwMerged = nullptr;
++#endif
+ 	const byte *pos = data;
+ 
+ 	if (!memcmp(pos, "RIFF", 4)) {
+@@ -163,6 +271,34 @@ bool MidiParser_SMF::loadMusic(const byte *data, uint32 size) {
+ 		warning("Can only handle %d tracks but was handed %d", (int)MAXIMUM_TRACKS, (int)_numTracks);
+ 		return false;
+ 	}
++#ifdef GW_SCUMM_SLIM
++	if (midiType == 1 && numTrackChunks > MAXIMUM_SUBTRACKS) {
++		const byte *starts[255], *ends[255];
++		for (int i = 0; i < numTrackChunks; i++) {
++			if (memcmp(pos, "MTrk", 4)) {
++				warning("Hit invalid block '%c%c%c%c' while scanning for track locations", pos[0], pos[1], pos[2], pos[3]);
++				return false;
++			}
++			pos += 4;
++			len = read4high(pos);
++			starts[i] = pos;
++			ends[i] = pos + len;
++			pos += len;
++		}
++		const byte *merged = gwMerge(starts, ends, numTrackChunks);
++		if (!merged) {
++			warning("No memory to merge a MIDI file of %d tracks", (int)numTrackChunks);
++			return false;
++		}
++		_tracks[0][0] = merged;
++		_numSubtracks[0] = 1;
++		_numTracks = 1;
++		resetTracking();
++		setTempo(500000);
++		setTrack(0);
++		return true;
++	}
++#endif
+ 	if (midiType == 1 && numTrackChunks > MAXIMUM_SUBTRACKS) {
+ 		warning("Can only handle MIDI type 1 with %d subtracks but was handed %d", (int)MAXIMUM_SUBTRACKS, (int)numTrackChunks);
+ 		return false;
+diff --git a/audio/midiparser_smf.h b/audio/midiparser_smf.h
+index f2da401096b..2fa3726abaa 100644
+--- a/audio/midiparser_smf.h
++++ b/audio/midiparser_smf.h
+@@ -37,6 +37,15 @@ protected:
+ 
+ public:
+ 	MidiParser_SMF(int8 source = -1);
++#ifdef GW_SCUMM_SLIM
++	~MidiParser_SMF() override;
++private:
++	// Game & Watch: a type 1 file of more tracks than the parser follows at once
++	// (AUDIO_MIDIPARSER_MAXIMUM_SUBTRACKS), merged into one track here (Touché's music has 3-9)
++	byte *_gwMerged = nullptr;
++	const byte *gwMerge(const byte *const *starts, const byte *const *ends, int n);
++public:
++#endif
+ 
+ 	bool loadMusic(const byte *data, uint32 size) override;
+ 
 diff --git a/audio/midiparser_xmidi.cpp b/audio/midiparser_xmidi.cpp
 index 29619ce3b6f..5c8a2b5737b 100644
 --- a/audio/midiparser_xmidi.cpp
