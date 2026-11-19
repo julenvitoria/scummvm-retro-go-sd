@@ -30,6 +30,8 @@ gemcut.emc   = kyra
 resource.map = sci
 resource.000 = sci
 resmap.000   = sci
+hd.blb       = neverhood
+nevdemo.blb  = neverhood
 
 # engines there is no file for yet (the loader says so instead of starting the game). The Dig
 # and The Curse of Monkey Island are SCUMM games this core does not run (too big for the flash):
