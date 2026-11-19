@@ -63,7 +63,7 @@ its own in its notes.
 | Beneath a Steel Sky | Sky | ✅ | first launch prepares the game (a few minutes) |
 | Sołtys | CGE | ✅ | |
 | Lure of the Temptress | Lure | ✅ | |
-| Broken Sword: The Shadow of the Templars | Sword1 | ✅ | no cutscene videos; see the notes |
+| Broken Sword: The Shadow of the Templars | Sword1 | ✅ | cutscenes once converted; see the notes |
 | Gobliiins | Gob | ✅ | no saving: the game uses level codes |
 | Ween: The Prophecy | Gob | ✅ | saves from its own menu, not from Retro-Go's |
 | Cruise for a Corpse | Cruise | ✅ | its menu keeps one game; more with Retro-Go's save states |
@@ -166,8 +166,12 @@ game's folder on the first launch. Everything goes to the flash.
 **Broken Sword: The Shadow of the Templars** (PC CD)
 
 - Copy the CD's `clusters`, `music`, `speech` and `smackshi` folders into the game's folder.
-  **The cutscene videos are skipped** (each needs over 1.5 MB of memory), but ScummVM
-  recognises the game by `smackshi/intro.smk`: that one file is enough.
+  ScummVM recognises the game by `smackshi/intro.smk`.
+- **Cutscenes**: a Smacker film cannot be played on the console (over 1.5 MB to decode it).
+  Convert them on a PC instead, and they play: `python3 tools/smk2gwv.py FILM.SMK` (needs
+  ffmpeg and numpy) makes `FILM.gwv`, the same film at the panel's size with its sound; put
+  the `.gwv` files in `smackshi` beside the `.smk`. All nineteen take about 72 MB. Without
+  them the cutscenes are skipped, as before.
 - Add `language=` to the `.scummvm` file (`language=es`…), or the subtitles are in English.
 - The game is 150 MB and does not fit in the flash whole: the flash holds the common part
   and the **zones** (Paris 1, Paris 2, Ireland, Syria…) you have been in lately, as many as
@@ -491,7 +495,7 @@ los ficheros con identificador nuevo. Cada versión publica los suyos en sus not
 | Beneath a Steel Sky | Sky | ✅ | el primer arranque prepara el juego (unos minutos) |
 | Sołtys | CGE | ✅ | |
 | Lure of the Temptress | Lure | ✅ | |
-| Broken Sword: La leyenda de los templarios | Sword1 | ✅ | sin vídeos; mira las notas |
+| Broken Sword: La leyenda de los templarios | Sword1 | ✅ | vídeos una vez convertidos; mira las notas |
 | Gobliiins | Gob | ✅ | no guarda partidas: el juego usa códigos de nivel |
 | Ween: The Prophecy | Gob | ✅ | se guarda desde su propio menú, no desde el de Retro-Go |
 | Cruise for a Corpse | Cruise | ✅ | su menú guarda una partida; más, con los save states de Retro-Go |
@@ -594,8 +598,12 @@ carpeta del juego en el primer arranque. Todo va a la flash.
 **Broken Sword: La leyenda de los templarios** (PC CD)
 
 - Copia las carpetas `clusters`, `music`, `speech` y `smackshi` del CD en la carpeta del juego.
-  **Los vídeos se saltan** (cada uno necesita más de 1,5 MB de memoria), pero ScummVM
-  reconoce el juego por `smackshi/intro.smk`: basta con ese archivo.
+  ScummVM reconoce el juego por `smackshi/intro.smk`.
+- **Vídeos**: un vídeo Smacker no se puede reproducir en la consola (más de 1,5 MB para
+  descodificarlo). Conviértelos en un PC y se ven: `python3 tools/smk2gwv.py VIDEO.SMK`
+  (necesita ffmpeg y numpy) crea `VIDEO.gwv`, el mismo vídeo al tamaño de la pantalla con su
+  sonido; pon los `.gwv` en `smackshi` junto a los `.smk`. Los diecinueve ocupan unos 72 MB.
+  Sin ellos los vídeos se saltan, como antes.
 - Añade `language=` al fichero `.scummvm` (`language=es`…), o los subtítulos salen en inglés.
 - El juego ocupa 150 MB y no cabe entero en la flash: en ella van la parte común y una o dos
   **zonas** (París, Irlanda, Siria…). El primer arranque copia unos 44 MB: tarda un rato.
