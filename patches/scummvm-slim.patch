@@ -5673,7 +5673,7 @@ index 4b830e8c9bc..520e24421df 100644
  	Common::File _fd;
  	Common::Mutex _mutex;
 diff --git a/engines/neverhood/gamemodule.cpp b/engines/neverhood/gamemodule.cpp
-index e9ade8ca414..7c3aa67899a 100644
+index e9ade8ca414..ba32daa8650 100644
 --- a/engines/neverhood/gamemodule.cpp
 +++ b/engines/neverhood/gamemodule.cpp
 @@ -169,7 +169,11 @@ void GameModule::handleKeyDown(Common::CustomEventType action) {
@@ -5688,7 +5688,7 @@ index e9ade8ca414..7c3aa67899a 100644
  		_mainMenuRequested = true;
  	else if (_childObject)
  		sendMessage(_childObject, NM_KEYPRESS_ESC, 0);
-@@ -353,7 +357,28 @@ uint32 GameModule::handleMessage(int messageNum, const MessageParam &param, Enti
+@@ -353,7 +357,44 @@ uint32 GameModule::handleMessage(int messageNum, const MessageParam &param, Enti
  	return messageResult;
  }
  
@@ -5708,6 +5708,22 @@ index e9ade8ca414..7c3aa67899a 100644
 +				v[k] = v[k] * 10 + (*c - '0');
 +		}
 +		const int m = v[0], sc = v[1], w = v[2];
++		// GW_NH_VARS=HASH=VALUE,... (hex hashes, gamevars.h) set first: lights, a radio...
++		if (gw_test_env("GW_NH_VARS")) {
++			const char *c = gw_test_env("GW_NH_VARS");
++			while (*c) {
++				uint32 h = 0, val = 0;
++				for (; *c && *c != '='; c++)
++					h = h * 16 + (*c <= '9' ? *c - '0' : (*c | 32) - 'a' + 10);
++				if (*c == '=')
++					c++;
++				for (; *c && *c != ','; c++)
++					val = val * 10 + (*c - '0');
++				if (*c == ',')
++					c++;
++				setGlobalVar(h, val);
++			}
++		}
 +		_vm->gameState().sceneNum = sc;
 +		_vm->gameState().which = w;
 +		createModule(m, -1);
@@ -5717,7 +5733,7 @@ index e9ade8ca414..7c3aa67899a 100644
  #if 1
  	// Logos and intro video // Real game start
  	createModule(1500, 0);
-@@ -446,6 +471,9 @@ void GameModule::checkRequests() {
+@@ -446,6 +487,9 @@ void GameModule::checkRequests() {
  		_childObject = nullptr;
  		_prevChildObject = nullptr;
  		_prevModuleNum = 0;
@@ -5727,7 +5743,7 @@ index e9ade8ca414..7c3aa67899a 100644
  		createModuleByHash(getGlobalVar(V_MODULE_NAME));
  	}
  	if (_mainMenuRequested)
-@@ -821,10 +849,34 @@ void GameModule::openMainMenu() {
+@@ -821,10 +865,34 @@ void GameModule::openMainMenu() {
  	_vm->_screen->saveParams();
  	_vm->_screen->update();
  	_mainMenuRequested = false;
@@ -5762,7 +5778,7 @@ index e9ade8ca414..7c3aa67899a 100644
  	if (!_prevChildObject) {
  		_prevChildObject = _childObject;
  		_prevModuleNum = _moduleNum;
-@@ -837,6 +889,16 @@ void GameModule::createMenuModule() {
+@@ -837,6 +905,16 @@ void GameModule::createMenuModule() {
  void GameModule::updateMenuModule() {
  	if (!updateChild()) {
  		_vm->_screen->restoreParams();
