@@ -5673,7 +5673,7 @@ index 4b830e8c9bc..520e24421df 100644
  	Common::File _fd;
  	Common::Mutex _mutex;
 diff --git a/engines/neverhood/gamemodule.cpp b/engines/neverhood/gamemodule.cpp
-index e9ade8ca414..cb0f544915e 100644
+index e9ade8ca414..3ed54c6ae9e 100644
 --- a/engines/neverhood/gamemodule.cpp
 +++ b/engines/neverhood/gamemodule.cpp
 @@ -169,7 +169,11 @@ void GameModule::handleKeyDown(Common::CustomEventType action) {
@@ -5688,7 +5688,36 @@ index e9ade8ca414..cb0f544915e 100644
  		_mainMenuRequested = true;
  	else if (_childObject)
  		sendMessage(_childObject, NM_KEYPRESS_ESC, 0);
-@@ -446,6 +450,9 @@ void GameModule::checkRequests() {
+@@ -353,7 +357,28 @@ uint32 GameModule::handleMessage(int messageNum, const MessageParam &param, Enti
+ 	return messageResult;
+ }
+ 
++#if defined(GW_NEVERHOOD_SLIM) && !defined(__arm__)
++extern "C" const char *gw_test_env(const char *name);
++#endif
++
+ void GameModule::startup() {
++#if defined(GW_NEVERHOOD_SLIM) && !defined(__arm__)
++	// (the PC test build: GW_NH_SCENE=module,scene,which starts there)
++	if (gw_test_env("GW_NH_SCENE")) {
++		int v[3] = { 0, 0, 0 }, k = 0;
++		for (const char *c = gw_test_env("GW_NH_SCENE"); *c && k < 3; c++) {
++			if (*c == ',')
++				k++;
++			else
++				v[k] = v[k] * 10 + (*c - '0');
++		}
++		const int m = v[0], sc = v[1], w = v[2];
++		_vm->gameState().sceneNum = sc;
++		_vm->gameState().which = w;
++		createModule(m, -1);
++		return;
++	}
++#endif
+ #if 1
+ 	// Logos and intro video // Real game start
+ 	createModule(1500, 0);
+@@ -446,6 +471,9 @@ void GameModule::checkRequests() {
  		_childObject = nullptr;
  		_prevChildObject = nullptr;
  		_prevModuleNum = 0;
@@ -5698,7 +5727,7 @@ index e9ade8ca414..cb0f544915e 100644
  		createModuleByHash(getGlobalVar(V_MODULE_NAME));
  	}
  	if (_mainMenuRequested)
-@@ -821,10 +828,29 @@ void GameModule::openMainMenu() {
+@@ -821,10 +849,29 @@ void GameModule::openMainMenu() {
  	_vm->_screen->saveParams();
  	_vm->_screen->update();
  	_mainMenuRequested = false;
@@ -5728,7 +5757,7 @@ index e9ade8ca414..cb0f544915e 100644
  	if (!_prevChildObject) {
  		_prevChildObject = _childObject;
  		_prevModuleNum = _moduleNum;
-@@ -837,6 +863,16 @@ void GameModule::createMenuModule() {
+@@ -837,6 +884,16 @@ void GameModule::createMenuModule() {
  void GameModule::updateMenuModule() {
  	if (!updateChild()) {
  		_vm->_screen->restoreParams();
