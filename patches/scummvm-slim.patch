@@ -5672,6 +5672,93 @@ index 4b830e8c9bc..520e24421df 100644
  private:
  	Common::File _fd;
  	Common::Mutex _mutex;
+diff --git a/engines/neverhood/gamemodule.cpp b/engines/neverhood/gamemodule.cpp
+index e9ade8ca414..cb0f544915e 100644
+--- a/engines/neverhood/gamemodule.cpp
++++ b/engines/neverhood/gamemodule.cpp
+@@ -169,7 +169,11 @@ void GameModule::handleKeyDown(Common::CustomEventType action) {
+ void GameModule::handleEscapeKey() {
+ 	if (_vm->isDemo())
+ 		_vm->quitGame();
++#ifdef GW_NEVERHOOD_SLIM
++	else if (!_prevChildObject && !_gwRemakeRoom && _canRequestMainMenu)
++#else
+ 	else if (!_prevChildObject && _canRequestMainMenu)
++#endif
+ 		_mainMenuRequested = true;
+ 	else if (_childObject)
+ 		sendMessage(_childObject, NM_KEYPRESS_ESC, 0);
+@@ -446,6 +450,9 @@ void GameModule::checkRequests() {
+ 		_childObject = nullptr;
+ 		_prevChildObject = nullptr;
+ 		_prevModuleNum = 0;
++#ifdef GW_NEVERHOOD_SLIM
++		_gwRemakeRoom = false;
++#endif
+ 		createModuleByHash(getGlobalVar(V_MODULE_NAME));
+ 	}
+ 	if (_mainMenuRequested)
+@@ -821,10 +828,29 @@ void GameModule::openMainMenu() {
+ 	_vm->_screen->saveParams();
+ 	_vm->_screen->update();
+ 	_mainMenuRequested = false;
++#ifdef GW_NEVERHOOD_SLIM
++	// Game & Watch: the room is let go while the menu is open (the two do not fit together:
++	// the menu's screens alone take 150-250 KB), and made again on the way back, from where
++	// it was entered -- as a saved game is loaded, so nothing kept in the game's state is lost
++	if (_childObject) {
++		_vm->_audioResourceMan->stopAllMusic();
++		_vm->_audioResourceMan->stopAllSounds();
++		_vm->_soundMan->stopAllMusic();
++		_vm->_soundMan->stopAllSounds();
++		_vm->_soundMan->playSoundThree(0x002D0031, 0x08861079);	// (as checkRequests)
++		delete _childObject;
++		_childObject = nullptr;
++		_gwRemakeRoom = true;
++	}
++#endif
+ 	createMenuModule();
+ }
+ 
+ void GameModule::createMenuModule() {
++#ifdef GW_NEVERHOOD_SLIM
++	if (_gwRemakeRoom && _childObject)	// (the menu is open already: openMainMenu)
++		return;
++#endif
+ 	if (!_prevChildObject) {
+ 		_prevChildObject = _childObject;
+ 		_prevModuleNum = _moduleNum;
+@@ -837,6 +863,16 @@ void GameModule::createMenuModule() {
+ void GameModule::updateMenuModule() {
+ 	if (!updateChild()) {
+ 		_vm->_screen->restoreParams();
++#ifdef GW_NEVERHOOD_SLIM
++		if (_gwRemakeRoom) {	// (let go when the menu opened)
++			_gwRemakeRoom = false;
++			_prevChildObject = nullptr;
++			_prevModuleNum = 0;
++			SetUpdateHandler(&GameModule::updateModule);
++			createModuleByHash(getGlobalVar(V_MODULE_NAME));
++			return;
++		}
++#endif
+ 		_childObject = _prevChildObject;
+ 		sendMessage(_childObject, NM_MOUSE_SHOW, 0);
+ 		_prevChildObject = nullptr;
+diff --git a/engines/neverhood/gamemodule.h b/engines/neverhood/gamemodule.h
+index 6086f1e712c..f16c816baaa 100644
+--- a/engines/neverhood/gamemodule.h
++++ b/engines/neverhood/gamemodule.h
+@@ -65,6 +65,9 @@ protected:
+ 	int _moduleNum;
+ 	Entity *_prevChildObject;
+ 	int _prevModuleNum;
++#ifdef GW_NEVERHOOD_SLIM
++	bool _gwRemakeRoom = false;	// (openMainMenu)
++#endif
+ 	bool _restoreGameRequested;
+ 	bool _restartGameRequested;
+ 	bool _canRequestMainMenu;
 diff --git a/engines/neverhood/graphics.cpp b/engines/neverhood/graphics.cpp
 index cdf91b8dddf..f604dd2c794 100644
 --- a/engines/neverhood/graphics.cpp
@@ -5896,8 +5983,27 @@ index 759ae929059..1fc2e8a18e8 100644
  int calcDistance(int16 x1, int16 y1, int16 x2, int16 y2);
  
  } // End of namespace Neverhood
+diff --git a/engines/neverhood/menumodule.cpp b/engines/neverhood/menumodule.cpp
+index d00f1038a91..e120b9d0b5c 100644
+--- a/engines/neverhood/menumodule.cpp
++++ b/engines/neverhood/menumodule.cpp
+@@ -1128,6 +1128,14 @@ SaveGameMenu::SaveGameMenu(NeverhoodEngine *vm, Module *parentModule, SavegameLi
+ }
+ 
+ void SaveGameMenu::performAction() {
++#ifdef GW_NEVERHOOD_SLIM
++	// no keyboard to name a new one: "Save N" (a line touched first is saved over, as named)
++	if (_textEditWidget->getString().empty()) {
++		((MenuModule*)_parentModule)->setSavegameInfo(Common::String::format("Save %u", _savegameList->size() + 1), 0, true);
++		leaveScene(0);
++		return;
++	}
++#endif
+ 	if (!_textEditWidget->getString().empty()) {
+ 		((MenuModule*)_parentModule)->setSavegameInfo(_textEditWidget->getString(),
+ 			_listBox->getCurrIndex(), _textEditWidget->isModified());
 diff --git a/engines/neverhood/neverhood.cpp b/engines/neverhood/neverhood.cpp
-index 787e50e354b..8c6b6ef01ed 100644
+index 787e50e354b..1a0017069e0 100644
 --- a/engines/neverhood/neverhood.cpp
 +++ b/engines/neverhood/neverhood.cpp
 @@ -65,7 +65,11 @@ NeverhoodEngine::~NeverhoodEngine() {
@@ -5912,17 +6018,23 @@ index 787e50e354b..8c6b6ef01ed 100644
  
  	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
  	const Common::Path extraPath(ConfMan.getPath("extrapath"));
-@@ -107,6 +111,9 @@ Common::Error NeverhoodEngine::run() {
+@@ -107,7 +111,14 @@ Common::Error NeverhoodEngine::run() {
  		_res->addArchive("s.blb");
  		_res->addArchive("t.blb");
  	}
+-
 +#ifdef GW_NEVERHOOD_SLIM
 +	_res->gwPack();
 +#endif
- 
++
++#ifdef GW_NEVERHOOD_SLIM
++	// the game's own save and load screens: ScummVM's need 150 KB more than there is
++	ConfMan.setBool("originalsaveload", true, Common::ConfigManager::kTransientDomain);
++#endif
  	Common::String nhcFile = ConfMan.get("nhc_file");
  	if (!nhcFile.empty() && _res->addNhcArchive(Common::Path(nhcFile + ".nhc"))) {
-@@ -203,16 +210,28 @@ void NeverhoodEngine::mainLoop() {
+ 		uint32 fontSpecHash = calcHash("asRecFont");
+@@ -203,16 +214,28 @@ void NeverhoodEngine::mainLoop() {
  			case Common::EVENT_KEYUP:
  				break;
  			case Common::EVENT_MOUSEMOVE:
@@ -5951,6 +6063,56 @@ index 787e50e354b..8c6b6ef01ed 100644
  				_gameModule->handleMouseUp(event.mouse.x, event.mouse.y);
  				break;
  			case Common::EVENT_WHEELUP:
+@@ -226,6 +249,14 @@ void NeverhoodEngine::mainLoop() {
+ 			}
+ 		}
+ 		if (_system->getMillis() >= nextFrameTime) {
++#ifdef GW_NEVERHOOD_SLIM
++			// how fast it goes, in scummvm.log every 20 seconds: the frames drawn, what one
++			// takes on average and at most (the game wants one every 41 ms, a film its own)
++			static uint32 gwFrom = 0, gwFrames = 0, gwWork = 0, gwMax = 0;
++			const uint32 gwT0 = _system->getMillis();
++			if (!gwFrom)
++				gwFrom = gwT0;
++#endif
+ 			_gameModule->checkRequests();
+ 			_gameModule->handleUpdate();
+ 			_gameModule->draw();
+@@ -233,12 +264,34 @@ void NeverhoodEngine::mainLoop() {
+ 			if (_updateSound)
+ 				_soundMan->update();
+ 			nextFrameTime = _screen->getNextFrameTime();
++#ifdef GW_NEVERHOOD_SLIM
++			const uint32 gwT1 = _system->getMillis(), gwDt = gwT1 - gwT0;
++			gwFrames++;
++			gwWork += gwDt;
++			gwMax = MAX(gwMax, gwDt);
++			if (gwT1 - gwFrom >= 20000) {
++				warning("neverhood: %u frames in %u ms (%u.%u a second), a frame takes %u ms on average, %u at most (module %d, scene %d)",
++					gwFrames, gwT1 - gwFrom, gwFrames * 1000 / (gwT1 - gwFrom), gwFrames * 10000 / (gwT1 - gwFrom) % 10,
++					gwWork / gwFrames, gwMax, _gameModule->getCurrentModuleNum(), _gameState.sceneNum);
++				gwFrom = gwT1;
++				gwFrames = gwWork = gwMax = 0;
++			}
++#endif
+ 		};
+ 
+ 		_audioResourceMan->updateMusic();
+ 
+ 		_system->updateScreen();
++#ifdef GW_NEVERHOOD_SLIM
++		{
++			// no longer than until the next frame is due: 10 ms at a time made every frame late
++			// by up to 10 ms (21 frames a second instead of 24)
++			const uint32 now = _system->getMillis();
++			_system->delayMillis(nextFrameTime > now ? MIN<uint32>(10, nextFrameTime - now) : 0);
++		}
++#else
+ 		_system->delayMillis(10);
++#endif
+ 	}
+ }
+ 
 diff --git a/engines/neverhood/resource.cpp b/engines/neverhood/resource.cpp
 index be76adfba7b..c81cde76a9a 100644
 --- a/engines/neverhood/resource.cpp
