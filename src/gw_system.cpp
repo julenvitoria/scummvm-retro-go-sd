@@ -30,6 +30,7 @@
 #include "common/savefile.h"
 #include "common/config-manager.h"
 #include "common/file.h"
+#include "common/substream.h"
 #include "platform.h"
 #include "osk.h"
 #include "pack.h"
@@ -370,6 +371,11 @@ public:
    one the firmware chose (/saves/<system>/<game>/...), so the launcher's slots, previews
    and "resume" work as for any other core. */
 #define RG_SLOT 99
+/* Every save state starts with these 4 bytes. The firmware takes the FIRST BYTE of a game's
+   slot-0 file as the number of the slot used last (odroid_system_emu_get_states): The
+   Neverhood's saves start with a version 0, so "resume" offered slot 0 whatever was saved
+   after it. "G" is no slot; a state without the tag still loads. */
+#define RG_TAG "GWRG"
 static char g_rgPath[256];
 
 class GWSaveFileManager : public DefaultSaveFileManager {
@@ -402,7 +408,13 @@ public:
 		if (!redirected(name)) return DefaultSaveFileManager::openForLoading(name);
 		plat_stat_t st = plat_stat(g_rgPath);
 		void *f = st.exists ? plat_fopen(g_rgPath, "rb") : nullptr;
-		return f ? new GWFileStream(f, st.size) : nullptr;
+		if (!f) return nullptr;
+		GWFileStream *in = new GWFileStream(f, st.size);
+		byte tag[4];
+		if (st.size >= 4 && in->read(tag, 4) == 4 && !memcmp(tag, RG_TAG, 4))
+			return new Common::SeekableSubReadStream(in, 4, st.size, DisposeAfterUse::YES);
+		in->seek(0);	// (a save state from before the tag)
+		return in;
 	}
 	Common::OutSaveFile *openForSaving(const Common::String &name, bool compress) override {
 		if (zone(name)) {
@@ -411,7 +423,10 @@ public:
 		}
 		if (!redirected(name)) return DefaultSaveFileManager::openForSaving(name, compress);
 		void *f = plat_fopen(g_rgPath, "wb");
-		return f ? new Common::OutSaveFile(new GWFileStream(f, 0)) : nullptr;
+		if (!f) return nullptr;
+		Common::OutSaveFile *out = new Common::OutSaveFile(new GWFileStream(f, 0));
+		out->write(RG_TAG, 4);
+		return out;
 	}
 };
 
