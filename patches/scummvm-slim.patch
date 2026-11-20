@@ -5673,7 +5673,7 @@ index 4b830e8c9bc..520e24421df 100644
  	Common::File _fd;
  	Common::Mutex _mutex;
 diff --git a/engines/neverhood/gamemodule.cpp b/engines/neverhood/gamemodule.cpp
-index e9ade8ca414..3ed54c6ae9e 100644
+index e9ade8ca414..7c3aa67899a 100644
 --- a/engines/neverhood/gamemodule.cpp
 +++ b/engines/neverhood/gamemodule.cpp
 @@ -169,7 +169,11 @@ void GameModule::handleKeyDown(Common::CustomEventType action) {
@@ -5727,7 +5727,7 @@ index e9ade8ca414..3ed54c6ae9e 100644
  		createModuleByHash(getGlobalVar(V_MODULE_NAME));
  	}
  	if (_mainMenuRequested)
-@@ -821,10 +849,29 @@ void GameModule::openMainMenu() {
+@@ -821,10 +849,34 @@ void GameModule::openMainMenu() {
  	_vm->_screen->saveParams();
  	_vm->_screen->update();
  	_mainMenuRequested = false;
@@ -5744,6 +5744,11 @@ index e9ade8ca414..3ed54c6ae9e 100644
 +		delete _childObject;
 +		_childObject = nullptr;
 +		_gwRemakeRoom = true;
++		// the screen kept the room's film to time its frames, and saveParams() above kept it
++		// to give back after the menu: both freed with the room now (the menu then ran on a
++		// freed film -- wrong colours, then a crash)
++		_vm->_screen->setSmackerDecoder(nullptr);
++		_vm->_screen->saveParams();
 +	}
 +#endif
  	createMenuModule();
@@ -5757,7 +5762,7 @@ index e9ade8ca414..3ed54c6ae9e 100644
  	if (!_prevChildObject) {
  		_prevChildObject = _childObject;
  		_prevModuleNum = _moduleNum;
-@@ -837,6 +884,16 @@ void GameModule::createMenuModule() {
+@@ -837,6 +889,16 @@ void GameModule::createMenuModule() {
  void GameModule::updateMenuModule() {
  	if (!updateChild()) {
  		_vm->_screen->restoreParams();

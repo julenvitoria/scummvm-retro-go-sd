@@ -86,6 +86,17 @@ $(HB)/tlsf.o: src/third_party/tlsf/tlsf.c
 $(HB)/scummvm_host_gwheap: $(HOST_OBJ) $(HB)/gwheap.o $(HB)/tlsf.o
 	@g++ $^ -o $@ && echo "  LINK $@"
 
+# the same with AddressSanitizer, on the PC's malloc (tools/host/asanheap.c): a use after free or
+# a write past a block's end stops with where it was freed or allocated. Its own build folder:
+#   make host-asan   ->   build/hostasan/scummvm_host_asan <game folder>
+.PHONY: host-asan
+host-asan:
+	@$(MAKE) --no-print-directory HB=build/hostasan HOSTX="-fsanitize=address -fno-omit-frame-pointer" build/hostasan/scummvm_host_asan
+$(HB)/asanheap.o: tools/host/asanheap.c
+	gcc -c -O1 -g -fsanitize=address $< -o $@
+$(HB)/scummvm_host_asan: $(HOST_OBJ) $(HB)/asanheap.o
+	@g++ -fsanitize=address $^ -o $@ && echo "  LINK $@"
+
 # ---------------------------------------------------------------- the core
 ifdef GCC_PATH
 CROSS    := $(GCC_PATH)/arm-none-eabi-
