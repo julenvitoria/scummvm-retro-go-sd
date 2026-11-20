@@ -6398,7 +6398,7 @@ index ad471deedb1..4b240653a7f 100644
  	byte _replOldColor;
  	byte _replNewColor;
 diff --git a/engines/neverhood/resourceman.cpp b/engines/neverhood/resourceman.cpp
-index 726c1700d63..2e193b08771 100644
+index 726c1700d63..358a0bf3e9d 100644
 --- a/engines/neverhood/resourceman.cpp
 +++ b/engines/neverhood/resourceman.cpp
 @@ -20,6 +20,25 @@
@@ -6432,8 +6432,7 @@ index 726c1700d63..2e193b08771 100644
  
  ResourceMan::~ResourceMan() {
 +#ifdef GW_NEVERHOOD_SLIM
-+	if (_gwp)
-+		plat_fclose(_gwp);
++	delete _gwp;
 +#endif
 +}
 +
@@ -6448,8 +6447,8 @@ index 726c1700d63..2e193b08771 100644
 +		memcpy(buf, mem + base + offs, n);
 +		got = n;
 +	} else if (gwp) {
-+		if (plat_fseek(gwp, base + offs, SEEK_SET))
-+			got = plat_fread(buf, n, gwp);
++		if (gwp->seek(base + offs))
++			got = gwp->read(buf, n);
 +	} else if (blb) {
 +		blb->seek(base + offs);
 +		got = blb->read(buf, n);
@@ -6610,8 +6609,8 @@ index 726c1700d63..2e193b08771 100644
 +				_archives[a]->getEntry(i)->gwOffs = offs[n];
 +	}
 +	free(offs);
-+	_gwp = plat_fopen(path.c_str(), "rb");
-+	if (!_gwp)
++	_gwp = new Common::File();
++	if (!_gwp->open(Common::FSNode(Common::Path(path, '/'))))	// (by its path: made just now, perhaps)
 +		error("neverhood.gwp: cannot open it");
 +}
 +
@@ -6622,7 +6621,8 @@ index 726c1700d63..2e193b08771 100644
 +	if (!gwLocate(resourceHandle, res) || res.mem)
 +		return nullptr;
 +	Common::File *f = new Common::File();
-+	if (!f->open(res.gwp ? Common::Path("neverhood.gwp") : Common::Path(res.blb->getName()))) {
++	if (!(res.gwp ? f->open(Common::FSNode(Common::Path(Common::String::format("%s/neverhood.gwp", plat_game_path()), '/')))
++	              : f->open(Common::Path(res.blb->getName())))) {
 +		delete f;
 +		return nullptr;
 +	}
@@ -6771,7 +6771,7 @@ index 726c1700d63..2e193b08771 100644
  			resourceData->data = nullptr;
  		}
 diff --git a/engines/neverhood/resourceman.h b/engines/neverhood/resourceman.h
-index 2decc59663c..dcb16f3ca2b 100644
+index 2decc59663c..152a366e6c6 100644
 --- a/engines/neverhood/resourceman.h
 +++ b/engines/neverhood/resourceman.h
 @@ -104,6 +104,37 @@ protected:
@@ -6785,7 +6785,7 @@ index 2decc59663c..dcb16f3ca2b 100644
 +// on the first start; one stored as is, from its archive.
 +struct GWRes {
 +	Common::File *blb;	// the archive, or
-+	void *gwp;		// neverhood.gwp (plat_fopen), or
++	Common::File *gwp;	// neverhood.gwp, or
 +	const byte *mem;	// bytes already in memory
 +	uint32 base, size;
 +	GWRes() : blb(nullptr), gwp(nullptr), mem(nullptr), base(0), size(0) {}
@@ -6812,7 +6812,7 @@ index 2decc59663c..dcb16f3ca2b 100644
  class ResourceMan {
  public:
  	ResourceMan();
-@@ -116,17 +147,37 @@ public:
+@@ -116,17 +147,40 @@ public:
  	Common::SeekableReadStream *createNhcStream(uint32 fileHash, uint32 type);
  	bool nhcExists(uint32 fileHash, uint32 type);
  	bool exists(uint32 fileHash);
@@ -6831,7 +6831,10 @@ index 2decc59663c..dcb16f3ca2b 100644
 +	void gwPack();						// (after the archives are added)
 +	bool gwLocate(ResourceHandle &resourceHandle, GWRes &res);
 +	Common::SeekableReadStream *gwStream(ResourceHandle &resourceHandle);	// (its own file handle)
-+	void *_gwp = nullptr;
++	// (a Common::File, not plat_fopen: the firmware closes every file on the card in its PAUSE/SET
++	// menu -- a Retro-Go save state -- and a file of ScummVM's is opened again where it was;
++	// a plat_fopen one then read another file: wrong colours, then a crash)
++	Common::File *_gwp = nullptr;
 +#endif
  protected:
  	typedef Common::HashMap<uint32, ResourceFileEntry> EntriesMap;
