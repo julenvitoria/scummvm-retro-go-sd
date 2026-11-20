@@ -6414,7 +6414,7 @@ index ad471deedb1..4b240653a7f 100644
  	byte _replOldColor;
  	byte _replNewColor;
 diff --git a/engines/neverhood/resourceman.cpp b/engines/neverhood/resourceman.cpp
-index 726c1700d63..358a0bf3e9d 100644
+index 726c1700d63..0ad7477d748 100644
 --- a/engines/neverhood/resourceman.cpp
 +++ b/engines/neverhood/resourceman.cpp
 @@ -20,6 +20,25 @@
@@ -6668,7 +6668,7 @@ index 726c1700d63..358a0bf3e9d 100644
  
  void ResourceMan::addArchive(const Common::Path &filename, bool isOptional) {
  	BlbArchive *archive = new BlbArchive();
-@@ -44,6 +280,21 @@ void ResourceMan::addArchive(const Common::Path &filename, bool isOptional) {
+@@ -44,6 +280,17 @@ void ResourceMan::addArchive(const Common::Path &filename, bool isOptional) {
  	}
  	_archives.push_back(archive);
  	debug(3, "ResourceMan::addArchive(%s) %d files", filename.toString(Common::Path::kNativeSeparator).c_str(), archive->getCount());
@@ -6677,51 +6677,63 @@ index 726c1700d63..358a0bf3e9d 100644
 +	_entries.reserve(_entries.size() + archive->getCount());
 +	for (uint archiveEntryIndex = 0; archiveEntryIndex < archive->getCount(); archiveEntryIndex++) {
 +		ResourceFileEntry newEntry;
-+		newEntry.resourceHandle = _entries.size();	// (the order they came in: gwSort())
 +		newEntry.archive = archive;
 +		newEntry.archiveEntry = archive->getEntry(archiveEntryIndex);
-+		newEntry.nhcArchive = nullptr;
-+		newEntry.nhcArchiveEntry = nullptr;
 +		_entries.push_back(newEntry);
 +	}
 +	_gwUnsorted = true;
-+	return;
-+#endif
++#else
  	for (uint archiveEntryIndex = 0; archiveEntryIndex < archive->getCount(); archiveEntryIndex++) {
  		BlbArchiveEntry *archiveEntry = archive->getEntry(archiveEntryIndex);
  		ResourceFileEntry *entry = findEntrySimple(archiveEntry->fileHash);
-@@ -85,17 +336,71 @@ bool ResourceMan::addNhcArchive(const Common::Path &filename) {
- 			newEntry.archiveEntry = nullptr;
- 			newEntry.nhcArchive = archive;
- 			newEntry.nhcArchiveEntry = archiveEntry;
-+#ifdef GW_NEVERHOOD_SLIM
-+			newEntry.resourceHandle = _entries.size();
-+			_entries.push_back(newEntry);
-+			_gwUnsorted = true;
-+#else
+@@ -62,6 +309,7 @@ void ResourceMan::addArchive(const Common::Path &filename, bool isOptional) {
  			_entries[archiveEntry->fileHash] = newEntry;
-+#endif
  		}
  	}
++#endif
+ }
+ 
+ bool ResourceMan::addNhcArchive(const Common::Path &filename) {
+@@ -72,6 +320,9 @@ bool ResourceMan::addNhcArchive(const Common::Path &filename) {
+ 	}
+ 	_nhcArchives.push_back(archive);
+ 	debug(3, "ResourceMan::addArchive(%s) %d files", filename.toString(Common::Path::kNativeSeparator).c_str(), archive->getCount());
++#ifdef GW_NEVERHOOD_SLIM
++	warning("%s: .NHC archives (translations) are not read on the Game & Watch", filename.toString().c_str());
++#else
+ 	for (uint archiveEntryIndex = 0; archiveEntryIndex < archive->getCount(); archiveEntryIndex++) {
+ 		NhcArchiveEntry *archiveEntry = archive->getEntry(archiveEntryIndex);
+ 		ResourceFileEntry *entry = findEntrySimple(archiveEntry->fileHash);
+@@ -88,14 +339,67 @@ bool ResourceMan::addNhcArchive(const Common::Path &filename) {
+ 			_entries[archiveEntry->fileHash] = newEntry;
+ 		}
+ 	}
++#endif
  
  	return true;
  }
  
 +#ifdef GW_NEVERHOOD_SLIM
 +uint32 ResourceMan::gwHash(const ResourceFileEntry &e) {
-+	return e.archiveEntry ? e.archiveEntry->fileHash : e.nhcArchiveEntry->fileHash;
++	return e.archiveEntry->fileHash;
 +}
 +
 +void ResourceMan::gwSort() {
 +	// by hash; of one hash, the newest first (and of those, the one added first)
-+	Common::sort(_entries.begin(), _entries.end(), [](const ResourceFileEntry &a, const ResourceFileEntry &b) {
++	const Common::Array<BlbArchive *> &archives = _archives;
++	Common::sort(_entries.begin(), _entries.end(), [&archives](const ResourceFileEntry &a, const ResourceFileEntry &b) {
 +		const uint32 ha = gwHash(a), hb = gwHash(b);
 +		if (ha != hb)
 +			return ha < hb;
-+		const uint32 ta = a.archiveEntry ? a.archiveEntry->timeStamp : 0, tb = b.archiveEntry ? b.archiveEntry->timeStamp : 0;
++		const uint32 ta = a.archiveEntry->timeStamp, tb = b.archiveEntry->timeStamp;
 +		if (ta != tb)
 +			return ta > tb;
-+		return a.resourceHandle < b.resourceHandle;
++		if (a.archive != b.archive) {	// (the archive added first)
++			for (uint i = 0; i < archives.size(); i++)
++				if (archives[i] == a.archive || archives[i] == b.archive)
++					return archives[i] == a.archive;
++		}
++		return a.archiveEntry < b.archiveEntry;	// (in one archive's array: its order)
 +	});
 +	uint n = 0;
 +	for (uint i = 0; i < _entries.size(); i++)
@@ -6729,10 +6741,8 @@ index 726c1700d63..358a0bf3e9d 100644
 +			_entries[n++] = _entries[i];
 +	Common::Array<ResourceFileEntry> exact;	// (no room to spare)
 +	exact.reserve(n);
-+	for (uint i = 0; i < n; i++) {
++	for (uint i = 0; i < n; i++)
 +		exact.push_back(_entries[i]);
-+		exact.back().resourceHandle = -1;
-+	}
 +	_entries.swap(exact);
 +	_gwUnsorted = false;
 +}
@@ -6762,7 +6772,7 @@ index 726c1700d63..358a0bf3e9d 100644
  
  ResourceFileEntry *ResourceMan::findEntry(uint32 fileHash, ResourceFileEntry **firstEntry) {
  	ResourceFileEntry *entry = findEntrySimple(fileHash);
-@@ -232,7 +537,14 @@ void ResourceMan::loadResource(ResourceHandle &resourceHandle, bool applyResourc
+@@ -232,7 +536,14 @@ void ResourceMan::loadResource(ResourceHandle &resourceHandle, bool applyResourc
  
  void ResourceMan::unloadResource(ResourceHandle &resourceHandle) {
  	if (resourceHandle.isValid()) {
@@ -6777,7 +6787,7 @@ index 726c1700d63..358a0bf3e9d 100644
  		if (resourceData && resourceData->dataRefCount > 0)
  			--resourceData->dataRefCount;
  		resourceHandle._resourceFileEntry = nullptr;
-@@ -243,7 +555,7 @@ void ResourceMan::unloadResource(ResourceHandle &resourceHandle) {
+@@ -243,7 +554,7 @@ void ResourceMan::unloadResource(ResourceHandle &resourceHandle) {
  void ResourceMan::purgeResources() {
  	for (Common::HashMap<uint32, ResourceData*>::iterator it = _data.begin(); it != _data.end(); ++it) {
  		ResourceData *resourceData = it->_value;
@@ -6787,10 +6797,42 @@ index 726c1700d63..358a0bf3e9d 100644
  			resourceData->data = nullptr;
  		}
 diff --git a/engines/neverhood/resourceman.h b/engines/neverhood/resourceman.h
-index 2decc59663c..152a366e6c6 100644
+index 2decc59663c..f22f120c3f8 100644
 --- a/engines/neverhood/resourceman.h
 +++ b/engines/neverhood/resourceman.h
-@@ -104,6 +104,37 @@ protected:
+@@ -34,6 +34,23 @@ namespace Neverhood {
+ class ResourceMan;
+ struct ResourceHandle;
+ 
++#ifdef GW_NEVERHOOD_SLIM
++// Game & Watch: one of these per file of the game (2,751), so two pointers and no more -- no
++// .NHC archives (fan translations), whose two are always null here (55 -> 22 KB)
++class ResourceFileEntry {
++private:
++	BlbArchive *archive;
++	BlbArchiveEntry *archiveEntry;
++	static constexpr NhcArchive *nhcArchive = nullptr;
++	static constexpr NhcArchiveEntry *nhcArchiveEntry = nullptr;
++
++	friend struct ResourceHandle;
++	friend class ResourceMan;
++
++public:
++	ResourceFileEntry() : archive(nullptr), archiveEntry(nullptr) {}
++};
++#else
+ class ResourceFileEntry {
+ private:
+ 	int resourceHandle;
+@@ -49,6 +66,7 @@ private:
+ public:
+ 	ResourceFileEntry() : resourceHandle(-1), archive(nullptr), archiveEntry(nullptr), nhcArchive(nullptr), nhcArchiveEntry(nullptr) {}
+ };
++#endif
+ 
+ struct Resource {
+ 	ResourceFileEntry *entry;
+@@ -104,6 +122,37 @@ protected:
  	const byte *_data;
  };
  
@@ -6828,7 +6870,7 @@ index 2decc59663c..152a366e6c6 100644
  class ResourceMan {
  public:
  	ResourceMan();
-@@ -116,17 +147,40 @@ public:
+@@ -116,17 +165,40 @@ public:
  	Common::SeekableReadStream *createNhcStream(uint32 fileHash, uint32 type);
  	bool nhcExists(uint32 fileHash, uint32 type);
  	bool exists(uint32 fileHash);
@@ -6870,10 +6912,10 @@ index 2decc59663c..152a366e6c6 100644
  	Common::Array<Resource*> _resources;
  };
 diff --git a/engines/neverhood/screen.cpp b/engines/neverhood/screen.cpp
-index 11e8c6324de..222a4f86704 100644
+index 11e8c6324de..51553c39df8 100644
 --- a/engines/neverhood/screen.cpp
 +++ b/engines/neverhood/screen.cpp
-@@ -22,6 +22,11 @@
+@@ -22,6 +22,12 @@
  #include "graphics/paletteman.h"
  #include "video/smk_decoder.h"
  #include "neverhood/screen.h"
@@ -6881,24 +6923,30 @@ index 11e8c6324de..222a4f86704 100644
 +
 +#ifdef GW_NEVERHOOD_SLIM
 +void gwAdoptable(const byte *lo, const byte *hi);	// src/gw_system.cpp
++extern "C" int heap_screen_hint;	// src/heap.c: the next blocks from the screen heap first
 +#endif
  
  namespace Neverhood {
  
-@@ -33,7 +38,12 @@ Screen::Screen(NeverhoodEngine *vm)
+@@ -33,7 +39,17 @@ Screen::Screen(NeverhoodEngine *vm)
  	_ticks = _vm->_system->getMillis();
  
  	_backScreen = new Graphics::Surface();
 +#ifdef GW_NEVERHOOD_SLIM
++	heap_screen_hint = 1;	// (the console's screen heap, which nothing else of this game uses)
 +	_backScreen->create(320, 240, Graphics::PixelFormat::createFormatCLUT8());	// (half size: graphics.h)
++	heap_screen_hint = 0;
 +	gwAdoptable((const byte *)_backScreen->getPixels(), (const byte *)_backScreen->getPixels() + 320 * 240);
++	// shown once now: the backend takes it as the screen and lets its own copy go (75 KB that
++	// were kept until the first frame -- the first room made before it, after a load, needs them)
++	_vm->_system->copyRectToScreen(_backScreen->getPixels(), _backScreen->pitch, 0, 0, 320, 240);
 +#else
  	_backScreen->create(640, 480, Graphics::PixelFormat::createFormatCLUT8());
 +#endif
  
  	_renderQueue = new RenderQueue();
  	_prevRenderQueue = new RenderQueue();
-@@ -42,6 +52,9 @@ Screen::Screen(NeverhoodEngine *vm)
+@@ -42,6 +58,9 @@ Screen::Screen(NeverhoodEngine *vm)
  }
  
  Screen::~Screen() {
@@ -6908,7 +6956,7 @@ index 11e8c6324de..222a4f86704 100644
  	delete _microTiles;
  	delete _renderQueue;
  	delete _prevRenderQueue;
-@@ -55,7 +68,7 @@ void Screen::update() {
+@@ -55,7 +74,7 @@ void Screen::update() {
  
  	if (_fullRefresh) {
  		// NOTE When playing a fullscreen/doubled Smacker video usually a full screen refresh is needed
@@ -6917,7 +6965,7 @@ index 11e8c6324de..222a4f86704 100644
  		_fullRefresh = false;
  		return;
  	}
-@@ -100,6 +113,13 @@ void Screen::update() {
+@@ -100,6 +119,13 @@ void Screen::update() {
  
  	for (RectangleList::iterator ri = updateRects->begin(); ri != updateRects->end(); ++ri) {
  		Common::Rect &r = *ri;
@@ -6931,7 +6979,7 @@ index 11e8c6324de..222a4f86704 100644
  		_vm->_system->copyRectToScreen((const byte*)_backScreen->getBasePtr(r.left, r.top), _backScreen->pitch, r.left, r.top, r.width(), r.height());
  	}
  
-@@ -257,6 +277,14 @@ void Screen::drawSurface3(const Graphics::Surface *surface, int16 x, int16 y, ND
+@@ -257,6 +283,14 @@ void Screen::drawSurface3(const Graphics::Surface *surface, int16 x, int16 y, ND
  }
  
  void Screen::drawDoubleSurface2(const Graphics::Surface *surface, NDrawRect &drawRect) {
@@ -6946,7 +6994,7 @@ index 11e8c6324de..222a4f86704 100644
  
  	const byte *source = (const byte*)surface->getPixels();
  	byte *dest = (byte*)_backScreen->getBasePtr(drawRect.x, drawRect.y);
-@@ -277,6 +305,17 @@ void Screen::drawDoubleSurface2(const Graphics::Surface *surface, NDrawRect &dra
+@@ -277,6 +311,17 @@ void Screen::drawDoubleSurface2(const Graphics::Surface *surface, NDrawRect &dra
  }
  
  void Screen::drawDoubleSurface2Alpha(const Graphics::Surface *surface, NDrawRect &drawRect, byte alphaColor) {
@@ -6964,7 +7012,7 @@ index 11e8c6324de..222a4f86704 100644
  
  	const byte *source = (const byte*)surface->getPixels();
  	byte *dest = (byte*)_backScreen->getBasePtr(drawRect.x, drawRect.y);
-@@ -413,6 +452,33 @@ void Screen::blitRenderItem(const RenderItem &renderItem, const Common::Rect &cl
+@@ -413,6 +458,33 @@ void Screen::blitRenderItem(const RenderItem &renderItem, const Common::Rect &cl
  	if (width < 0 || height < 0)
  		return;
  
@@ -7034,20 +7082,22 @@ index 7bd2f3b4fc5..ed81d0921cb 100644
  	int32 _frameDelay, _savedFrameDelay;
  	byte *_paletteData;
 diff --git a/engines/neverhood/smackerplayer.cpp b/engines/neverhood/smackerplayer.cpp
-index 79812aa97a0..3fc44b2ddd4 100644
+index 79812aa97a0..c1acf596aae 100644
 --- a/engines/neverhood/smackerplayer.cpp
 +++ b/engines/neverhood/smackerplayer.cpp
-@@ -119,6 +119,215 @@ void SmackerDoubleSurface::draw() {
+@@ -119,6 +119,269 @@ void SmackerDoubleSurface::draw() {
  
  // NeverhoodSmackerDecoder
  
 +#ifdef GW_NEVERHOOD_SLIM
++extern "C" int heap_screen_hint;	// src/heap.c
++
 +NeverhoodSmackerDecoder::~NeverhoodSmackerDecoder() {
 +	stop();
 +	_frame.free();
 +}
 +
-+bool NeverhoodSmackerDecoder::loadFilm(uint32 fileHash) {
++bool NeverhoodSmackerDecoder::loadFilm(uint32 fileHash, bool half) {
 +	if (!_f.open("neverhood.gwf"))
 +		error("neverhood.gwf is missing: make it once from the game's .BLB files with tools/nhfilms.py (see the README)");
 +	byte h[12];
@@ -7082,22 +7132,34 @@ index 79812aa97a0..3fc44b2ddd4 100644
 +	_frames = READ_LE_UINT16(g + 8);
 +	_us = READ_LE_UINT32(g + 12);
 +	_rate = READ_LE_UINT32(g + 16);
-+	_frame.create(w, ht, Graphics::PixelFormat::createFormatCLUT8());
-+	memset(_frame.getPixels(), 0, w * ht);
++	// a film shown 1:1 on the 640x480 screen is shown halved here (graphics.h): decoded so,
++	// every other pixel of every other row -- a quarter of the frame to keep (107 -> 27 KB)
++	_w = w;
++	_h = ht;
++	_half = half;
++	heap_screen_hint = 1;	// (beside the screen in the console's screen heap: 160 KB, 75 of them the screen's)
++	_frame.create(half ? w / 2 : w, half ? ht / 2 : ht, Graphics::PixelFormat::createFormatCLUT8());
++	heap_screen_hint = 0;
++	memset(_frame.getPixels(), 0, _frame.w * _frame.h);
 +	memset(_palette, 0, sizeof _palette);
 +	// canonical Huffman codes from their lengths, as tools/nhfilms.py made them
 +	static const int sizes[5] = { 64, 256, 256, 256, 256 };
 +	const byte *len = g + 24;
 +	for (int t = 0; t < 5; t++) {
 +		memset(_lut[t], 0, sizeof _lut[t]);
-+		uint32 code = 0;
++		uint32 code = 0, k = 0;
 +		for (int l = 1; l <= 12; l++) {
++			_hFirst[t][l] = code;
++			_hBase[t][l] = k;
 +			for (int s = 0; s < sizes[t]; s++) {
 +				if (len[s] != l)
 +					continue;
-+				const uint32 from = code << (12 - l), n = 1u << (12 - l);
-+				for (uint32 k = 0; k < n && from + k < 4096; k++)
-+					_lut[t][from + k] = (uint16)(s << 4 | l);
++				_syms[t][k++] = s;
++				if (l <= 10) {
++					const uint32 from = code << (10 - l), n = 1u << (10 - l);
++					for (uint32 j = 0; j < n && from + j < 1024; j++)
++						_lut[t][from + j] = (uint16)(s << 4 | l);
++				}
 +				code++;
 +			}
 +			code <<= 1;
@@ -7183,9 +7245,22 @@ index 79812aa97a0..3fc44b2ddd4 100644
 +		_acc = _acc << 8 | (c < 0 ? 0 : c);	// (past the end: zeros)
 +		_bits += 8;
 +	}
-+	const uint16 e = _lut[table][(_acc >> (_bits - 12)) & 0xFFF];
-+	_bits -= e ? (e & 15) : 1;
-+	return e >> 4;
++	const uint16 e = _lut[table][(_acc >> (_bits - 10)) & 0x3FF];
++	if (e) {
++		_bits -= e & 15;
++		return e >> 4;
++	}
++	// 11 or 12 bits: the canonical code's codes of one length follow each other
++	for (int l = 11; l <= 12; l++) {
++		const uint32 c = (_acc >> (_bits - l)) & ((1u << l) - 1);
++		const uint32 n = (l < 12 ? _hBase[table][l + 1] : 256) - _hBase[table][l];
++		if (c >= _hFirst[table][l] && c - _hFirst[table][l] < n && _hBase[table][l] + c - _hFirst[table][l] < 256) {
++			_bits -= l;
++			return _syms[table][_hBase[table][l] + c - _hFirst[table][l]];
++		}
++	}
++	_bits -= 1;	// (no such code: a damaged film)
++	return 0;
 +}
 +
 +const Graphics::Surface *NeverhoodSmackerDecoder::decodeNextFrame() {
@@ -7209,17 +7284,44 @@ index 79812aa97a0..3fc44b2ddd4 100644
 +	byte nb[2];
 +	readOut(nb, 2);
 +	const uint n = READ_LE_UINT16(nb);
-+	byte *pcm = _audio && n ? (byte *)malloc(n * 2) : nullptr;
++	// (at most 8 frames' sound waiting -- half a second: a film decoded faster than its sound
++	// is played, or a mixer that holds it, piled it up, 70 KB of it in the cannon's room)
++	byte *pcm = _audio && n && _audio->numQueuedStreams() < 8 ? (byte *)malloc(n * 2) : nullptr;
 +	readOut(pcm, n * 2);
 +	if (pcm)
 +		_audio->queueBuffer(pcm, n * 2, DisposeAfterUse::YES, Audio::FLAG_16BITS | Audio::FLAG_LITTLE_ENDIAN);
 +
 +	// the 4x4 blocks
-+	const int bw = _frame.w / 4, blocks = bw * (_frame.h / 4), pitch = _frame.pitch;
++	const int bw = _w / 4, blocks = bw * (_h / 4), pitch = _frame.pitch;
 +	int b = 0;
 +	while (b < blocks) {
 +		const int s = sym(0), type = s >> 4;
 +		for (int r = (s & 15) + 1; r > 0 && b < blocks; r--, b++) {
++			if (_half) {
++				// the block's pixels 0, 2, 8 and 10 (its even ones) as a 2x2 block
++				byte *d = (byte *)_frame.getBasePtr((b % bw) * 2, (b / bw) * 2);
++				if (type == 1) {
++					const byte c = sym(1);
++					d[0] = d[1] = d[pitch] = d[pitch + 1] = c;
++				} else if (type == 2) {
++					const byte c0 = sym(2), c1 = sym(2);
++					uint m = sym(3);
++					m |= sym(3) << 8;
++					d[0] = m & 1 ? c1 : c0;
++					d[1] = m & 4 ? c1 : c0;
++					d[pitch] = m & 0x100 ? c1 : c0;
++					d[pitch + 1] = m & 0x400 ? c1 : c0;
++				} else if (type == 3) {
++					byte px[16];
++					for (int k = 0; k < 16; k++)
++						px[k] = sym(4);
++					d[0] = px[0];
++					d[1] = px[2];
++					d[pitch] = px[8];
++					d[pitch + 1] = px[10];
++				}
++				continue;
++			}
 +			byte *d = (byte *)_frame.getBasePtr((b % bw) * 4, (b / bw) * 4);
 +			switch (type) {
 +			case 1: {
@@ -7253,7 +7355,7 @@ index 79812aa97a0..3fc44b2ddd4 100644
  void NeverhoodSmackerDecoder::forceSeekToFrame(uint frame) {
  	if (!isVideoLoaded())
  		return;
-@@ -140,6 +349,7 @@ void NeverhoodSmackerDecoder::forceSeekToFrame(uint frame) {
+@@ -140,6 +403,7 @@ void NeverhoodSmackerDecoder::forceSeekToFrame(uint frame) {
  
  	_fileStream->seek(offset, SEEK_CUR);
  }
@@ -7261,13 +7363,13 @@ index 79812aa97a0..3fc44b2ddd4 100644
  
  // SmackerPlayer
  
-@@ -174,12 +384,23 @@ void SmackerPlayer::open(uint32 fileHash, bool keepLastFrame) {
+@@ -174,12 +438,23 @@ void SmackerPlayer::open(uint32 fileHash, bool keepLastFrame) {
  
  	_smackerFirst = true;
  
 +#ifdef GW_NEVERHOOD_SLIM
 +	_smackerDecoder = new NeverhoodSmackerDecoder();
-+	if (!_smackerDecoder->loadFilm(fileHash)) {
++	if (!_smackerDecoder->loadFilm(fileHash, !_doubleSurface)) {
 +		delete _smackerDecoder;
 +		_smackerDecoder = nullptr;
 +		return;
@@ -7285,51 +7387,22 @@ index 79812aa97a0..3fc44b2ddd4 100644
  
  	_palette = new Palette(_vm);
  	_palette->usePalette();
-@@ -199,6 +420,9 @@ void SmackerPlayer::close() {
- 	_palette = nullptr;
- 	_stream = nullptr;
- 	_smackerSurface->unsetSmackerFrame();
-+#ifdef GW_NEVERHOOD_SLIM
-+	_gwHalfFrame.free();
-+#endif
- }
- 
- void SmackerPlayer::gotoFrame(int frameNumber) {
-@@ -265,11 +489,32 @@ void SmackerPlayer::updateFrame() {
- 		return;
- 
- 	const Graphics::Surface *smackerFrame = _smackerDecoder->decodeNextFrame();
-+#ifdef GW_NEVERHOOD_SLIM
-+	if (smackerFrame && !_doubleSurface) {
-+		// the screen is at half size: keep the even pixels (a doubled film is shown 1:1 instead)
-+		const int hw = (smackerFrame->w + 1) / 2, hh = (smackerFrame->h + 1) / 2;
-+		if (_gwHalfFrame.w != hw || _gwHalfFrame.h != hh) {
-+			_gwHalfFrame.free();
-+			_gwHalfFrame.create(hw, hh, Graphics::PixelFormat::createFormatCLUT8());
-+		}
-+		for (int y = 0; y < hh; y++) {
-+			const byte *s = (const byte *)smackerFrame->getBasePtr(0, y * 2);
-+			byte *d = (byte *)_gwHalfFrame.getBasePtr(0, y);
-+			for (int x = 0; x < hw; x++)
-+				d[x] = s[x * 2];
-+		}
-+	}
-+#endif
- 
- 	_smackerSurface->frameNumber = _smackerDecoder->getCurFrame();
+@@ -270,6 +545,13 @@ void SmackerPlayer::updateFrame() {
  
  	if (_smackerFirst) {
  		_smackerSurface->setSmackerFrame(smackerFrame);
 +#ifdef GW_NEVERHOOD_SLIM
 +		if (!_doubleSurface && smackerFrame) {
-+			_smackerSurface->_smackerFrame = &_gwHalfFrame;	// (the draw rect stays in full coordinates)
++			// (decoded at half size: the draw rect stays in full coordinates, graphics.h)
++			_smackerSurface->getDrawRect().width = _smackerDecoder->getWidth();
++			_smackerSurface->getDrawRect().height = _smackerDecoder->getHeight();
 +		}
 +#endif
  		if (_drawX < 0 || _drawY < 0) {
  			if (_doubleSurface) {
  				_drawX = 320 - _smackerDecoder->getWidth();
 diff --git a/engines/neverhood/smackerplayer.h b/engines/neverhood/smackerplayer.h
-index 8eaf854bfa4..6b0ab5d2b07 100644
+index 8eaf854bfa4..657324571fd 100644
 --- a/engines/neverhood/smackerplayer.h
 +++ b/engines/neverhood/smackerplayer.h
 @@ -23,6 +23,12 @@
@@ -7345,7 +7418,7 @@ index 8eaf854bfa4..6b0ab5d2b07 100644
  #include "neverhood/neverhood.h"
  #include "neverhood/entity.h"
  #include "neverhood/subtitles.h"
-@@ -53,10 +59,54 @@ public:
+@@ -53,10 +59,61 @@ public:
  	void draw() override;
  };
  
@@ -7357,7 +7430,7 @@ index 8eaf854bfa4..6b0ab5d2b07 100644
 +public:
 +	NeverhoodSmackerDecoder() {}
 +	~NeverhoodSmackerDecoder();
-+	bool loadFilm(uint32 fileHash);
++	bool loadFilm(uint32 fileHash, bool half);	// (half: decoded at half size, every other pixel)
 +	void start();
 +	void stop();
 +	bool isVideoLoaded() const { return _frames > 0; }
@@ -7365,8 +7438,8 @@ index 8eaf854bfa4..6b0ab5d2b07 100644
 +	const Graphics::Surface *decodeNextFrame();
 +	int getCurFrame() const { return _cur; }
 +	uint32 getFrameCount() const { return _frames; }
-+	uint16 getWidth() const { return _frame.w; }
-+	uint16 getHeight() const { return _frame.h; }
++	uint16 getWidth() const { return _w; }	// (the film's own size, even when decoded at half)
++	uint16 getHeight() const { return _h; }
 +	bool hasDirtyPalette() const { return _dirtyPalette; }
 +	const byte *getPalette() { _dirtyPalette = false; return _palette; }
 +	bool rewind();
@@ -7376,16 +7449,23 @@ index 8eaf854bfa4..6b0ab5d2b07 100644
 +	Common::File _f;
 +	uint32 _first = 0, _pos = 0, _us = 0, _rate = 0, _frames = 0;
 +	int _cur = -1;
++	uint16 _w = 0, _h = 0;
++	bool _half = false;
 +	bool _started = false, _dirtyPalette = false;
 +	uint32 _startTime = 0;
 +	Graphics::Surface _frame;
 +	byte _palette[768];
-+	uint16 _lut[5][4096];	// (symbol << 4 | code length) by the next 12 bits; 0: no code
++	// (symbol << 4 | code length) by the next 10 bits; 0: a longer code (11-12 bits), found
++	// from the canonical code's first codes instead (40 -> 12 KB)
++	uint16 _lut[5][1024];
++	uint16 _hFirst[5][13], _hBase[5][13];	// per length: its first code, its first symbol's place
++	byte _syms[5][256];	// the symbols by code length
 +	Audio::QueuingAudioStream *_audio = nullptr;
 +	Audio::SoundHandle _audioHandle;
 +	// the frame's bytes through a small window
 +	byte _win[1024];
-+	uint32 _left = 0, _at = 0, _got = 0, _acc = 0;
++	uint32 _left = 0, _at = 0, _got = 0;
++	uint32 _acc = 0;
 +	int _bits = 0;
 +	int byteIn();
 +	bool readOut(byte *dst, uint32 n);
@@ -7400,12 +7480,11 @@ index 8eaf854bfa4..6b0ab5d2b07 100644
  
  class SmackerPlayer : public Entity {
  public:
-@@ -82,6 +132,9 @@ protected:
+@@ -82,6 +139,8 @@ protected:
  	bool _smackerFirst;
  	bool _doubleSurface;
  	Common::SeekableReadStream *_stream;
 +#ifdef GW_NEVERHOOD_SLIM
-+	Graphics::Surface _gwHalfFrame;	// (a 640x480-screen film at half size: graphics.h)
 +#endif
  	bool _keepLastFrame;
  	bool _videoDone;
