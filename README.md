@@ -83,6 +83,7 @@ its own in its notes.
 | Leisure Suit Larry 5 | SCI | ✅ | the same |
 | Freddy Pharkas: Frontier Pharmacist (CD) | SCI | ✅ | the same |
 | Touché: The Adventures of the Fifth Musketeer (CD) | Touché | ✅ | half resolution; its CD music as MP3; see the notes |
+| The Neverhood | Neverhood | ✅ | half resolution; its films converted once on a PC; see the notes |
 | The Dig | SCUMM | ❌ | too big for the flash |
 | The Curse of Monkey Island | SCUMM | ❌ | too big for the memory |
 | Macintosh versions | — | ❌ | |
@@ -269,6 +270,32 @@ talk and the menu are drawn in letters half as big again, to be read at that siz
 - **Its CD music must be MP3**, `track02.mp3`…: the Ogg Vorbis decoder needs 95 KB that the
   biggest rooms do not leave. Convert `.ogg` tracks with e.g. `ffmpeg -i track02.ogg track02.mp3`.
   Without the tracks the game plays its own MIDI music.
+
+**The Neverhood** (Windows CD)
+
+The game is 640x480 and is played at half size, 320x240, the panel's own. Most of it is
+films (every walk from one place to another is one), and the console cannot decode them as
+they come: they are converted once, on a PC.
+
+- Copy only the CD's `.BLB` files (`A.BLB`, `C.BLB`, `HD.BLB`, `I.BLB`, `M.BLB`, `S.BLB`,
+  `T.BLB`) into the game's folder; the rest of the CD is not needed. ScummVM's
+  `neverhood.dat` is in the release zip and is copied into the game's folder on its own.
+- **Convert the films** with `tools/nhfilms.py` from this repository, on a PC, with the
+  `.BLB` files in a folder: `python3 nhfilms.py "/path/The Neverhood"`. It writes
+  `neverhood.gwf` (about 600 MB) into that folder; copy it into the game's folder on the card
+  with the `.BLB` files. It needs Python 3, **numpy** (`python -m pip install numpy`) and
+  **ffmpeg** (Windows: `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux:
+  `sudo apt install ffmpeg`), and takes a few minutes. Without it the game stops at the first
+  film and says so.
+- The first launch writes `neverhood.gwp` (about 130 MB) into the game's folder, with a
+  progress bar: the game's pictures and sounds unpacked, to be read from the card as they are
+  needed. It takes a while, once. Do not delete it (if deleted it is just made again).
+- Saves work from the game's own menu and with Retro-Go's save states. There is no keyboard
+  to name a new save: touch *Save* without touching a line and it is called "Save 1",
+  "Save 2"…; touch a line first to save over it.
+- Opening the game's menu lets go of the room, which is made again on the way back: Klaymen
+  is then where the room is entered, as after loading a saved game.
+- The texts on walls (the Hall of Records) are hard to read at half size.
 
 **Sierra games (SCI)**: King's Quest V and VI, Space Quest IV, Leisure Suit Larry 5, Freddy
 Pharkas…
@@ -532,6 +559,7 @@ los ficheros con identificador nuevo. Cada versión publica los suyos en sus not
 | Leisure Suit Larry 5 | SCI | ✅ | igual |
 | Freddy Pharkas: Frontier Pharmacist (CD) | SCI | ✅ | igual |
 | Touché: The Adventures of the Fifth Musketeer (CD) | Touché | ✅ | a media resolución; su música de CD en MP3; ver las notas |
+| The Neverhood | Neverhood | ✅ | a media resolución; sus vídeos se convierten una vez en un PC; ver las notas |
 | The Dig | SCUMM | ❌ | no cabe en la flash |
 | The Curse of Monkey Island | SCUMM | ❌ | no cabe en la memoria |
 | Versiones de Macintosh | — | ❌ | |
@@ -712,6 +740,32 @@ se lean a ese tamaño.
   MIDI.
 - Copia los ficheros del CD tal cual: `TOUCHE.DAT` puede estar en la carpeta del juego o, como
   en el CD, en su carpeta `DATABASE`; los ficheros `OBJ` y `V…` van en la carpeta del juego.
+
+**The Neverhood** (CD de Windows)
+
+El juego es de 640x480 y se juega a media resolución, 320x240, la de la pantalla. Casi todo
+son vídeos (cada paso de un sitio a otro es uno), y la consola no puede descodificarlos tal
+como vienen: se convierten una vez, en un PC.
+
+- Copia solo los ficheros `.BLB` del CD (`A.BLB`, `C.BLB`, `HD.BLB`, `I.BLB`, `M.BLB`,
+  `S.BLB`, `T.BLB`) en la carpeta del juego; el resto del CD no hace falta. El `neverhood.dat`
+  de ScummVM va en el zip de la versión y se copia solo a la carpeta del juego.
+- **Convierte los vídeos** con `tools/nhfilms.py` de este repositorio, en un PC, con los
+  `.BLB` en una carpeta: `python3 nhfilms.py "/ruta/The Neverhood"`. Escribe `neverhood.gwf`
+  (unos 600 MB) en esa carpeta; cópialo en la carpeta del juego de la tarjeta junto a los
+  `.BLB`. Necesita Python 3, **numpy** (`python -m pip install numpy`) y **ffmpeg** (Windows:
+  `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt install
+  ffmpeg`), y tarda unos minutos. Sin él, el juego se para en el primer vídeo y lo dice.
+- El primer arranque escribe `neverhood.gwp` (unos 130 MB) en la carpeta del juego, con una
+  barra de progreso: los gráficos y sonidos del juego descomprimidos, para leerlos de la
+  tarjeta según hacen falta. Tarda un rato, una sola vez. No lo borres (si lo borras, se
+  vuelve a crear).
+- Se puede guardar desde el menú del propio juego y con los save states de Retro-Go. No hay
+  teclado para poner nombre a una partida nueva: pulsa *Save* sin tocar ninguna línea y se
+  llama "Save 1", "Save 2"…; toca antes una línea para guardar encima de ella.
+- Al abrir el menú del juego la sala se libera y se vuelve a montar al salir: Klaymen aparece
+  entonces en la entrada de la sala, como al cargar una partida.
+- Los textos de las paredes (el Hall of Records) se leen con dificultad a media resolución.
 
 **Juegos de Sierra (SCI)**: King's Quest V y VI, Space Quest IV, Leisure Suit Larry 5, Freddy
 Pharkas…
