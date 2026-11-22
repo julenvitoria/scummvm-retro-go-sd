@@ -136,6 +136,9 @@ Open a section:
 <details>
 <summary><b>Notes for each game</b></summary>
 
+"The game's folder" below is the folder you made for that game inside `/scummvm/` on the SD
+card (see *Installation*, step 2), for example `/scummvm/neverhood/`.
+
 **Full Throttle**
 
 Copy the whole game as it is (`FT.LA0`, `FT.LA1`, `MONSTER.SOU` and the `DATA` and `VIDEO`
@@ -170,19 +173,27 @@ game's folder on the first launch. Everything goes to the flash.
 
 **Broken Sword: The Shadow of the Templars** (PC CD)
 
-- Copy the CD's `clusters`, `music`, `speech` and `smackshi` folders into the game's folder.
-  ScummVM recognises the game by `smackshi/intro.smk`.
-- **Cutscenes**: a Smacker film cannot be played on the console (over 1.5 MB to decode it).
-  Convert them on a PC instead, and they play: `python3 tools/smk2gwv.py FILM.SMK` makes
-  `FILM.gwv`, the same film at the panel's size with its sound; put the `.gwv` files in
-  `smackshi` beside the `.smk`. All nineteen take about 72 MB. Without them the cutscenes
-  are skipped, as before.
-  The script needs Python 3, **numpy** (`python -m pip install numpy`) and **ffmpeg**
-  (Windows: `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt
-  install ffmpeg`). Open a new terminal window after installing, or it is not found yet. On
-  Windows, run it as `python smk2gwv.py FILM.SMK`; to convert them all at once in
-  PowerShell: `Get-ChildItem *.smk | ForEach-Object { python smk2gwv.py $_.Name }`.
-- Add `language=` to the `.scummvm` file (`language=es`…), or the subtitles are in English.
+Installing it, step by step:
+
+1. Copy the CD's `clusters`, `music`, `speech` and `smackshi` folders into the game's folder.
+   ScummVM recognises the game by `smackshi/intro.smk`.
+2. In its `.scummvm` file, add a line `language=` with your language (`language=es`,
+   `language=fr`…), or the subtitles are in English.
+3. *Optional, for the cutscenes.* A Smacker film cannot be played on the console (it needs
+   over 1.5 MB to decode), so convert them on a PC, once. Without this the cutscenes are
+   just skipped.
+   - Install Python 3, **numpy** (`python -m pip install numpy`) and **ffmpeg** (Windows:
+     `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt install
+     ffmpeg`). Open a new terminal window afterwards, or they are not found yet.
+   - In the folder with the `.smk` files, run `python3 smk2gwv.py FILM.SMK` (the script is
+     `tools/smk2gwv.py` in this repository; on Windows `python smk2gwv.py FILM.SMK`). It
+     makes `FILM.gwv`, the same film at the panel's size with its sound. To convert them all
+     at once in PowerShell: `Get-ChildItem *.smk | ForEach-Object { python smk2gwv.py $_.Name }`.
+   - Copy the `.gwv` files into `smackshi` on the card, beside the `.smk`. All nineteen take
+     about 72 MB.
+
+Good to know:
+
 - The game is 150 MB and does not fit in the flash whole: the flash holds the common part
   and the **zones** (Paris 1, Paris 2, Ireland, Syria…) you have been in lately, as many as
   fit. The first launch copies some 28 MB: it takes a while.
@@ -277,26 +288,35 @@ talk and the menu are drawn in letters half as big again, to be read at that siz
 
 The game is 640x480 and is played at half size, 320x240, the panel's own. Most of it is
 films (every walk from one place to another is one), and the console cannot decode them as
-they come: they are converted once, on a PC.
+they come, so they are converted **once, on a PC**. Step by step:
 
-- Copy only the CD's `.BLB` files (`A.BLB`, `C.BLB`, `HD.BLB`, `I.BLB`, `M.BLB`, `S.BLB`,
-  `T.BLB`) into the game's folder; the rest of the CD is not needed. ScummVM's
-  `neverhood.dat` is in the release zip and is copied into the game's folder on its own.
-- **Convert the films** with `tools/nhfilms.py` from this repository, on a PC, with the
-  `.BLB` files in a folder: `python3 nhfilms.py "/path/The Neverhood"`. It writes
-  `neverhood.gwf` (about 600 MB) into that folder; copy it into the game's folder on the card
-  with the `.BLB` files. It needs Python 3, **numpy** (`python -m pip install numpy`) and
-  **ffmpeg** (Windows: `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux:
-  `sudo apt install ffmpeg`), and takes a few minutes. Without it the game stops at the first
-  film and says so.
-- The first launch writes `neverhood.gwp` (about 130 MB) into the game's folder, with a
-  progress bar: the game's pictures and sounds unpacked, to be read from the card as they are
-  needed. It takes a while, once. Do not delete it (if deleted it is just made again).
+1. **On your PC**, put the CD's `.BLB` files in a folder: `A.BLB`, `C.BLB`, `HD.BLB`,
+   `I.BLB`, `M.BLB`, `S.BLB` and `T.BLB`. Nothing else from the CD is needed.
+2. Install Python 3, **numpy** (`python -m pip install numpy`) and **ffmpeg** (Windows:
+   `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt install
+   ffmpeg`). Open a new terminal window afterwards, or they are not found yet.
+3. Convert the films with `tools/nhfilms.py` from this repository, giving it that folder:
+   `python3 nhfilms.py "/path/to/that/folder"` (on Windows `python nhfilms.py "C:\...\folder"`).
+   It takes a few minutes and writes **`neverhood.gwf`** (about 600 MB) into the same folder.
+4. **On the SD card**, make the game's folder (for example `/scummvm/neverhood/`) and copy
+   into it the seven `.BLB` files and `neverhood.gwf`.
+5. Make `/roms/scummvm/The Neverhood.scummvm`, a text file containing just `neverhood` (the
+   folder's name), as for any other game.
+6. Start it. The first launch unpacks the game's pictures and sounds into **`neverhood.gwp`**
+   (about 130 MB, so leave that much free) in the game's folder, with a progress bar. It
+   takes a while, and happens only once. ScummVM's `neverhood.dat` (in the release zip, in
+   `/cores/scummvm/`) is copied into the game's folder on its own.
+
+Without `neverhood.gwf` the game stops at the first film and says so.
+
+Good to know:
+
 - Saves work from the game's own menu and with Retro-Go's save states. There is no keyboard
   to name a new save: touch *Save* without touching a line and it is called "Save 1",
   "Save 2"…; touch a line first to save over it.
 - Opening the game's menu lets go of the room, which is made again on the way back: Klaymen
   is then where the room is entered, as after loading a saved game.
+- Do not delete `neverhood.gwp` (if deleted it is just made again, which takes a while).
 - The texts on walls (the Hall of Records) are hard to read at half size.
 
 **Sierra games (SCI)**: King's Quest V and VI, Space Quest IV, Leisure Suit Larry 5, Freddy
@@ -614,6 +634,9 @@ Abre una sección:
 <details>
 <summary><b>Notas de cada juego</b></summary>
 
+"La carpeta del juego" es, aquí abajo, la carpeta que has creado para ese juego dentro de
+`/scummvm/` en la tarjeta SD (mira *Instalación*, paso 2), por ejemplo `/scummvm/neverhood/`.
+
 **Full Throttle**
 
 Copia el juego entero tal cual (`FT.LA0`, `FT.LA1`, `MONSTER.SOU` y las carpetas `DATA` y
@@ -648,23 +671,40 @@ carpeta del juego en el primer arranque. Todo va a la flash.
 
 **Broken Sword: La leyenda de los templarios** (PC CD)
 
-- Copia las carpetas `clusters`, `music`, `speech` y `smackshi` del CD en la carpeta del juego.
-  ScummVM reconoce el juego por `smackshi/intro.smk`.
-- **Vídeos**: un vídeo Smacker no se puede reproducir en la consola (más de 1,5 MB para
-  descodificarlo). Conviértelos en un PC y se ven: `python3 tools/smk2gwv.py VIDEO.SMK`
-  crea `VIDEO.gwv`, el mismo vídeo al tamaño de la pantalla con su sonido; pon los `.gwv` en
-  `smackshi` junto a los `.smk`. Los diecinueve ocupan unos 72 MB. Sin ellos los vídeos se
-  saltan, como antes.
-  El script necesita Python 3, **numpy** (`python -m pip install numpy`) y **ffmpeg**
-  (Windows: `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt
-  install ffmpeg`). Después de instalarlos abre una ventana de terminal nueva, o todavía no
-  los encuentra. En Windows se lanza como `python smk2gwv.py VIDEO.SMK`; para convertirlos
-  todos de una vez en PowerShell: `Get-ChildItem *.smk | ForEach-Object { python smk2gwv.py $_.Name }`.
-- Añade `language=` al fichero `.scummvm` (`language=es`…), o los subtítulos salen en inglés.
-- El juego ocupa 150 MB y no cabe entero en la flash: en ella van la parte común y una o dos
-  **zonas** (París, Irlanda, Siria…). El primer arranque copia unos 44 MB: tarda un rato.
+Instalarlo, paso a paso:
+
+1. Copia las carpetas `clusters`, `music`, `speech` y `smackshi` del CD en la carpeta del
+   juego. ScummVM reconoce el juego por `smackshi/intro.smk`.
+2. En su fichero `.scummvm`, añade una línea `language=` con tu idioma (`language=es`,
+   `language=fr`…), o los subtítulos salen en inglés.
+3. *Opcional, para los vídeos.* Un vídeo Smacker no se puede reproducir en la consola
+   (necesita más de 1,5 MB para descodificarlo), así que se convierten en un PC, una vez.
+   Sin esto, los vídeos simplemente se saltan.
+   - Instala Python 3, **numpy** (`python -m pip install numpy`) y **ffmpeg** (Windows:
+     `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt install
+     ffmpeg`). Después abre una ventana de terminal nueva, o todavía no los encuentra.
+   - En la carpeta de los `.smk`, ejecuta `python3 smk2gwv.py VIDEO.SMK` (el script es
+     `tools/smk2gwv.py` de este repositorio; en Windows `python smk2gwv.py VIDEO.SMK`). Crea
+     `VIDEO.gwv`, el mismo vídeo al tamaño de la pantalla con su sonido. Para convertirlos
+     todos de una vez en PowerShell: `Get-ChildItem *.smk | ForEach-Object { python smk2gwv.py $_.Name }`.
+   - Copia los `.gwv` en `smackshi` de la tarjeta, junto a los `.smk`. Los diecinueve ocupan
+     unos 72 MB.
+
+Conviene saber:
+
+- El juego ocupa 150 MB y no cabe entero en la flash: en ella van la parte común y las
+  **zonas** (París 1, París 2, Irlanda, Siria…) por las que has pasado últimamente, tantas
+  como quepan. El primer arranque copia unos 28 MB: tarda un rato.
 - Al viajar a una zona que no está en la flash, el juego **se guarda solo y vuelve al menú**
-  con un aviso. Vuelve a entrar: se copia esa zona y sigues justo donde estabas.
+  con un aviso (en el idioma del menú de Retro-Go). Vuelve a entrar: se copia esa zona (con
+  barra de progreso) y sigues justo donde estabas. Ese arranque siempre sigue desde ahí,
+  elijas continuar o partida nueva; después, los menús funcionan como siempre.
+- La barra de progreso solo sale cuando hay que copiar algo: cargar una partida de una zona
+  que ya está en la flash arranca enseguida. Cargar una de una zona que se quitó para hacer
+  sitio a otra la vuelve a copiar, una vez.
+- Para empezar de nuevo: *Partida nueva* en Retro-Go abre el panel del juego cuando hay
+  partidas guardadas — *Start* empieza desde el principio, *Restore* carga una partida,
+  *Quit* vuelve al menú. *Restart* en el panel del juego hace lo mismo.
 - El juego se dibuja a la mitad de tamaño, como lo muestra la pantalla, así que no se pierde nada.
 
 **Loom** (CD con voces)
@@ -749,26 +789,35 @@ se lean a ese tamaño.
 
 El juego es de 640x480 y se juega a media resolución, 320x240, la de la pantalla. Casi todo
 son vídeos (cada paso de un sitio a otro es uno), y la consola no puede descodificarlos tal
-como vienen: se convierten una vez, en un PC.
+como vienen, así que se convierten **una vez, en un PC**. Paso a paso:
 
-- Copia solo los ficheros `.BLB` del CD (`A.BLB`, `C.BLB`, `HD.BLB`, `I.BLB`, `M.BLB`,
-  `S.BLB`, `T.BLB`) en la carpeta del juego; el resto del CD no hace falta. El `neverhood.dat`
-  de ScummVM va en el zip de la versión y se copia solo a la carpeta del juego.
-- **Convierte los vídeos** con `tools/nhfilms.py` de este repositorio, en un PC, con los
-  `.BLB` en una carpeta: `python3 nhfilms.py "/ruta/The Neverhood"`. Escribe `neverhood.gwf`
-  (unos 600 MB) en esa carpeta; cópialo en la carpeta del juego de la tarjeta junto a los
-  `.BLB`. Necesita Python 3, **numpy** (`python -m pip install numpy`) y **ffmpeg** (Windows:
-  `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt install
-  ffmpeg`), y tarda unos minutos. Sin él, el juego se para en el primer vídeo y lo dice.
-- El primer arranque escribe `neverhood.gwp` (unos 130 MB) en la carpeta del juego, con una
-  barra de progreso: los gráficos y sonidos del juego descomprimidos, para leerlos de la
-  tarjeta según hacen falta. Tarda un rato, una sola vez. No lo borres (si lo borras, se
-  vuelve a crear).
+1. **En tu PC**, pon los ficheros `.BLB` del CD en una carpeta: `A.BLB`, `C.BLB`, `HD.BLB`,
+   `I.BLB`, `M.BLB`, `S.BLB` y `T.BLB`. El resto del CD no hace falta.
+2. Instala Python 3, **numpy** (`python -m pip install numpy`) y **ffmpeg** (Windows:
+   `winget install Gyan.FFmpeg`; macOS: `brew install ffmpeg`; Linux: `sudo apt install
+   ffmpeg`). Después abre una ventana de terminal nueva, o todavía no los encuentra.
+3. Convierte los vídeos con `tools/nhfilms.py` de este repositorio, pasándole esa carpeta:
+   `python3 nhfilms.py "/ruta/a/esa/carpeta"` (en Windows `python nhfilms.py "C:\...\carpeta"`).
+   Tarda unos minutos y escribe **`neverhood.gwf`** (unos 600 MB) en la misma carpeta.
+4. **En la tarjeta SD**, crea la carpeta del juego (por ejemplo `/scummvm/neverhood/`) y
+   copia en ella los siete `.BLB` y `neverhood.gwf`.
+5. Crea `/roms/scummvm/The Neverhood.scummvm`, un fichero de texto que solo contenga
+   `neverhood` (el nombre de la carpeta), como con cualquier otro juego.
+6. Arráncalo. El primer arranque descomprime los gráficos y sonidos del juego en
+   **`neverhood.gwp`** (unos 130 MB, así que deja ese espacio libre) en la carpeta del juego,
+   con una barra de progreso. Tarda un rato, y solo pasa una vez. El `neverhood.dat` de
+   ScummVM (en el zip de la versión, en `/cores/scummvm/`) se copia solo a la carpeta del juego.
+
+Sin `neverhood.gwf`, el juego se para en el primer vídeo y lo dice.
+
+Conviene saber:
+
 - Se puede guardar desde el menú del propio juego y con los save states de Retro-Go. No hay
   teclado para poner nombre a una partida nueva: pulsa *Save* sin tocar ninguna línea y se
   llama "Save 1", "Save 2"…; toca antes una línea para guardar encima de ella.
 - Al abrir el menú del juego la sala se libera y se vuelve a montar al salir: Klaymen aparece
   entonces en la entrada de la sala, como al cargar una partida.
+- No borres `neverhood.gwp` (si lo borras se vuelve a crear, y tarda un rato).
 - Los textos de las paredes (el Hall of Records) se leen con dificultad a media resolución.
 
 **Juegos de Sierra (SCI)**: King's Quest V y VI, Space Quest IV, Leisure Suit Larry 5, Freddy
