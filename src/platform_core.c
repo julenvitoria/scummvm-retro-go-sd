@@ -1445,6 +1445,23 @@ void plat_quit(void)
 	odroid_system_switch_app(0);
 }
 
+/* "Quit to menu" in the PAUSE/SET menu does not come back here: the firmware calls
+   odroid_system_switch_app(0) itself, from inside common_emu_input_loop. That path hung now
+   and then (issue #1: The Neverhood, a white screen or colour bars until the console was
+   reset), while the game's own Quit -- plat_quit above -- never did. The firmware calls this
+   on the way out (odroid_system_shutdown, before it writes its settings and unmounts the
+   card), so it now leaves the same way: the sound let go, every file on the card closed, the
+   log written with a last line saying how it got there. */
+static void rg_shutdown(void)
+{
+	audio_stop();
+	gw_card_files_drop();
+	if (g_game[0]) {
+		printf("ScummVM: leaving through the firmware (PAUSE/SET quit, or standby)\n");
+		log_save();
+	}
+}
+
 static void message4(const char *a, const char *b, const char *c, const char *d)
 {
 	static char line[4][64];
@@ -1470,7 +1487,7 @@ static void message(const char *text) { message3(text, NULL, NULL); }
 int svm_main(void)
 {
 	odroid_system_init(APPID_CORE, 22050);
-	odroid_system_emu_init(&rg_load, &rg_save, &rg_screenshot, NULL, NULL, NULL, NULL);
+	odroid_system_emu_init(&rg_load, &rg_save, &rg_screenshot, &rg_shutdown, NULL, NULL, NULL);
 	lcd_setup_framebuffers(LCD_MODE_LUT8);
 	lcd_clear_buffers();
 
