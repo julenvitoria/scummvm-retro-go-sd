@@ -1081,11 +1081,17 @@ public:
 		if (down & PLAT_TIME) push(Common::EVENT_KEYDOWN, Common::KEYCODE_F5, Common::ASCII_F5);
 		if (up & PLAT_TIME) push(Common::EVENT_KEYUP, Common::KEYCODE_F5, Common::ASCII_F5);
 		// Zelda units: START skips a cut-scene (Esc), SELECT the current line of dialogue ('.');
-		// on a Mario unit both are on the keyboard
+		// on a Mario unit both are on the keyboard. The Neverhood has no lines to skip: there
+		// SELECT is Space, which skips a film or the part of a cut-scene playing.
 		if (down & PLAT_START) push(Common::EVENT_KEYDOWN, Common::KEYCODE_ESCAPE, Common::ASCII_ESCAPE);
 		if (up & PLAT_START) push(Common::EVENT_KEYUP, Common::KEYCODE_ESCAPE, Common::ASCII_ESCAPE);
-		if (down & PLAT_SELECT) push(Common::EVENT_KEYDOWN, Common::KEYCODE_PERIOD, '.');
-		if (up & PLAT_SELECT) push(Common::EVENT_KEYUP, Common::KEYCODE_PERIOD, '.');
+		if ((down | up) & PLAT_SELECT) {
+			bool space = gw_engine_is("neverhood");
+			Common::KeyCode kc = space ? Common::KEYCODE_SPACE : Common::KEYCODE_PERIOD;
+			uint16 ascii = space ? ' ' : '.';
+			if (down & PLAT_SELECT) push(Common::EVENT_KEYDOWN, kc, ascii);
+			if (up & PLAT_SELECT) push(Common::EVENT_KEYUP, kc, ascii);
+		}
 	}
 
 	bool pollEvent(Common::Event &event) override {

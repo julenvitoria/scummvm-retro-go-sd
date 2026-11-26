@@ -415,7 +415,7 @@ Macintosh (its buffers are cut to save memory) and FM-Towns.
 | GAME | on-screen keyboard |
 | TIME | F5: the game's own menu (save, load, quit) |
 | START (Zelda) | Esc: skip cutscene |
-| SELECT (Zelda) | `.`: skip the current line of dialogue |
+| SELECT (Zelda) | `.`: skip the current line of dialogue (The Neverhood: Space, skips a film or part of a cut-scene) |
 | PAUSE/SET | Retro-Go menu (save, load, options) |
 
 **On-screen keyboard** (GAME): two rows above the picture and two below it, so the game
@@ -919,7 +919,7 @@ Macintosh (sus buffers están recortados para ahorrar memoria) y FM-Towns.
 | GAME | teclado en pantalla |
 | TIME | F5: menú propio del juego (salvar, cargar, salir) |
 | START (Zelda) | Esc: saltar escena |
-| SELECT (Zelda) | `.`: saltar la frase actual |
+| SELECT (Zelda) | `.`: saltar la frase actual (The Neverhood: Espacio, salta un vídeo o parte de una escena) |
 | PAUSE/SET | menú de Retro-Go (guardar, cargar, opciones) |
 
 **Teclado en pantalla** (GAME): dos filas encima de la imagen y dos debajo, así nunca tapa
