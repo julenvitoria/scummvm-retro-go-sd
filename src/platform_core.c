@@ -1457,7 +1457,7 @@ static void rg_shutdown(void)
 	audio_stop();
 	gw_card_files_drop();
 	if (g_game[0]) {
-		printf("ScummVM: leaving through the firmware (PAUSE/SET quit, or standby)\n");
+		plat_log("ScummVM: leaving through the firmware (PAUSE/SET quit, or standby)\n");
 		log_save();
 	}
 }
