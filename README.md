@@ -12,29 +12,29 @@ Version 1.4.1 and earlier cannot load cores from `/cores/`.
 
 No games are included, nor will they be: bring your own.
 
-### Current version: v0.7.0
+### Current version: v0.7.1
 
 | File | Engine | Version / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/agos.svm` | agos | `0AAC6E25` |
-| `/cores/scummvm/cge.svm` | cge | `D38EC7C0` |
-| `/cores/scummvm/cine.svm` | cine | `1716EEE8` |
-| `/cores/scummvm/cruise.svm` | cruise | `BD059F71` |
-| `/cores/scummvm/drascula.svm` | drascula | `5456D3E6` |
-| `/cores/scummvm/dreamweb.svm` | dreamweb | `B63E61CC` |
-| `/cores/scummvm/gob.svm` | gob | `22DA3C50` |
-| `/cores/scummvm/kyra.svm` | kyra | `E148B726` |
-| `/cores/scummvm/lure.svm` | lure | `4A31309B` |
-| `/cores/scummvm/neverhood.svm` | neverhood | `A041B28E` |
-| `/cores/scummvm/queen.svm` | queen | `CFE99C10` |
-| `/cores/scummvm/saga.svm` | saga | `1002D5CF` |
-| `/cores/scummvm/sci.svm` | sci | `9889D537` |
-| `/cores/scummvm/scumm.svm` | scumm | `2221ED60` |
-| `/cores/scummvm/sky.svm` | sky | `45C88662` |
-| `/cores/scummvm/sword1.svm` | sword1 | `87F4E583` |
-| `/cores/scummvm/teenagent.svm` | teenagent | `EACCCCC7` |
-| `/cores/scummvm/touche.svm` | touche | `3ED384BE` |
+| `/cores/scummvm/agos.svm` | agos | `C6945C3B` |
+| `/cores/scummvm/cge.svm` | cge | `E81B3475` |
+| `/cores/scummvm/cine.svm` | cine | `D23F9A2E` |
+| `/cores/scummvm/cruise.svm` | cruise | `8A151372` |
+| `/cores/scummvm/drascula.svm` | drascula | `AC37F473` |
+| `/cores/scummvm/dreamweb.svm` | dreamweb | `0FD7248C` |
+| `/cores/scummvm/gob.svm` | gob | `68F85031` |
+| `/cores/scummvm/kyra.svm` | kyra | `377A96C2` |
+| `/cores/scummvm/lure.svm` | lure | `6628B0F6` |
+| `/cores/scummvm/neverhood.svm` | neverhood | `47A8F681` |
+| `/cores/scummvm/queen.svm` | queen | `32F3F9C9` |
+| `/cores/scummvm/saga.svm` | saga | `C33DD6A8` |
+| `/cores/scummvm/sci.svm` | sci | `8146BF08` |
+| `/cores/scummvm/scumm.svm` | scumm | `650F31A5` |
+| `/cores/scummvm/sky.svm` | sky | `4A64FF7E` |
+| `/cores/scummvm/sword1.svm` | sword1 | `0DE8A4A0` |
+| `/cores/scummvm/teenagent.svm` | teenagent | `054C9E29` |
+| `/cores/scummvm/touche.svm` | touche | `F8E0B0AB` |
 | `/cores/scummvm/drascula.dat` | ScummVM data | `-` |
 | `/cores/scummvm/kyra.dat` | ScummVM data | `-` |
 | `/cores/scummvm/lure.dat` | ScummVM data | `-` |
@@ -510,29 +510,29 @@ La 1.4.1 y anteriores no pueden cargar cores desde `/cores/`.
 
 No incluye juegos ni los incluirá: usa los tuyos.
 
-### Versión actual: v0.7.0
+### Versión actual: v0.7.1
 
 | Fichero | Motor | Versión / id |
 |---|---|---|
 | `/cores/scummvm.bin` | loader | `L3` |
-| `/cores/scummvm/agos.svm` | agos | `0AAC6E25` |
-| `/cores/scummvm/cge.svm` | cge | `D38EC7C0` |
-| `/cores/scummvm/cine.svm` | cine | `1716EEE8` |
-| `/cores/scummvm/cruise.svm` | cruise | `BD059F71` |
-| `/cores/scummvm/drascula.svm` | drascula | `5456D3E6` |
-| `/cores/scummvm/dreamweb.svm` | dreamweb | `B63E61CC` |
-| `/cores/scummvm/gob.svm` | gob | `22DA3C50` |
-| `/cores/scummvm/kyra.svm` | kyra | `E148B726` |
-| `/cores/scummvm/lure.svm` | lure | `4A31309B` |
-| `/cores/scummvm/neverhood.svm` | neverhood | `A041B28E` |
-| `/cores/scummvm/queen.svm` | queen | `CFE99C10` |
-| `/cores/scummvm/saga.svm` | saga | `1002D5CF` |
-| `/cores/scummvm/sci.svm` | sci | `9889D537` |
-| `/cores/scummvm/scumm.svm` | scumm | `2221ED60` |
-| `/cores/scummvm/sky.svm` | sky | `45C88662` |
-| `/cores/scummvm/sword1.svm` | sword1 | `87F4E583` |
-| `/cores/scummvm/teenagent.svm` | teenagent | `EACCCCC7` |
-| `/cores/scummvm/touche.svm` | touche | `3ED384BE` |
+| `/cores/scummvm/agos.svm` | agos | `C6945C3B` |
+| `/cores/scummvm/cge.svm` | cge | `E81B3475` |
+| `/cores/scummvm/cine.svm` | cine | `D23F9A2E` |
+| `/cores/scummvm/cruise.svm` | cruise | `8A151372` |
+| `/cores/scummvm/drascula.svm` | drascula | `AC37F473` |
+| `/cores/scummvm/dreamweb.svm` | dreamweb | `0FD7248C` |
+| `/cores/scummvm/gob.svm` | gob | `68F85031` |
+| `/cores/scummvm/kyra.svm` | kyra | `377A96C2` |
+| `/cores/scummvm/lure.svm` | lure | `6628B0F6` |
+| `/cores/scummvm/neverhood.svm` | neverhood | `47A8F681` |
+| `/cores/scummvm/queen.svm` | queen | `32F3F9C9` |
+| `/cores/scummvm/saga.svm` | saga | `C33DD6A8` |
+| `/cores/scummvm/sci.svm` | sci | `8146BF08` |
+| `/cores/scummvm/scumm.svm` | scumm | `650F31A5` |
+| `/cores/scummvm/sky.svm` | sky | `4A64FF7E` |
+| `/cores/scummvm/sword1.svm` | sword1 | `0DE8A4A0` |
+| `/cores/scummvm/teenagent.svm` | teenagent | `054C9E29` |
+| `/cores/scummvm/touche.svm` | touche | `F8E0B0AB` |
 | `/cores/scummvm/drascula.dat` | datos de ScummVM | `-` |
 | `/cores/scummvm/kyra.dat` | datos de ScummVM | `-` |
 | `/cores/scummvm/lure.dat` | datos de ScummVM | `-` |
