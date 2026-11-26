@@ -279,6 +279,20 @@ static void pal_flush(void)
 
 static void log_save_if_new(void);
 
+/* The firmware's per-frame bookkeeping. common_emu_frame_loop() is what powers the console off
+   when the battery runs out (bq24072_enforce_low_battery: the stock low-battery icon, then deep
+   sleep -- otherwise the pack drains until the console cuts out) and what counts the FPS/CPU the
+   PAUSE/SET menu shows. Its frame pacing is not used: ScummVM keeps its own time, and with
+   frame_time_10us at 0 (set at start) it never asks to skip or pause a frame, so it never
+   waits either. Called once a shown frame, and at least twice a second from the input poll
+   when nothing is drawn (a menu, a long load), so the battery is still watched then. */
+static uint32_t g_frame_tick;
+static void frame_tick(void)
+{
+	g_frame_tick = HAL_GetTick();
+	common_emu_frame_loop();
+}
+
 void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 {
 	log_save_if_new();
@@ -290,6 +304,7 @@ void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 	if ((++frames & 255) == 0) stack_report();
 	draw_frame((uint8_t *)lcd_get_active_buffer(), pixels, pitch, w, h);
 	osk_draw((uint8_t *)lcd_get_active_buffer(), g_hw);
+	frame_tick();
 	common_ingame_overlay();
 	lcd_swap();
 #ifdef SVM_DIAG_CLUT
@@ -454,6 +469,7 @@ uint32_t plat_buttons(void)
 	wdog_refresh();
 	odroid_input_read_gamepad(&js);
 	pump();
+	if (HAL_GetTick() - g_frame_tick > 500) frame_tick();   /* nothing drawn lately: still watch the battery */
 	bool menu = js.values[ODROID_INPUT_VOLUME];
 #ifdef SVM_DIAG_CLUT
 	if (menu) diag_save();
@@ -1488,6 +1504,7 @@ int svm_main(void)
 {
 	odroid_system_init(APPID_CORE, 22050);
 	odroid_system_emu_init(&rg_load, &rg_save, &rg_screenshot, &rg_shutdown, NULL, NULL, NULL);
+	common_emu_state.frame_time_10us = 0;      /* see frame_tick: count frames, never pace them */
 	lcd_setup_framebuffers(LCD_MODE_LUT8);
 	lcd_clear_buffers();
 
