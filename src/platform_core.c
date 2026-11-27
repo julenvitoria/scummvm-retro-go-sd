@@ -692,6 +692,9 @@ static bool g_sci;                       /* an SCI game: none of its files cache
    v4-v6 data files go in decrypted, so their resources can be used where they lie. */
 uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p, bool byte_swap,
                                                      void (*relocate_cb)(uint8_t *, uint32_t, uint32_t, uint8_t *, uint32_t));
+uint8_t *odroid_overlay_cache_file_in_flash_relocate_cancellable(const char *file_path, uint32_t *file_size_p,
+                                                                 bool byte_swap,
+                                                                 void (*relocate_cb)(uint8_t *, uint32_t, uint32_t, uint8_t *, uint32_t));
 static uint8_t g_decrypting, g_fixed_key;           /* g_fixed_key: svm_fixed_key() of the file going in */
 static void decrypt_chunk(uint8_t *buf, uint32_t len, uint32_t offset, uint8_t *addr, uint32_t size)
 {
@@ -1075,9 +1078,11 @@ static void cache_rel(const char *name, uint32_t size)
 	g_fixed_key = svm_fixed_key(name);
 	if (g_fixed_key) snprintf(path, sizeof path, "%s///%s", g_game, name);
 	uint32_t got = 0;
-	uint8_t *p = odroid_overlay_cache_file_in_flash_relocate(path, &got, false, decrypt_chunk);
+	/* (the firmware's bar, "Storing in flash memory...", with "B: Cancel": B goes back to the menu) */
+	uint8_t *p = odroid_overlay_cache_file_in_flash_relocate_cancellable(path, &got, false, decrypt_chunk);
 	uint8_t fixed = g_fixed_key;
 	g_fixed_key = 0;
+	if (!p && odroid_overlay_progress_poll_cancel()) copy_cancelled();
 	if (!p) return;                          /* no room: read from the SD card */
 	g_map[g_mapped].fixed = fixed;
 	strcpy(g_map[g_mapped].name, name);
