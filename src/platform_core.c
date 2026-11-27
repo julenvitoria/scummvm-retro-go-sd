@@ -56,8 +56,12 @@ static uint32_t g_clut[256];           /* the game's palette */
    that to the nearest colour, through g_lut. */
 static uint32_t g_hw[256];
 static uint8_t g_lut[256];
+/* The firmware's overlay window. Its header says LCD_OVERLAY_CLUT_MAX (7), but firmware with the
+   battery-bar colours stamps 9 (64..72) while the menu is up: Atlantis had 7,000 pixels in 71
+   and 72, green and orange specks under the PAUSE menu. Kept clear: whichever is larger. */
+#define OV_SLOTS (LCD_OVERLAY_CLUT_MAX > 9 ? LCD_OVERLAY_CLUT_MAX : 9)
 #define OV0 LCD_OVERLAY_CLUT_BASE
-#define OV1 (LCD_OVERLAY_CLUT_BASE + LCD_OVERLAY_CLUT_MAX)
+#define OV1 (LCD_OVERLAY_CLUT_BASE + OV_SLOTS)
 static inline int in_ov(int i) { return i >= OV0 && i < OV1; }
 static void stack_report(void);
 static inline void pump(void);
@@ -120,7 +124,7 @@ static uint32_t dist(uint32_t a, uint32_t b)
 static void build_hw_clut(void)
 {
 	uint8_t spare_of[256] = { 0 };          /* 1: slot given to an overlay colour; 2: a twin, kept */
-	uint8_t need[LCD_OVERLAY_CLUT_MAX];
+	uint8_t need[OV_SLOTS];
 	int nneed = 0;
 	for (int i = 0; i < 256; i++) { g_hw[i] = g_clut[i]; g_lut[i] = (uint8_t)i; }
 	int s = 255;
