@@ -230,6 +230,7 @@ static void diag_save(void)
 #endif
 
 static bool g_pal_dirty;
+static bool g_bar_on;                   /* the "copying to the flash" bar is up: see copy_bar() */
 #ifdef SVM_DIAG_CLUT
 static int g_diag_start, g_diag_count;
 #endif
@@ -251,7 +252,7 @@ void plat_set_palette(const uint8_t *rgb, int start, int count)
    the watchdog allows: Ween was reset on its first fade. */
 static void pal_flush(void)
 {
-	if (!g_pal_dirty) return;
+	if (!g_pal_dirty || g_bar_on) return;   /* (while the copy bar is up: when it goes) */
 	g_pal_dirty = false;
 	build_hw_clut();
 	/* The firmware keeps the table until the next lcd_swap()'s vertical blank and writes it
@@ -488,7 +489,7 @@ uint32_t plat_buttons(void)
 	uint32_t t0 = HAL_GetTick();
 	common_emu_input_loop(&js, menu_options, &repaint);  /* PAUSE/SET menu, power, volume... */
 	bool away = HAL_GetTick() - t0 > 250;
-	if (menu || away) lcd_set_clut(g_hw, 256);          /* the menu used part of the CLUT */
+	if ((menu || away) && !g_bar_on) lcd_set_clut(g_hw, 256);   /* the menu used part of the CLUT */
 	if (away) {
 		gw_card_files_drop();
 		if (g_audio_on) pcm_audio_enable(1);
@@ -729,6 +730,39 @@ static void show_bar(const char *header, int pct)
 	odroid_overlay_draw_progress_bar(header, (uint8_t)pct);
 	lcd_swap();
 }
+/* The "copying the game to the flash" bar, with the firmware's own colours. The bar, the top
+   strip, the clock and the battery icon are drawn in CLUT slots 64..72, which the firmware fills
+   with its colours (theme, white, greys, battery) only while a CLUT of 32 colours or fewer is
+   loaded -- with the game's 256 they hold the game's colours, and the battery bars came out blue.
+   The PAUSE menu brackets itself with lcd_overlay_clut_begin()/end(), which the ABI does not
+   give a core. So while the bar is up the LCD gets a CLUT of 16 colours, all black (the frame
+   buffers cleared to index 0 first, so nothing of the game shows through it), and the game's
+   256 go back when the copy ends, however it ends (copy_bar_end: plat_blob's exit, after
+   cache_pack's pieces). A palette the game sets meanwhile is kept (g_clut) and goes up then. */
+static void copy_bar_begin(void)
+{
+	if (g_bar_on) return;
+	static const uint32_t black[16];
+	lcd_sleep_while_swap_pending();
+	lcd_clear_buffers();
+	lcd_set_clut(black, 16);
+	g_bar_on = true;
+}
+static void copy_bar_end(void)
+{
+	if (!g_bar_on) return;
+	g_bar_on = false;
+	lcd_sleep_while_swap_pending();
+	lcd_clear_buffers();                    /* (the bar, drawn in slots the game uses) */
+	if (g_pal_dirty) pal_flush();           /* a palette set while the bar was up */
+	else lcd_set_clut(g_hw, 256);
+	plat_redraw();                          /* the game's last frame, if it had shown one */
+}
+static void copy_bar(const char *header, int pct)
+{
+	copy_bar_begin();
+	show_bar(header, pct);
+}
 /* (at most ~32 characters: the bar's box cuts the rest off) */
 static const gw_i18n_entry_t i18n_preparing[] = {
 	{ "en", "Preparing the game (first time)" }, { "es", "Preparando juego (solo 1 vez)" },
@@ -799,7 +833,7 @@ static const uint8_t *pack_piece(void *f, const char *name, const pack_head_t *h
 		left -= n;
 		*done += n;
 		uint8_t pct = (uint8_t)((uint64_t)*done * 100 / total);
-		if (pct != last) { show_bar(gw_i18n(i18n_copying), pct); last = pct; }
+		if (pct != last) { copy_bar(gw_i18n(i18n_copying), pct); last = pct; }
 	}
 	free(buf);
 	return store_data_finish(&st);
@@ -845,6 +879,7 @@ static void cache_pack(const char *name, uint32_t size)
 		if (!P->at[k]) break;
 	}
 	plat_fclose(f);
+	copy_bar_end();
 	if (!P->pieces || k < P->pieces) {
 		logf_("ScummVM: no room in external flash for %s.gwpack (piece %d of %d)\n", name, k + 1, P->pieces);
 		return;
@@ -875,7 +910,6 @@ const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int 
 		logf_("ScummVM: no room in external flash for %s (%lu KB)\n", path, (unsigned long)(st.size / 1024));
 		return NULL;
 	}
-	ui_clut();
 	uint8_t last = 0xff;
 	uint32_t done = 0;
 	for (uint32_t left = st.size; left;) {
@@ -889,7 +923,7 @@ const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int 
 		done += n;
 		uint8_t pct = (uint8_t)((uint64_t)done * 100 / st.size);
 		if (pct != last) {
-			show_bar(gw_i18n(i18n_copying), pct);
+			copy_bar(gw_i18n(i18n_copying), pct);
 			if (pct / 10 != last / 10 || last == 0xff) {      /* (to the screen of a reset too) */
 				logf_("ScummVM: copied %u%%\n", pct);
 				if (pct % 25 < 10) log_save();
@@ -905,8 +939,7 @@ const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int 
 out:
 	free(buf);
 	plat_fclose(f);
-	lcd_sleep_while_swap_pending();
-	lcd_set_clut(g_hw, 256);
+	copy_bar_end();
 	if (p) *size = st.size;
 	logf_("ScummVM: %s %s external flash\n", path, p ? "copied into" : "could not be copied into");
 	return p;
