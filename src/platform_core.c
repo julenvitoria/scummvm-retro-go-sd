@@ -230,7 +230,7 @@ static void diag_save(void)
 #endif
 
 static bool g_pal_dirty;
-static bool g_bar_on;                   /* the "copying to the flash" bar is up: see copy_bar() */
+static bool g_bar_on;                   /* a progress bar is up: see bar() */
 #ifdef SVM_DIAG_CLUT
 static int g_diag_start, g_diag_count;
 #endif
@@ -287,6 +287,7 @@ static void log_save_if_new(void);
    frame_time_10us at 0 (set at start) it never asks to skip or pause a frame, so it never
    waits either. Called once a shown frame, and at least twice a second from the input poll
    when nothing is drawn (a menu, a long load), so the battery is still watched then. */
+static void bar_end(bool redraw);
 static uint32_t g_frame_tick;
 static void frame_tick(void)
 {
@@ -296,6 +297,7 @@ static void frame_tick(void)
 
 void plat_present(const uint8_t *pixels, int pitch, int w, int h)
 {
+	bar_end(false);                         /* (an engine that stopped before 100%: drawing again) */
 	log_save_if_new();
 	wdog_refresh();
 	pal_flush();
@@ -730,16 +732,20 @@ static void show_bar(const char *header, int pct)
 	odroid_overlay_draw_progress_bar(header, (uint8_t)pct);
 	lcd_swap();
 }
-/* The "copying the game to the flash" bar, with the firmware's own colours. The bar, the top
+/* The progress bars ("Preparing the game", "Copying the game to the flash"), with the
+   firmware's own colours. The bar, the top
    strip, the clock and the battery icon are drawn in CLUT slots 64..72, which the firmware fills
    with its colours (theme, white, greys, battery) only while a CLUT of 32 colours or fewer is
    loaded -- with the game's 256 they hold the game's colours, and the battery bars came out blue.
    The PAUSE menu brackets itself with lcd_overlay_clut_begin()/end(), which the ABI does not
    give a core. So while the bar is up the LCD gets a CLUT of 16 colours, all black (the frame
    buffers cleared to index 0 first, so nothing of the game shows through it), and the game's
-   256 go back when the copy ends, however it ends (copy_bar_end: plat_blob's exit, after
-   cache_pack's pieces). A palette the game sets meanwhile is kept (g_clut) and goes up then. */
-static void copy_bar_begin(void)
+   256 go back when the work ends, however it ends (bar_end: plat_blob's exit, after cache_pack's
+   pack and pieces, a preparation's 100% -- and the next frame shown, for an engine that gives up
+   before 100%). A palette the game sets meanwhile is kept (g_clut) and goes up then. The colours
+   in slots 64..72 are the launcher's theme, whichever it is (Mario, Zelda, the user's): the
+   firmware sets them from it (gui_apply_colors_to_overlay_clut). */
+static void bar_begin(void)
 {
 	if (g_bar_on) return;
 	static const uint32_t black[16];
@@ -748,7 +754,7 @@ static void copy_bar_begin(void)
 	lcd_set_clut(black, 16);
 	g_bar_on = true;
 }
-static void copy_bar_end(void)
+static void bar_end(bool redraw)
 {
 	if (!g_bar_on) return;
 	g_bar_on = false;
@@ -756,11 +762,11 @@ static void copy_bar_end(void)
 	lcd_clear_buffers();                    /* (the bar, drawn in slots the game uses) */
 	if (g_pal_dirty) pal_flush();           /* a palette set while the bar was up */
 	else lcd_set_clut(g_hw, 256);
-	plat_redraw();                          /* the game's last frame, if it had shown one */
+	if (redraw) plat_redraw();              /* the game's last frame, if it had shown one */
 }
-static void copy_bar(const char *header, int pct)
+static void bar(const char *header, int pct)
 {
-	copy_bar_begin();
+	bar_begin();
 	show_bar(header, pct);
 }
 /* (at most ~32 characters: the bar's box cuts the rest off) */
@@ -801,10 +807,8 @@ static void ui_clut(void)
 
 static void prepare_bar(int pct)
 {
-	static bool stamped;
-	if (!stamped) { ui_clut(); stamped = true; }
-	show_bar(gw_i18n(i18n_preparing), pct);
-	if (pct >= 100) { lcd_sleep_while_swap_pending(); lcd_set_clut(g_hw, 256); stamped = false; }
+	bar(gw_i18n(i18n_preparing), pct);
+	if (pct >= 100) bar_end(true);
 }
 static void pack_progress(int pct) { prepare_bar(pct); }
 const char *plat_ui_lang(void) { return gw_firmware_abi()->i18n_lang_code(); }
@@ -833,7 +837,7 @@ static const uint8_t *pack_piece(void *f, const char *name, const pack_head_t *h
 		left -= n;
 		*done += n;
 		uint8_t pct = (uint8_t)((uint64_t)*done * 100 / total);
-		if (pct != last) { copy_bar(gw_i18n(i18n_copying), pct); last = pct; }
+		if (pct != last) { bar(gw_i18n(i18n_copying), pct); last = pct; }
 	}
 	free(buf);
 	return store_data_finish(&st);
@@ -859,6 +863,7 @@ static void cache_pack(const char *name, uint32_t size)
 		logf_("ScummVM: making %s.gwpack (the resources but the sounds, for the flash)\n", name);
 		pack_progress(0);
 		if (!svm_pack_build(src, size, dst, pack_progress)) {
+			bar_end(true);
 			logf_("ScummVM: could not make %s.gwpack: its resources are read from the SD card\n", name);
 			return;
 		}
@@ -879,7 +884,7 @@ static void cache_pack(const char *name, uint32_t size)
 		if (!P->at[k]) break;
 	}
 	plat_fclose(f);
-	copy_bar_end();
+	bar_end(true);
 	if (!P->pieces || k < P->pieces) {
 		logf_("ScummVM: no room in external flash for %s.gwpack (piece %d of %d)\n", name, k + 1, P->pieces);
 		return;
@@ -923,7 +928,7 @@ const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int 
 		done += n;
 		uint8_t pct = (uint8_t)((uint64_t)done * 100 / st.size);
 		if (pct != last) {
-			copy_bar(gw_i18n(i18n_copying), pct);
+			bar(gw_i18n(i18n_copying), pct);
 			if (pct / 10 != last / 10 || last == 0xff) {      /* (to the screen of a reset too) */
 				logf_("ScummVM: copied %u%%\n", pct);
 				if (pct % 25 < 10) log_save();
@@ -939,7 +944,7 @@ const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int 
 out:
 	free(buf);
 	plat_fclose(f);
-	copy_bar_end();
+	bar_end(true);
 	if (p) *size = st.size;
 	logf_("ScummVM: %s %s external flash\n", path, p ? "copied into" : "could not be copied into");
 	return p;
