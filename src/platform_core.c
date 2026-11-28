@@ -60,6 +60,15 @@ static uint8_t g_lut[256];
    battery-bar colours stamps 9 (64..72) while the menu is up: Atlantis had 7,000 pixels in 71
    and 72, green and orange specks under the PAUSE menu. Kept clear: whichever is larger. */
 #define OV_SLOTS (LCD_OVERLAY_CLUT_MAX > 9 ? LCD_OVERLAY_CLUT_MAX : 9)
+/* The battery bars of the HUD (top strip of the PAUSE menu and of the progress bars) are two
+   fixed RGB565 colours, 0x07C0 and 0xD940, that the firmware looks up by nearest colour: in its
+   overlay slots, then in the CLUT the core loaded. In no palette, the green fell on the theme's
+   green and the icon came out empty. The two slots past the firmware's 7 (71, 72) are kept
+   clear of the game anyway, so they hold exactly those colours (r5*255/31, g6*255/63,
+   b5*255/31): found at distance 0. A firmware that stamps 9 slots puts the same there. */
+#define BAT_GREEN 0x00fa00u                     /* 0x07C0 */
+#define BAT_RED   0xde2800u                     /* 0xD940 */
+#define BAT_SLOT  (LCD_OVERLAY_CLUT_BASE + 7)   /* and BAT_SLOT + 1 */
 #define OV0 LCD_OVERLAY_CLUT_BASE
 #define OV1 (LCD_OVERLAY_CLUT_BASE + OV_SLOTS)
 static inline int in_ov(int i) { return i >= OV0 && i < OV1; }
@@ -191,6 +200,7 @@ static void build_hw_clut(void)
 			}
 		}
 	}
+	if (LCD_OVERLAY_CLUT_MAX <= 7) { g_hw[BAT_SLOT] = BAT_GREEN; g_hw[BAT_SLOT + 1] = BAT_RED; }
 	uint32_t best = ~0u;
 	for (int i = 0; i < 256; i++) {
 		if (in_ov(i)) continue;
@@ -742,7 +752,7 @@ static void show_bar(const char *header, int pct)
    with its colours (theme, white, greys, battery) only while a CLUT of 32 colours or fewer is
    loaded -- with the game's 256 they hold the game's colours, and the battery bars came out blue.
    The PAUSE menu brackets itself with lcd_overlay_clut_begin()/end(), which the ABI does not
-   give a core. So while the bar is up the LCD gets a CLUT of 16 colours, all black (the frame
+   give a core. So while the bar is up the LCD gets a CLUT of 16 colours, black but for the battery bars' two (the frame
    buffers cleared to index 0 first, so nothing of the game shows through it), and the game's
    256 go back when the work ends, however it ends (bar_end: plat_blob's exit, after cache_pack's
    pack and pieces, a preparation's 100% -- and the next frame shown, for an engine that gives up
@@ -752,7 +762,7 @@ static void show_bar(const char *header, int pct)
 static void bar_begin(void)
 {
 	if (g_bar_on) return;
-	static const uint32_t black[16];
+	static const uint32_t black[16] = { 0, BAT_GREEN, BAT_RED };   /* (+ the battery bars' colours) */
 	lcd_sleep_while_swap_pending();
 	lcd_clear_buffers();
 	lcd_set_clut(black, 16);
