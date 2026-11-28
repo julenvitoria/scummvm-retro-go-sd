@@ -251,7 +251,8 @@ static void diag_save(void)
 #endif
 
 static bool g_pal_dirty;
-static bool g_bar_on;                   /* a progress bar is up: see bar() */
+static bool g_bar_on;                   /* a progress bar is up: see bar_begin() */
+static bool g_prep_on;                  /* the "Preparing the game" bar: see prepare_bar() */
 #ifdef SVM_DIAG_CLUT
 static int g_diag_start, g_diag_count;
 #endif
@@ -665,6 +666,33 @@ bool plat_list_dir(const char *path, void (*cb)(const char *, bool, uint32_t, vo
 }
 
 bool plat_mkdir(const char *path) { wdog_refresh(); return rg_storage_mkdir(path); }
+/* The files being written (a pack, a game's unpacked files), so a preparation cancelled with B
+   can close and delete the one it was making: a file left open would leave its clusters lost on
+   the card, and a half-made one is not kept either (each maker writes its header or its "done"
+   mark last, so one would be made again anyway -- deleting it just gives the room back). */
+#define MAX_WR 4
+static struct { FILE *f; char path[256]; } g_wr[MAX_WR];
+static void wr_track(FILE *f, const char *path)
+{
+	for (int i = 0; i < MAX_WR; i++)
+		if (!g_wr[i].f && strlen(path) < sizeof g_wr[i].path) { g_wr[i].f = f; strcpy(g_wr[i].path, path); return; }
+}
+static void wr_untrack(FILE *f)
+{
+	for (int i = 0; i < MAX_WR; i++)
+		if (g_wr[i].f == f) g_wr[i].f = NULL;
+}
+static void wr_drop_all(void)
+{
+	for (int i = 0; i < MAX_WR; i++)
+		if (g_wr[i].f) {
+			fclose(g_wr[i].f);
+			g_wr[i].f = NULL;
+			int r = remove(g_wr[i].path);
+			logf_("ScummVM: %s, half made: %s\n", g_wr[i].path, r == 0 ? "deleted" : "could not delete it");
+		}
+}
+
 void *plat_fopen(const char *path, const char *mode)
 {
 	wdog_refresh();
@@ -673,10 +701,16 @@ void *plat_fopen(const char *path, const char *mode)
 #endif
 	FILE *f = fopen(path, mode);
 	if (!f && mode[0] == 'r') logf_("ScummVM: cannot open %s\n", path);
+	if (f && mode[0] == 'w') wr_track(f, path);
 	return f;
 }
 uint32_t plat_fread(void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fread(buf, 1, n, (FILE *)f); }
-uint32_t plat_fwrite(const void *buf, uint32_t n, void *f) { wdog_refresh(); return (uint32_t)fwrite(buf, 1, n, (FILE *)f); }
+uint32_t plat_fwrite(const void *buf, uint32_t n, void *f)
+{
+	wdog_refresh();
+	if (g_prep_on) odroid_overlay_progress_poll_cancel();   /* (B latched between the bar's steps) */
+	return (uint32_t)fwrite(buf, 1, n, (FILE *)f);
+}
 /* A seek far into a big file walks its cluster chain link by link (FatFs, no fast seek): to
    300 MB into Freddy Pharkas's 600 MB RESOURCE.AUD that outlasted the watchdog. So it goes in
    steps, forward from where the file is (FatFs then walks on from there), fed between them. */
@@ -696,7 +730,7 @@ bool plat_fseek(void *f, int32_t off, int whence)
 	return fseek((FILE *)f, off, whence) == 0;
 }
 int32_t plat_ftell(void *f) { return (int32_t)ftell((FILE *)f); }
-void plat_fclose(void *f) { wdog_refresh(); fclose((FILE *)f); wdog_refresh(); }
+void plat_fclose(void *f) { wdog_refresh(); wr_untrack((FILE *)f); fclose((FILE *)f); wdog_refresh(); }
 
 /* The game's files, cached in external flash before ScummVM starts (the firmware unmaps the
    flash while it writes it, and most of ScummVM runs from there). */
@@ -749,15 +783,6 @@ static struct {
 } g_pack[MAX_PACKS];
 static int g_packs;
 
-/* a progress bar: drawn into the frame buffer and shown (lcd_swap), as the firmware's own
-   "caching" bar does -- without the swap nothing was seen, and a minutes-long copy looked
-   like a hang with the previous bar full on screen */
-static void show_bar(const char *header, int pct)
-{
-	if (lcd_is_swap_pending()) return;
-	odroid_overlay_draw_progress_bar(header, (uint8_t)pct);
-	lcd_swap();
-}
 /* The progress bars ("Preparing the game", "Copying the game to the flash"), with the
    firmware's own colours. The bar, the top
    strip, the clock and the battery icon are drawn in CLUT slots 64..72, which the firmware fills
@@ -781,6 +806,7 @@ static void bar_begin(void)
 }
 static void bar_end(bool redraw)
 {
+	g_prep_on = false;
 	if (!g_bar_on) return;
 	g_bar_on = false;
 	lcd_sleep_while_swap_pending();
@@ -788,11 +814,6 @@ static void bar_end(bool redraw)
 	if (g_pal_dirty) pal_flush();           /* a palette set while the bar was up */
 	else lcd_set_clut(g_pal_seen ? g_hw : g_small_clut, g_pal_seen ? 256 : 16);
 	if (redraw) plat_redraw();              /* the game's last frame, if it had shown one */
-}
-static void bar(const char *header, int pct)
-{
-	bar_begin();
-	show_bar(header, pct);
 }
 /* (at most ~32 characters: the bar's box cuts the rest off) */
 static const gw_i18n_entry_t i18n_preparing[] = {
@@ -854,9 +875,31 @@ static void ui_clut(void)
 	lcd_set_clut(clut, 256);
 }
 
+/* "Preparing the game (first time)" -- a .gwpack, sci.gwpack, neverhood.gwp, Drascula's gwx/ --
+   can be cancelled with B as the copy to the flash is: the same cancellable bar (drawn at 0 first,
+   which resets its B latch), B also latched at every write (plat_fwrite). Cancelled: the file being
+   made is closed and deleted (wr_drop_all) and the core goes back to the menu; the next launch
+   makes it again from the start (a half-made one is never taken: each is checked by its header or
+   a mark written last). */
+static void prepare_cancelled(void)
+{
+	logf_("ScummVM: preparing the game cancelled (B): back to the menu (made again next time)\n");
+	wr_drop_all();
+	plat_quit();
+}
 static void prepare_bar(int pct)
 {
-	bar(gw_i18n(i18n_preparing), pct);
+	bool first = !g_prep_on || !g_bar_on;
+	bar_begin();
+	g_prep_on = true;
+	if (first) lcd_sleep_while_swap_pending();
+	bool go;
+	if (!first && lcd_is_swap_pending()) go = !odroid_overlay_progress_poll_cancel();
+	else {
+		go = odroid_overlay_draw_progress_bar_cancellable(gw_i18n(i18n_preparing), (uint8_t)(first ? 0 : pct));
+		lcd_swap();
+	}
+	if (!go) prepare_cancelled();
 	if (pct >= 100) bar_end(true);
 }
 static void pack_progress(int pct) { prepare_bar(pct); }
