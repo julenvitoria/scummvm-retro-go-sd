@@ -69,6 +69,13 @@ static uint8_t g_lut[256];
 #define BAT_GREEN 0x00fa00u                     /* 0x07C0 */
 #define BAT_RED   0xde2800u                     /* 0xD940 */
 #define BAT_SLOT  (LCD_OVERLAY_CLUT_BASE + 7)   /* and BAT_SLOT + 1 */
+/* The CLUT while no game palette is up -- from the start until the game sets its first, and
+   while a progress bar is: 16 colours, black but for the battery bars' two. With 32 or fewer
+   the firmware keeps its own colours in its overlay slots for good, so whatever it draws
+   meanwhile (its "Storing in flash memory..." bar as the game's files go into the flash, our
+   own bars) has the theme's colours and full battery bars. */
+static const uint32_t g_small_clut[16] = { 0, BAT_GREEN, BAT_RED };
+static bool g_pal_seen;                         /* the game has set a palette: g_hw is it */
 #define OV0 LCD_OVERLAY_CLUT_BASE
 #define OV1 (LCD_OVERLAY_CLUT_BASE + OV_SLOTS)
 static inline int in_ov(int i) { return i >= OV0 && i < OV1; }
@@ -268,6 +275,7 @@ static void pal_flush(void)
 {
 	if (!g_pal_dirty || g_bar_on) return;   /* (while the copy bar is up: when it goes) */
 	g_pal_dirty = false;
+	g_pal_seen = true;
 	build_hw_clut();
 	/* The firmware keeps the table until the next lcd_swap()'s vertical blank and writes it
 	   there, with the frame that swap brings -- the frame drawn for it, through the new
@@ -505,7 +513,8 @@ uint32_t plat_buttons(void)
 	uint32_t t0 = HAL_GetTick();
 	common_emu_input_loop(&js, menu_options, &repaint);  /* PAUSE/SET menu, power, volume... */
 	bool away = HAL_GetTick() - t0 > 250;
-	if ((menu || away) && !g_bar_on) lcd_set_clut(g_hw, 256);   /* the menu used part of the CLUT */
+	if ((menu || away) && !g_bar_on)                            /* the menu used part of the CLUT */
+		lcd_set_clut(g_pal_seen ? g_hw : g_small_clut, g_pal_seen ? 256 : 16);
 	if (away) {
 		gw_card_files_drop();
 		if (g_audio_on) pcm_audio_enable(1);
@@ -762,10 +771,9 @@ static void show_bar(const char *header, int pct)
 static void bar_begin(void)
 {
 	if (g_bar_on) return;
-	static const uint32_t black[16] = { 0, BAT_GREEN, BAT_RED };   /* (+ the battery bars' colours) */
 	lcd_sleep_while_swap_pending();
 	lcd_clear_buffers();
-	lcd_set_clut(black, 16);
+	lcd_set_clut(g_small_clut, 16);
 	g_bar_on = true;
 }
 static void bar_end(bool redraw)
@@ -775,7 +783,7 @@ static void bar_end(bool redraw)
 	lcd_sleep_while_swap_pending();
 	lcd_clear_buffers();                    /* (the bar, drawn in slots the game uses) */
 	if (g_pal_dirty) pal_flush();           /* a palette set while the bar was up */
-	else lcd_set_clut(g_hw, 256);
+	else lcd_set_clut(g_pal_seen ? g_hw : g_small_clut, g_pal_seen ? 256 : 16);
 	if (redraw) plat_redraw();              /* the game's last frame, if it had shown one */
 }
 static void bar(const char *header, int pct)
@@ -1559,6 +1567,7 @@ int svm_main(void)
 	common_emu_state.frame_time_10us = 0;      /* see frame_tick: count frames, never pace them */
 	lcd_setup_framebuffers(LCD_MODE_LUT8);
 	lcd_clear_buffers();
+	lcd_set_clut(g_small_clut, 16);            /* (until the game sets a palette: see g_small_clut) */
 
 	if (svm_boot_error) {
 		static const char *why[] = { "", "Core .bin not found in /cores", "Not enough RAM to start",
