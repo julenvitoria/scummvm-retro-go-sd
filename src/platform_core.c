@@ -1597,8 +1597,10 @@ void svm_fatal_exit(int code)
 	for (;;) {}
 }
 
+static bool g_quitting;                  /* plat_quit: the firmware's way out is not "through PAUSE/SET" */
 void plat_quit(void)
 {
+	g_quitting = true;
 	audio_stop();
 	if (g_game[0]) log_save();
 	odroid_system_switch_app(0);
@@ -1615,7 +1617,7 @@ static void rg_shutdown(void)
 {
 	audio_stop();
 	gw_card_files_drop();
-	if (g_game[0]) {
+	if (g_game[0] && !g_quitting) {
 		plat_log("ScummVM: leaving through the firmware (PAUSE/SET quit, or standby)\n");
 		log_save();
 	}
