@@ -33,6 +33,12 @@ extern void (*__svm_init_array_start[])(void), (*__svm_init_array_end[])(void);
 /* firmware, via the bridge (objcopy --redefine-syms on this object) */
 uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p, bool byte_swap,
                                                      void (*cb)(uint8_t *, uint32_t, uint32_t, uint8_t *, uint32_t));
+/* the same with "B: Cancel" under the bar (ABI v2; on older firmware, the one above): NULL and
+   odroid_overlay_progress_poll_cancel() true when B was pressed */
+uint8_t *odroid_overlay_cache_file_in_flash_relocate_cancellable(const char *file_path, uint32_t *file_size_p,
+                                                                 bool byte_swap,
+                                                                 void (*cb)(uint8_t *, uint32_t, uint32_t, uint8_t *, uint32_t));
+bool odroid_overlay_progress_poll_cancel(void);
 void odroid_system_switch_app(int app);
 void wdog_refresh(void);
 uint32_t ram_get_free_size(void);
@@ -151,7 +157,8 @@ int svm_boot(void)
 	    !read_range(ram_bits, g_foot.ram_relocs_offset, ram_bytes)) { svm_boot_error = 3; return svm_main(); }
 
 	uint32_t size = 0;
-	uint8_t *file = odroid_overlay_cache_file_in_flash_relocate(svm_core_path, &size, false, relocate_cb);
+	uint8_t *file = odroid_overlay_cache_file_in_flash_relocate_cancellable(svm_core_path, &size, false, relocate_cb);
+	if (!file && odroid_overlay_progress_poll_cancel()) odroid_system_switch_app(0);   /* B: back to the menu */
 	if (!file || size < g_foot.xip_offset + g_foot.xip_size) { svm_boot_error = 4; return svm_main(); }
 	g_delta = (uint32_t)file + g_foot.xip_offset - g_foot.xip_vma;
 	svm_xip_delta = g_delta;

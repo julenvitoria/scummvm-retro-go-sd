@@ -36,6 +36,12 @@ extern uint8_t __RAM_EMU_START__[], __RAM_EMU_END__[];
 
 uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p, bool byte_swap,
                                                      void (*cb)(uint8_t *, uint32_t, uint32_t, uint8_t *, uint32_t));
+/* the same with "B: Cancel" under the bar (ABI v2; on older firmware, the one above): NULL and
+   odroid_overlay_progress_poll_cancel() true when B was pressed */
+uint8_t *odroid_overlay_cache_file_in_flash_relocate_cancellable(const char *file_path, uint32_t *file_size_p,
+                                                                 bool byte_swap,
+                                                                 void (*cb)(uint8_t *, uint32_t, uint32_t, uint8_t *, uint32_t));
+bool odroid_overlay_progress_poll_cancel(void);
 
 #define GAMES_DIR "/scummvm"
 #define RESERVE   (16 * 1024)             /* RAM_EMU's top, the firmware's ram_malloc() (platform_core.c) */
@@ -353,7 +359,8 @@ int app_main_scummvm(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 	    !read_range(ram_bits, g_foot.ram_relocs_offset, ram_bytes)) fail("Cannot read the engine file:");
 
 	uint32_t size = 0;
-	uint8_t *file = odroid_overlay_cache_file_in_flash_relocate(g_path, &size, false, relocate_cb);
+	uint8_t *file = odroid_overlay_cache_file_in_flash_relocate_cancellable(g_path, &size, false, relocate_cb);
+	if (!file && odroid_overlay_progress_poll_cancel()) odroid_system_switch_app(0);   /* B: back to the menu */
 	if (!file || size < g_foot.xip_offset + g_foot.xip_size) fail(gw_i18n(t_flash));
 	uint32_t delta = (uint32_t)file + g_foot.xip_offset - g_foot.xip_vma;
 

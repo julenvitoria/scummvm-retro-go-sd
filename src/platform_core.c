@@ -711,6 +711,9 @@ static bool g_sci;                       /* an SCI game: none of its files cache
    v4-v6 data files go in decrypted, so their resources can be used where they lie. */
 uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p, bool byte_swap,
                                                      void (*relocate_cb)(uint8_t *, uint32_t, uint32_t, uint8_t *, uint32_t));
+uint8_t *odroid_overlay_cache_file_in_flash_relocate_cancellable(const char *file_path, uint32_t *file_size_p,
+                                                                 bool byte_swap,
+                                                                 void (*relocate_cb)(uint8_t *, uint32_t, uint32_t, uint8_t *, uint32_t));
 static uint8_t g_decrypting, g_fixed_key;           /* g_fixed_key: svm_fixed_key() of the file going in */
 static void decrypt_chunk(uint8_t *buf, uint32_t len, uint32_t offset, uint8_t *addr, uint32_t size)
 {
@@ -800,6 +803,30 @@ static const gw_i18n_entry_t i18n_copying[] = {
 	{ "en", "Copying the game to the flash..." }, { "es", "Copiando el juego a la flash..." },
 	{ "fr", "Copie du jeu dans la flash..." }, { "de", "Spiel wird in Flash kopiert..." },
 	{ "it", "Copia del gioco nella flash..." }, { "pt", "A copiar o jogo para a flash..." }, GW_I18N_END };
+/* The copy to the flash can be cancelled with B, like the launcher's own ROM caching: the
+   firmware's cancellable bar ("B: Cancel" under it) and its B latch, polled at every 16 KB so
+   a short tap is not missed. The latch is reset by a bar drawn at 0%, so the first bar of a
+   copy is always drawn, at 0. Cancelled: the piece is dropped (store_data_abort) and the core
+   goes back to the menu (copy_cancelled) -- the game cannot start half copied (SCI needs its
+   pack in the flash), and the next launch offers the copy again. Returns false once B is down. */
+static bool g_copy_cancel;
+static bool copy_bar(int pct)
+{
+	bool first = !g_bar_on;
+	bar_begin();
+	if (first) lcd_sleep_while_swap_pending();
+	if (!first && lcd_is_swap_pending()) return !odroid_overlay_progress_poll_cancel();
+	bool go = odroid_overlay_draw_progress_bar_cancellable(gw_i18n(i18n_copying), (uint8_t)(first ? 0 : pct));
+	lcd_swap();
+	return go;
+}
+static bool copy_go(void) { return !odroid_overlay_progress_poll_cancel(); }
+void plat_quit(void);
+static void copy_cancelled(void)
+{
+	logf_("ScummVM: copy to the flash cancelled (B): back to the menu\n");
+	plat_quit();
+}
 /* The bar is drawn in the overlay's CLUT slots, which hold the GAME's colours once it has set
    its palette: Drascula unpacking its archives with a black palette showed nothing but black
    for minutes. The firmware's overlay colours are stamped in while the bar is up. */
@@ -859,7 +886,9 @@ static const uint8_t *pack_piece(void *f, const char *name, const pack_head_t *h
 		left -= n;
 		*done += n;
 		uint8_t pct = (uint8_t)((uint64_t)*done * 100 / total);
-		if (pct != last) { bar(gw_i18n(i18n_copying), pct); last = pct; }
+		bool go = pct != last ? copy_bar(pct) : copy_go();
+		last = pct;
+		if (!go) { store_data_abort(&st); free(buf); g_copy_cancel = true; return NULL; }
 	}
 	free(buf);
 	return store_data_finish(&st);
@@ -906,6 +935,7 @@ static void cache_pack(const char *name, uint32_t size)
 		if (!P->at[k]) break;
 	}
 	plat_fclose(f);
+	if (g_copy_cancel) copy_cancelled();
 	bar_end(true);
 	if (!P->pieces || k < P->pieces) {
 		logf_("ScummVM: no room in external flash for %s.gwpack (piece %d of %d)\n", name, k + 1, P->pieces);
@@ -949,13 +979,20 @@ const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int 
 		left -= n;
 		done += n;
 		uint8_t pct = (uint8_t)((uint64_t)done * 100 / st.size);
+		bool go;
 		if (pct != last) {
-			bar(gw_i18n(i18n_copying), pct);
+			go = copy_bar(pct);
 			if (pct / 10 != last / 10 || last == 0xff) {      /* (to the screen of a reset too) */
 				logf_("ScummVM: copied %u%%\n", pct);
 				if (pct % 25 < 10) log_save();
 			}
 			last = pct;
+		} else go = copy_go();
+		if (!go) {
+			store_data_abort(&fs);
+			p = NULL;
+			g_copy_cancel = true;
+			goto out;
 		}
 	}
 	logf_("ScummVM: copy written, closing it\n");
@@ -966,6 +1003,7 @@ const uint8_t *plat_blob(const char *key, const char *path, uint32_t *size, int 
 out:
 	free(buf);
 	plat_fclose(f);
+	if (g_copy_cancel) copy_cancelled();
 	bar_end(true);
 	if (p) *size = st.size;
 	logf_("ScummVM: %s %s external flash\n", path, p ? "copied into" : "could not be copied into");
@@ -1058,9 +1096,11 @@ static void cache_rel(const char *name, uint32_t size)
 	g_fixed_key = svm_fixed_key(name);
 	if (g_fixed_key) snprintf(path, sizeof path, "%s///%s", g_game, name);
 	uint32_t got = 0;
-	uint8_t *p = odroid_overlay_cache_file_in_flash_relocate(path, &got, false, decrypt_chunk);
+	/* (the firmware's bar, "Storing in flash memory...", with "B: Cancel": B goes back to the menu) */
+	uint8_t *p = odroid_overlay_cache_file_in_flash_relocate_cancellable(path, &got, false, decrypt_chunk);
 	uint8_t fixed = g_fixed_key;
 	g_fixed_key = 0;
+	if (!p && odroid_overlay_progress_poll_cancel()) copy_cancelled();
 	if (!p) return;                          /* no room: read from the SD card */
 	g_map[g_mapped].fixed = fixed;
 	strcpy(g_map[g_mapped].name, name);
