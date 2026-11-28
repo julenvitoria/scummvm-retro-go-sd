@@ -797,9 +797,9 @@ static const gw_i18n_entry_t i18n_preparing[] = {
 	{ "fr", "Préparation du jeu (1re fois)" }, { "de", "Spiel vorbereiten (nur 1. Mal)" },
 	{ "it", "Preparazione gioco (1a volta)" }, { "pt", "A preparar jogo (só 1 vez)" }, GW_I18N_END };
 static const gw_i18n_entry_t i18n_copying[] = {
-	{ "en", "Copying the game to the flash" }, { "es", "Copiando el juego a la flash" },
-	{ "fr", "Copie du jeu dans la flash" }, { "de", "Spiel wird in den Flash kopiert" },
-	{ "it", "Copia del gioco nella flash" }, { "pt", "A copiar o jogo para a flash" }, GW_I18N_END };
+	{ "en", "Copying the game to the flash..." }, { "es", "Copiando el juego a la flash..." },
+	{ "fr", "Copie du jeu dans la flash..." }, { "de", "Spiel wird in Flash kopiert..." },
+	{ "it", "Copia del gioco nella flash..." }, { "pt", "A copiar o jogo para a flash..." }, GW_I18N_END };
 /* The bar is drawn in the overlay's CLUT slots, which hold the GAME's colours once it has set
    its palette: Drascula unpacking its archives with a black palette showed nothing but black
    for minutes. The firmware's overlay colours are stamped in while the bar is up. */
